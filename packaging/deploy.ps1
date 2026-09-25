@@ -1,4 +1,4 @@
-# 
+#
 #  GlyphPDF - Canonical deployment script (PowerShell)
 #
 #  Produces a complete, self-contained deploy/ directory ready for MSI
@@ -6,24 +6,58 @@
 #  automatic dependency closure computed via objdump, so new dependencies can
 #  never be silently missing from the installer.
 #
+#  INF02: the build directory is passed in by the caller (build-msi.ps1
+#  supplies its dedicated build-rel); the standalone default remains build/
+#  so existing direct invocations keep working.
+#
 #  Usage:  powershell -ExecutionPolicy Bypass -File packaging\deploy.ps1
-# 
+#          [-BuildDir <path>]   build directory to deploy (default: <root>\build)
+#
+#  G16 (QUALITY-GATE-2026-09-09): the old signature was a single
+#  -BuildDirName ('build') joined to the project root. build-msi.ps1 passed an
+#  ABSOLUTE -BuildDir, which PowerShell bound to -BuildDirName by prefix match
+#  and Join-Path then produced "C:\repo\C:\repo\build-rel" — deploy stopped at
+#  its first read-only validation. The script now accepts an actual -BuildDir
+#  PATH: rooted values are used as-is, relative values are joined to the
+#  project root; -BuildDirName remains as a legacy alias (bare names only).
+#
+param(
+    [string]$BuildDir = '',
+    [string]$BuildDirName = ''
+)
 $ErrorActionPreference = 'Stop'
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$BuildDir    = Join-Path $ProjectRoot 'build'
+
+#  G16: resolve the build directory — distinguish rooted paths from relative
+#  values instead of blindly joining every value to the project root.
+if ($BuildDir) {
+    if ([System.IO.Path]::IsPathRooted($BuildDir)) {
+        $BuildDirPath = $BuildDir
+    } else {
+        $BuildDirPath = Join-Path $ProjectRoot $BuildDir
+    }
+    if ($BuildDirName -and $BuildDirName -ne 'build') {
+        throw "Pass either -BuildDir <path> or -BuildDirName <name>, not both (got '$BuildDir' and '$BuildDirName')."
+    }
+} elseif ($BuildDirName) {
+    $BuildDirPath = Join-Path $ProjectRoot $BuildDirName
+} else {
+    $BuildDirPath = Join-Path $ProjectRoot 'build'
+}
+$BuildDir    = $BuildDirPath
 $DeployDir   = Join-Path $ProjectRoot 'deploy'
 $PackDir     = $PSScriptRoot
 $Msys2Bin    = 'C:\msys64\ucrt64\bin'
 
 Write-Host '========================================'
-Write-Host ' GlyphPDF deploy pipeline'
+Write-Host " GlyphPDF deploy pipeline (build dir: $BuildDir)"
 Write-Host '========================================'
 
-#  1. Validate inputs 
+#  1. Validate inputs
 $exeSrc = Join-Path $BuildDir 'PdfWorkstation.exe'
 if (-not (Test-Path $exeSrc)) {
-    throw "PdfWorkstation.exe not found in $BuildDir - run cmake --build build first."
+    throw "PdfWorkstation.exe not found in $BuildDir - run the release build first."
 }
 if (-not (Test-Path (Join-Path $Msys2Bin 'objdump.exe'))) {
     throw "objdump.exe not found in $Msys2Bin - MSYS2 ucrt64 toolchain required."

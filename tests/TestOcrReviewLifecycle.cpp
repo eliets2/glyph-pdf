@@ -1,0 +1,980 @@
+// SPDX-License-Identifier: Apache-2.0
+// R07 regression tests: complete the OCR lifecycle on every exit.
+//
+// Evidence F11: Run was disabled before dispatch and only success restored it —
+// missing files/models/languages and worker errors left the OCR review panel
+// stuck with Run/Accept/Reject disabled. Accept also disabled the review
+// controls before the save dialog, so save cancellation left them stuck too.
+//
+// These tests drive ONE OCRMode panel instance through every terminal outcome
+// and assert both the explicit state and the user-visible controls.
+//
+// R08 regression tests (F04): reviewed OCR words are authoritative.
+// The editable pane used to be populated but never read back, so Accept
+// exported the cached ORIGINAL words; the displayed page could also differ
+// from the cached page being saved. These tests cover the review session
+// (identity/revision/page/image), word-based correction with stable IDs,
+// deleted words, Unicode, similar words on two pages, source-change
+// rejection, save cancellation, and verify the saved text layer by
+// extracting it through PDFium (PdfiumBackend::extractText).
+#include <QtTest>
+#include <QLabel>
+#include <QLineEdit>
+#include <QTemporaryDir>
+#include <QToolButton>
+
+#include "docmodel/SemanticDocument.h"
+#include "engines/ocr/OcrDjotMapper.h"
+#include "modes/OCRMode.h"
+#include "modes/OcrReviewSession.h"
+#include "shell/controllers/EditController.h"
+#include "engines/DocumentSession.h"
+#include "engines/ocr/OcrPipeline.h"
+#include "engines/PdfEditorEngine.h"
+#include "engines/pdfium/PdfiumBackend.h"
+
+using gp::OCRMode;
+using gp::EditController;
+using gp::OcrReviewedWord;
+using gp::OcrReviewSession;
+
+namespace {
+
+QList<MergedOcrWord> makeWords()
+{
+    MergedOcrWord a;
+    a.text = QStringLiteral("invoice");
+    a.boundingBox = QRectF(10, 10, 60, 14);
+    a.confidence = 92;
+    a.sourceEngine = QStringLiteral("Tesseract");
+    MergedOcrWord b;
+    b.text = QStringLiteral("total");
+    b.boundingBox = QRectF(10, 40, 40, 14);
+    b.confidence = 55;
+    b.sourceEngine = QStringLiteral("ROVER");
+    return { a, b };
+}
+
+QImage makeScanPage(int w = 400, int h = 300)
+{
+    QImage img(w, h, QImage::Format_RGB32);
+    img.fill(QColor(245, 245, 240));
+    return img;
+}
+
+// A minimal review session as EditController would cache it after a run:
+// source identity + revision + the page image the words belong to.
+// V05: sourceRevision is the DocumentSession mutation revision captured with
+// the page snapshot (7 here — any non-negative value the seams can compare).
+OcrReviewSession makeSession(int page, const QStringList& texts,
+                             const QString& path = QStringLiteral("C:/scans/inv.pdf"))
+{
+    OcrReviewSession s;
+    s.generation = 1;
+    s.sourcePath = path;
+    s.sourcePage = page;
+    s.sourcePageCount = 3;
+    s.sourceRevision = 7;
+    s.pageImage = makeScanPage();
+    int id = 0;
+    for (const QString& t : texts) {
+        OcrReviewedWord w;
+        w.stableId = id;
+        w.originalText = t;
+        w.reviewedText = t;
+        w.deleted = false;
+        w.boundingBox = QRectF(20 + 10 * id, 30 + 18 * id, 60, 14);
+        w.confidence = 90;
+        w.sourceEngine = QStringLiteral("Tesseract");
+        s.words.append(w);
+        ++id;
+    }
+    return s;
+}
+
+bool extractContains(const QString& pdfPath, int page, const QString& needle)
+{
+    PdfiumBackend pdfium;
+    if (!pdfium.loadDocument(pdfPath)) return false;
+    if (page >= pdfium.pageCount()) return false;
+    return pdfium.extractText(page).contains(needle);
+}
+
+// The panel's reviewed records mirror the delivered words 1:1 (same count, same
+// stable ids) — this helper simulates a panel that reviewed an OLDER delivery.
+QList<OcrReviewedWord> panelRecordsFor(const OcrReviewSession& s)
+{
+    return s.words;
+}
+
+QToolButton* runButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnRun"));
+}
+QToolButton* acceptButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnAccept"));
+}
+QToolButton* rejectButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnReject"));
+}
+// U03: uncertain-word navigation buttons follow the SAME lifecycle discipline
+// as Accept/Reject (enabled only in ReviewReady with something to review).
+QToolButton* nextUncertainButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnNextUncertain"));
+}
+QToolButton* prevUncertainButton(const OCRMode& panel)
+{
+    return panel.findChild<QToolButton*>(QStringLiteral("ocrBtnPrevUncertain"));
+}
+
+} // namespace
+
+class TestOcrReviewLifecycle : public QObject
+{
+    Q_OBJECT
+
+private slots:
+
+    // ── Baseline: a fresh panel is idle with only Run available ──────────────
+    void freshPanelIsIdleWithRunEnabled()
+    {
+        OCRMode panel;
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Idle);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── Running state disables everything until a completion arrives ─────────
+    void runningDisablesControlsUntilCompletion()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Running);
+        QVERIFY(!runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── F5-F1 (SWEEP-W3 UX): the lifecycle message is VISIBLE, not dead ──────
+    // m_lastLifecycleMessage used to be recorded-only: cold engine init left
+    // the user staring at a bare Run button with just a status-bar transient,
+    // and failures/completions never surfaced on the screen itself.
+    void lifecycleMessageDisplayedLive()
+    {
+        OCRMode panel;
+        panel.show();  // offscreen platform: makes isVisible() meaningful
+        QLabel *lbl = panel.findChild<QLabel *>(QStringLiteral("ocrLifecycleLabel"));
+        QVERIFY2(lbl,
+                 "F5-F1: the OCR screen must carry a visible lifecycle message "
+                 "surface (ocrLifecycleLabel)");
+        QVERIFY(!lbl->isVisible());   // Idle: nothing to disclose yet
+
+        // The cold-init moment: a run starts, the screen itself says what is
+        // happening (this used to be the minutes-long silent wait).
+        panel.onRunOcr();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Running);
+        QVERIFY2(lbl->isVisible(),
+                 "F5-F1: a run start must surface the lifecycle state on-screen");
+        QVERIFY2(lbl->text().contains(QStringLiteral("initializing"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("F5-F1: the run-start disclosure must "
+                              "name the engine initialization (got: '%1')")
+                                .arg(lbl->text())));
+
+        // A failure completion replaces the run message on the same surface.
+        panel.notifyOcrFailed(
+            QStringLiteral("OCR failed: Tesseract language data for 'DEU' is unavailable."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(lbl->isVisible());
+        QVERIFY2(lbl->text().contains(QStringLiteral("DEU")),
+                 "F5-F1: failure disclosures must be visible on the OCR screen, "
+                 "not only a transient status-bar message");
+
+        // Success clears the surface (nothing to disclose in ReviewReady).
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY2(!lbl->isVisible(),
+                 "F5-F1: the lifecycle surface must clear once results are "
+                 "under review");
+    }
+
+    // ── Missing language/model data fails the run, retry succeeds (same panel)
+    void missingLanguageThenRetrySucceeds()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        // EditController reports the missing-data failure (language data, ONNX
+        // models) instead of dying silently with Run disabled.
+        panel.notifyOcrFailed(
+            QStringLiteral("OCR failed: Tesseract language data for 'DEU' is unavailable."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(runButton(panel)->isEnabled());          // retry is possible
+        QCOMPARE(runButton(panel)->text(), QStringLiteral("Run OCR"));
+        QVERIFY(!acceptButton(panel)->isEnabled());      // nothing to review
+        QVERIFY(!rejectButton(panel)->isEnabled());
+        QVERIFY(panel.lastLifecycleMessage().contains(QStringLiteral("DEU")));
+
+        // Retry succeeds on the same panel instance.
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(rejectButton(panel)->isEnabled());
+    }
+
+    // ── No document: dispatch is blocked and the panel is told why ───────────
+    void noDocumentBlocksDispatchWithRecovery()
+    {
+        // Pure seam: empty path / negative page block dispatch with a message.
+        QString blocker = EditController::ocrDispatchBlocker(QString(), -1);
+        QVERIFY(!blocker.isEmpty());
+        QVERIFY(EditController::ocrDispatchBlocker(QStringLiteral("doc.pdf"), 0).isEmpty());
+
+        // The panel recovers to a retryable state when the blocker is reported.
+        OCRMode panel;
+        panel.onRunOcr();
+        panel.notifyOcrFailed(blocker);
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+    }
+
+    // ── ARC07 residual: read-only accept export refuses in-place, keeps Save-As
+    void ocrAcceptWriteBlockerPins()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString src = dir.filePath("ro-source.pdf");
+        QFile f(src);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("%PDF-1.4\n%\xe2\xe3\xcf\xd3\n");
+        f.close();
+
+        // Read-only + the document itself (exact and case-alias): refused with
+        // the read-only wording and the Save-As guidance.
+        const QString blocker =
+            EditController::ocrAcceptWriteBlocker(true, src, src);
+        QVERIFY2(!blocker.isEmpty(), "in-place write on a read-only doc must be refused");
+        QVERIFY2(blocker.contains("read-only"), "refusal must carry the read-only reason");
+
+        const QString alias = dir.filePath("RO-SOURCE.PDF");
+        // R22 (2026-09-14): the case-alias refusal is a CASE-INSENSITIVE
+        // filesystem contract. On Windows the alias's canonicalFilePath()
+        // resolves to the existing ro-source.pdf so the blocker fires; on a
+        // case-sensitive filesystem it stays empty and RO-SOURCE.PDF is a
+        // genuinely different file — no refusal is the correct answer there
+        // (the Save-As route stays open). Pin the honest behaviour for BOTH
+        // filesystem semantics instead of assuming NTFS.
+        if (!QFileInfo(alias).canonicalFilePath().isEmpty()) {
+            QVERIFY(!EditController::ocrAcceptWriteBlocker(true, src, alias).isEmpty());
+        } else {
+            QVERIFY(EditController::ocrAcceptWriteBlocker(true, src, alias).isEmpty());
+        }
+
+        // Read-only + a DIFFERENT destination: the Save-As route stays open.
+        QVERIFY(EditController::ocrAcceptWriteBlocker(
+                    true, src, dir.filePath("searchable-copy.pdf")).isEmpty());
+
+        // Not read-only + same path: allowed (the normal accept flow).
+        QVERIFY(EditController::ocrAcceptWriteBlocker(false, src, src).isEmpty());
+
+        // Empty paths never produce a false refusal.
+        QVERIFY(EditController::ocrAcceptWriteBlocker(true, QString(), QString()).isEmpty());
+    }
+
+    // ── Not read-only: the retryable panel keeps its Run enabled ─────────────
+    void retryablePanelKeepsRunEnabled()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        panel.notifyOcrFailed(EditController::ocrDispatchBlocker(QString(), -1));
+        panel.notifyOcrFailed(QStringLiteral("boom"));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+    }
+
+    // ── Empty recognition completes: idle, retryable, nothing to review ──────
+    void emptyRecognitionCompletesWithoutReview()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        panel.setOcrResults({});
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Idle);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── Worker error: recoverable, Run restored ──────────────────────────────
+    void workerErrorRecoversRun()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        panel.notifyOcrFailed(QStringLiteral("OCR failed: RapidOCR engine could not be initialised."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── Cancellation (job abandoned): recoverable, Run restored ──────────────
+    void canceledJobRecoversRun()
+    {
+        OCRMode panel;
+        panel.onRunOcr();
+        panel.notifyOcrCanceled(QStringLiteral("OCR finished, but the page changed — results discarded."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── Job completion classification (pure seam used by the worker callback) ─
+    void classifyJobCompletionVerdicts()
+    {
+        QString message;
+
+        // Success delivers.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message),
+                 EditController::OcrJobVerdict::Deliver);
+
+        // Worker error fails with the worker's message.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QStringLiteral("OCR failed: could not render page."), &message),
+                 EditController::OcrJobVerdict::Failed);
+        QVERIFY(message.contains(QStringLiteral("could not render page")));
+
+        // A newer request supersedes the stale job.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 2,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message),
+                 EditController::OcrJobVerdict::Stale);
+
+        // Page changed mid-job → stale/cancelled, never delivered.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 3,
+                   QString(), &message),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("page changed")));
+
+        // Document switch mid-job → stale.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("b.pdf"), 0,
+                   QString(), &message),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("document changed")));
+
+        // Editor closed before completion → stale (destroyed panels get nothing).
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QString(), -1,
+                   QString(), &message),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("closed")));
+
+        // V05: the document was MUTATED IN PLACE mid-job — same path, same
+        // page, same page count (page replaced/reordered/edited) — but the
+        // mutation revision advanced since the snapshot: never delivered.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message,
+                   /*jobSourceRevision*/ 5, /*currentSourceRevision*/ 6),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("modified")));
+
+        // V05: equal revision (no mutation since the snapshot) delivers.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message, /*jobSourceRevision*/ 5,
+                   /*currentSourceRevision*/ 5),
+                 EditController::OcrJobVerdict::Deliver);
+
+        // ── G10 (QUALITY-GATE-2026-09-09): reopen identity at completion ────
+        // A→B→A: the path is restored and the mutation revision is unchanged,
+        // but DocumentSession::beginDocument() advanced the load identity —
+        // the words describe a previous open of this document, never deliver.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message,
+                   /*jobSourceRevision*/ 5, /*currentSourceRevision*/ 5,
+                   /*jobSourceDocumentGeneration*/ 5,
+                   /*currentDocumentGeneration*/ 7),
+                 EditController::OcrJobVerdict::Stale);
+        QVERIFY(message.contains(QStringLiteral("reopened"), Qt::CaseInsensitive));
+
+        // Same open (generation unchanged) with the same revision delivers —
+        // ordinary completion is not penalized by the identity check.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message, /*jobSourceRevision*/ 5,
+                   /*currentSourceRevision*/ 5,
+                   /*jobSourceDocumentGeneration*/ 5,
+                   /*currentDocumentGeneration*/ 5),
+                 EditController::OcrJobVerdict::Deliver);
+
+        // -1 generations (legacy callers) fall through to the revision check.
+        QCOMPARE(EditController::classifyOcrJobCompletion(1, 1,
+                   QStringLiteral("a.pdf"), 0, QStringLiteral("a.pdf"), 0,
+                   QString(), &message, /*jobSourceRevision*/ 5,
+                   /*currentSourceRevision*/ 5,
+                   /*jobSourceDocumentGeneration*/ qint64(-1),
+                   /*currentDocumentGeneration*/ qint64(-1)),
+                 EditController::OcrJobVerdict::Deliver);
+    }
+
+    // ── A stale completion must not re-enable another document's save ────────
+    void staleCompletionDoesNotReenableForeignSave()
+    {
+        OCRMode panel;
+        // Review results from document A.
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+
+        // User starts a new run on document B; that job is abandoned as stale
+        // (document switched). The panel must NOT fall back to the document-A
+        // review: Accept stays disabled and only Run (retry) is restored.
+        panel.onRunOcr();
+        panel.notifyOcrCanceled(QStringLiteral("OCR finished, but the document changed — results discarded."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ── Accept → save cancelled: review edits retained, controls restored ────
+    void saveCancellationRetainsReviewAndRestoresControls()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        panel.onAcceptResults();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Saving);
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+
+        // User cancels the save dialog: nothing was written; review continues.
+        panel.notifySaveFinished(false, true, QString());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(rejectButton(panel)->isEnabled());
+        QVERIFY(runButton(panel)->isEnabled());
+    }
+
+    // ── Save error: data retained for retry ───────────────────────────────────
+    void saveErrorRetainsReviewForRetry()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        panel.onAcceptResults();
+        panel.notifySaveFinished(false, false,
+            QStringLiteral("Could not write the searchable MRC PDF/A copy. See the application log."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(rejectButton(panel)->isEnabled());
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(panel.lastLifecycleMessage().contains(QStringLiteral("MRC PDF/A")));
+    }
+
+    // ── Save success: back to a reviewable state ──────────────────────────────
+    void saveSuccessReturnsToReviewReady()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        panel.onAcceptResults();
+        panel.notifySaveFinished(true, false, QStringLiteral("Searchable copy saved: doc_ocr.pdf"));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(runButton(panel)->isEnabled());
+    }
+
+    // ── PGR-10 triage (review-state re-entrancy): the word inspector rides the
+    // same lifecycle as Accept/Reject — a correction left editable during
+    // Saving/Running would mutate words an in-flight save is exporting. ──────
+    void wordInspectorAndCorrectionsAreLifecycleGated()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        auto* edit = panel.findChild<QLineEdit*>(QStringLiteral("ocrWordEdit"));
+        auto* del = panel.findChild<QToolButton*>(QStringLiteral("ocrBtnDeleteWord"));
+        QVERIFY(edit);
+        QVERIFY(del);
+
+        // ReviewReady with a selection: editable — the U03 review loop.
+        panel.selectWord(0);
+        QVERIFY(edit->isEnabled());
+        QVERIFY(del->isEnabled());
+
+        // Accept → Saving: the correction editor and delete button must
+        // disable immediately, and the programmatic paths must refuse.
+        panel.onAcceptResults();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Saving);
+        QVERIFY2(!edit->isEnabled(),
+                 "the correction editor must disable while a save commits");
+        QVERIFY2(!del->isEnabled(),
+                 "the word delete button must disable while a save commits");
+        QVERIFY2(!panel.applyWordCorrection(0, QStringLiteral("mid-save")),
+                 "a correction applied during Saving must be refused");
+        QVERIFY2(!panel.markWordDeleted(0),
+                 "a word delete during Saving must be refused");
+
+        // Save cancelled: back to ReviewReady — editable again, words intact.
+        panel.notifySaveFinished(false, true, QString());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(edit->isEnabled());
+        QVERIFY(del->isEnabled());
+        QCOMPARE(panel.reviewedWords().at(0).reviewedText, QStringLiteral("invoice"));
+    }
+
+    // ── PGR-10 triage: the semantic-document delivery restores the Run button ─
+    // The path bypasses transitionTo() by design (Accept/Reject must stay
+    // enabled with no reviewed records), but it left Run disabled with its
+    // "Running…" label forever when a delivery followed a run start.
+    void semanticDocumentDeliveryRestoresRunButton()
+    {
+        OCRMode panel;
+        // The exact state onRunOcr() leaves behind: Run disabled.
+        panel.onRunOcr();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Running);
+        QVERIFY(!runButton(panel)->isEnabled());
+
+        OcrDjotMapper mapper;
+        docmodel::SemanticDocument doc = mapper.fromOcrResults({}, QStringLiteral("doc.pdf"));
+        panel.setSemanticDocument(doc);
+
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY2(runButton(panel)->isEnabled(),
+                 "a semantic delivery must restore the Run button — the old "
+                 "path left it disabled with 'Running…' forever");
+        QCOMPARE(runButton(panel)->text(), QStringLiteral("Run OCR"));
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(rejectButton(panel)->isEnabled());
+    }
+
+    // ── Reject clears review and returns to idle ──────────────────────────────
+    void rejectReturnsToIdle()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        panel.onRejectResults();
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::Idle);
+        QVERIFY(runButton(panel)->isEnabled());
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!rejectButton(panel)->isEnabled());
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // R08 — reviewed OCR words are authoritative (F04)
+    // ══════════════════════════════════════════════════════════════════════════
+
+    // ── Word-based correction updates the stable record, never the source box ─
+    void wordCorrectionUpdatesRecordNotBox()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+
+        const QRectF boxBefore = panel.reviewedWords().at(0).boundingBox;
+        QVERIFY(panel.applyWordCorrection(0, QStringLiteral("INVOICE #812")));
+        const auto records = panel.reviewedWords();
+        QCOMPARE(records.at(0).stableId, 0);
+        QCOMPARE(records.at(0).reviewedText, QStringLiteral("INVOICE #812"));
+        QCOMPARE(records.at(0).originalText, QStringLiteral("invoice"));
+        QCOMPARE(records.at(0).boundingBox, boxBefore);   // source box untouched
+        QVERIFY(!records.at(0).deleted);
+        // The unedited neighbour keeps its own record.
+        QCOMPARE(records.at(1).reviewedText, QStringLiteral("total"));
+
+        // Unknown stable IDs are rejected (stale interaction guard).
+        QVERIFY(!panel.applyWordCorrection(42, QStringLiteral("ghost")));
+        QVERIFY(!panel.markWordDeleted(42));
+    }
+
+    // ── PGR-18: the overlay title attribute cannot be broken out of ──────────
+    // A correction is user/PDF-controlled text that lands inside the
+    // single-quoted title='…' attribute of the confidence overlay. Raw text
+    // used to inject markup or break out of the attribute, and the chained
+    // .arg() templating let '%1'…'%7' typed into a correction capture a later
+    // substitution. Both must be inert: attribute-safe escaping, and ONE
+    // multi-argument .arg() pass that never rescans substituted text.
+    void overlayEscapesCorrectionAndPlaceholders()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        const QString hostile = QStringLiteral("'><b>x%1");
+        QVERIFY(panel.applyWordCorrection(0, hostile));
+
+        auto *overlay = panel.findChild<QLabel *>(QStringLiteral("ocrScanContent"));
+        QVERIFY(overlay);
+        const QString html = overlay->text();
+
+        // No markup injection: '<b>' must not appear raw in the overlay HTML.
+        QVERIFY2(!html.contains(QStringLiteral("<b>")),
+                 "PGR-18: a correction must not inject markup into the overlay");
+        // No attribute breakout: the raw correction must not sit verbatim
+        // inside the title attribute (the single quote must be escaped).
+        QVERIFY2(!html.contains(QStringLiteral("corrected to: ") + hostile),
+                 "PGR-18: the correction must be escaped inside title='…'");
+        // No placeholder capture: '%1' typed into a correction must render
+        // literally (pre-fix, the chained .arg() let it swallow the escaped
+        // word text and left a dangling '%7' in the output).
+        QVERIFY2(html.contains(QStringLiteral("%1")),
+                 "PGR-18: a %1 typed into a correction must render literally");
+        QVERIFY2(!html.contains(QStringLiteral("%7")),
+                 "PGR-18: no template placeholder may remain unsubstituted");
+        // The anchor structure survived: one anchor per word, each with a title.
+        QCOMPARE(html.count(QStringLiteral("<a href='word:")), 2);
+        QCOMPARE(html.count(QStringLiteral("title='")), 2);
+    }
+
+    // ── The correction field drives the selected word's record ───────────────
+    void correctionFieldEditsSelectedWord()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+
+        // Click the second word in the scan pane (link activation selects it).
+        panel.activateWordLink(QStringLiteral("word:1"));
+        auto* edit = panel.findChild<QLineEdit*>(QStringLiteral("ocrWordEdit"));
+        QVERIFY(edit);
+        QCOMPARE(edit->text(), QStringLiteral("total"));
+
+        edit->setText(QStringLiteral("grand total"));
+        emit edit->returnPressed();
+
+        const auto records = panel.reviewedWords();
+        QCOMPARE(records.at(1).reviewedText, QStringLiteral("grand total"));
+        QCOMPARE(records.at(1).boundingBox, QRectF(10, 40, 40, 14));
+        QCOMPARE(records.at(0).reviewedText, QStringLiteral("invoice"));
+    }
+
+    // ── A deleted word is excluded from the export payload ────────────────────
+    void deletedWordExcludedFromPayload()
+    {
+        OCRMode panel;
+        panel.setOcrResults(makeWords());
+        QVERIFY(panel.markWordDeleted(1));
+
+        OcrReviewSession session = makeSession(0, { QStringLiteral("invoice"), QStringLiteral("total") });
+        QString error;
+        const PageOcrResult payload =
+            EditController::buildReviewedPageOcrResult(session, panel.reviewedWords(), &error);
+        QVERIFY(error.isEmpty());
+        QCOMPARE(payload.pageIndex, 0);
+        QCOMPARE(payload.words.size(), 1);
+        QCOMPARE(payload.words.first().text, QStringLiteral("invoice"));
+        QVERIFY(payload.success);
+    }
+
+    // ── The reviewed page index (not the displayed page) labels and payload ───
+    void reviewedPageIdentityDrivesPayload()
+    {
+        // The user reviewed page 2 (0-based) and then navigated elsewhere; the
+        // payload must still carry the reviewed page index.
+        OcrReviewSession session = makeSession(2, { QStringLiteral("invoice") });
+        QString error;
+        const PageOcrResult payload =
+            EditController::buildReviewedPageOcrResult(session, {}, &error);
+        QVERIFY(error.isEmpty());
+        QCOMPARE(payload.pageIndex, 2);                 // payload page identity
+        QCOMPARE(payload.words.size(), 1);
+        QVERIFY(payload.success);
+
+        // The save label uses the same reviewed page index.
+        const QString title = EditController::ocrSaveDialogTitle(40, 2);
+        QVERIFY(title.contains(QStringLiteral("3 of 40")));
+    }
+
+    // ── Session validity: source change / revision change is rejected ─────────
+    void sourceChangeRejectsSession()
+    {
+        OcrReviewSession session = makeSession(1, { QStringLiteral("invoice") });
+
+        QString reason;
+        // Same source, same page count, same mutation revision → exportable.
+        // (This is also the ordinary-navigation contract: browsing other pages
+        // mutates nothing, so the explicitly reviewed page stays exportable.)
+        QVERIFY(EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/inv.pdf"), 3, 7, &reason));
+
+        // Source document changed → rejected with a reason.
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/other.pdf"), 3, 7, &reason));
+        QVERIFY(reason.contains(QStringLiteral("another document"), Qt::CaseInsensitive));
+
+        // Document revision changed (page inserted/deleted) → rejected.
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/inv.pdf"), 4, 7, &reason));
+        QVERIFY(reason.contains(QStringLiteral("changed"), Qt::CaseInsensitive));
+
+        // V05: same path AND same page count but the document was mutated in
+        // place since the snapshot (page replaced/reordered, in-place edit,
+        // redaction — all preserve path+count) → rejected.
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/inv.pdf"), 3, 8, &reason));
+        QVERIFY(reason.contains(QStringLiteral("modified"), Qt::CaseInsensitive));
+
+        // Invalid/absent session → rejected.
+        OcrReviewSession empty;
+        QVERIFY(!EditController::ocrSessionIsExportable(empty,
+                   QStringLiteral("C:/scans/inv.pdf"), 3, 7, &reason));
+    }
+
+    // ── G10 (QUALITY-GATE-2026-09-09): reopen identity is validated at export ─
+    // The reviewer's V05 probe: a session captured on open #5 of a.pdf stays
+    // "exportable" after A→B→A (open #7) because path, page count AND the
+    // mutation revision all match — only the document generation differs.
+    void reopenedDocumentRejectsStaleSession()
+    {
+        DocumentSession doc;
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));     // open #1
+        const qint64 capturedGeneration = doc.documentGeneration();
+        const qint64 capturedRevision = doc.mutationRevision();
+
+        OcrReviewSession session = makeSession(0, { QStringLiteral("invoice") },
+                                               QStringLiteral("C:/scans/a.pdf"));
+        session.sourceRevision = capturedRevision;
+        session.sourceDocumentGeneration = capturedGeneration;
+
+        // Sanity: same open → exportable.
+        QVERIFY(EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/a.pdf"), 3, capturedRevision,
+                   nullptr, capturedGeneration));
+
+        // A→B→A: same path, same page count, same mutation revision — but a
+        // NEW open of the document. Exporting the old review onto the new
+        // incarnation must be impossible.
+        doc.beginDocument(QStringLiteral("C:/scans/b.pdf"));
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));
+        QVERIFY(doc.documentGeneration() != capturedGeneration);
+        QVERIFY(doc.path() == QStringLiteral("C:/scans/a.pdf"));
+        QCOMPARE(doc.mutationRevision(), capturedRevision);   // unchanged!
+
+        QString reason;
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   doc.path(), 3, doc.mutationRevision(), &reason,
+                   doc.documentGeneration()));
+        QVERIFY2(reason.contains(QStringLiteral("previous open"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("reopen rejection must be explained: %1").arg(reason)));
+
+        // A session captured BEFORE generation capture (legacy, -1) falls back
+        // to the revision check: still exportable here (revision matches).
+        OcrReviewSession legacy = session;
+        legacy.sourceDocumentGeneration = -1;
+        QVERIFY(EditController::ocrSessionIsExportable(legacy,
+                   doc.path(), 3, doc.mutationRevision(), nullptr,
+                   doc.documentGeneration()));
+    }
+
+    // ── G10: the load identity advances on every successful open (incl. A→A) ──
+    void documentGenerationComposesWithRevisionAtIdentityBoundaries()
+    {
+        DocumentSession doc;
+        QCOMPARE(doc.documentGeneration(), qint64(0));
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));
+        doc.markDirty();                       // in-place edit: revision advances
+        const qint64 gen1 = doc.documentGeneration();
+        const qint64 rev1 = doc.mutationRevision();
+        QVERIFY(gen1 >= 1);
+        QVERIFY(rev1 >= 1);
+
+        // Same-path reopen (A→A): NEW identity — generation advances, the
+        // revision baseline resets with the fresh, clean document. A session
+        // captured before the reopen must therefore fail BOTH checks on the
+        // new incarnation (generation differs outright).
+        doc.beginDocument(QStringLiteral("C:/scans/a.pdf"));
+        QVERIFY(doc.documentGeneration() != gen1);
+
+        OcrReviewSession session;
+        session.generation = 1;
+        session.sourcePath = QStringLiteral("C:/scans/a.pdf");
+        session.sourcePage = 0;
+        session.sourcePageCount = 3;
+        session.sourceRevision = rev1;
+        session.sourceDocumentGeneration = gen1;
+        session.pageImage = makeScanPage();
+        QString reason;
+        QVERIFY(!EditController::ocrSessionIsExportable(session,
+                   QStringLiteral("C:/scans/a.pdf"), 3, doc.mutationRevision(),
+                   &reason, doc.documentGeneration()));
+    }
+
+    // ── V05: the mutation revision advances at every mutation boundary ───────
+    void documentMutationRevisionAdvancesAtMutationBoundaries()
+    {
+        // Every mutating QUndoCommand in this codebase calls
+        // DocumentSession::markReload() on redo AND undo (page ops, in-place
+        // text edits, form edits, images, metadata), and successful edit
+        // paths call markDirty(). Those are exactly the boundaries where the
+        // OCR session's captured revision must advance so a stale review is
+        // rejected even when path and page count are unchanged.
+        DocumentSession doc;
+        QCOMPARE(doc.mutationRevision(), qint64(0));
+
+        doc.markDirty();                       // first successful edit
+        QCOMPARE(doc.mutationRevision(), qint64(1));
+
+        doc.markDirty();                       // ANOTHER edit while already dirty
+        QCOMPARE(doc.mutationRevision(), qint64(2));
+
+        doc.markReload();                      // structural change / undo-redo
+        QCOMPARE(doc.mutationRevision(), qint64(3));
+
+        doc.markReload();                      // every command invocation counts
+        QCOMPARE(doc.mutationRevision(), qint64(4));
+
+        doc.setClean();                        // saving is not a content mutation
+        QCOMPARE(doc.mutationRevision(), qint64(4));
+
+        // Ordinary page NAVIGATION never reaches markDirty/markReload —
+        // nothing advances — so a reviewed page stays exportable while the
+        // user browses (preserving the explicit reviewed-page identity).
+        QCOMPARE(doc.mutationRevision(), qint64(4));
+    }
+
+    // ── Records from an older delivery are rejected against the session ───────
+    void staleReviewRecordsRejected()
+    {
+        OcrReviewSession session = makeSession(0, { QStringLiteral("invoice"), QStringLiteral("total") });
+        QList<OcrReviewedWord> stale = panelRecordsFor(makeSession(0, { QStringLiteral("invoice") }));
+        QString error;
+        EditController::buildReviewedPageOcrResult(session, stale, &error);
+        QVERIFY(!error.isEmpty());
+        QVERIFY(error.contains(QStringLiteral("no longer matches"), Qt::CaseInsensitive));
+    }
+
+    // ── Export: corrected text reaches the PDFium text layer, old token gone ──
+    void exportCorrectedTextExtractsViaPdfium()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString out = dir.filePath(QStringLiteral("corrected.pdf"));
+
+        // Seed the misspelled recognition, then correct it via the word record.
+        QList<MergedOcrWord> words = makeWords();          // {invoice, total}
+        words[0].text = QStringLiteral("recievng");        // {recievng, total}
+        OCRMode panel;
+        panel.setOcrResults(words);
+        QVERIFY(panel.applyWordCorrection(0, QStringLiteral("receiving")));
+
+        // The session mirrors the SAME delivery the panel reviewed.
+        OcrReviewSession session =
+            makeSession(0, { words[0].text, words[1].text });
+        QString error;
+        const PageOcrResult payload =
+            EditController::buildReviewedPageOcrResult(session, panel.reviewedWords(), &error);
+        QVERIFY(error.isEmpty());
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.exportMrcPdfA(out, { session.pageImage }, { payload }));
+
+        // PDFium extraction: the corrected token appears in the new text layer
+        // and the old misspelled token is gone from it.
+        QVERIFY(extractContains(out, 0, QStringLiteral("receiving")));
+        QVERIFY(extractContains(out, 0, QStringLiteral("total")));
+        QVERIFY(!extractContains(out, 0, QStringLiteral("recievng")));
+    }
+
+    // ── Export: Unicode corrections survive extraction ────────────────────────
+    void exportUnicodeCorrectionExtractsViaPdfium()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString out = dir.filePath(QStringLiteral("unicode.pdf"));
+
+        QList<MergedOcrWord> words = makeWords();          // {invoice, total}
+        words[0].text = QStringLiteral("cafe");            // {cafe, total}
+        OCRMode panel;
+        panel.setOcrResults(words);
+        QVERIFY(panel.applyWordCorrection(0, QStringLiteral("café naïve")));
+
+        OcrReviewSession session =
+            makeSession(0, { words[0].text, words[1].text });
+        QString error;
+        const PageOcrResult payload =
+            EditController::buildReviewedPageOcrResult(session, panel.reviewedWords(), &error);
+        QVERIFY(error.isEmpty());
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.exportMrcPdfA(out, { session.pageImage }, { payload }));
+
+        QVERIFY(extractContains(out, 0, QStringLiteral("café naïve")));
+        QVERIFY(extractContains(out, 0, QStringLiteral("total")));
+        QVERIFY(!extractContains(out, 0, QStringLiteral("cafe")));
+    }
+
+    // ── U03: uncertain-word navigation follows the lifecycle state machine ────
+    // A stale/canceled completion must leave the navigation buttons in the
+    // same disabled/enabled state as Accept (state-machine coherence).
+    void uncertainNavigationFollowsLifecycle()
+    {
+        OCRMode panel;
+        // makeWords() carries a 55%-confidence word → reviewable + uncertain.
+        panel.setOcrResults(makeWords());
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(nextUncertainButton(panel)->isEnabled());
+        QVERIFY(prevUncertainButton(panel)->isEnabled());
+
+        // A canceled job disables review AND navigation together.
+        panel.onRunOcr();
+        panel.notifyOcrCanceled(QStringLiteral("OCR finished, but the page changed — results discarded."));
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::RecoverableError);
+        QVERIFY(!acceptButton(panel)->isEnabled());
+        QVERIFY(!nextUncertainButton(panel)->isEnabled());
+        QVERIFY(!prevUncertainButton(panel)->isEnabled());
+
+        // A reviewable but all-certain delivery: review possible, nothing
+        // uncertain to jump to — navigation stays disabled.
+        QList<MergedOcrWord> highWords = makeWords();
+        highWords[1].confidence = 88;
+        panel.setOcrResults(highWords);
+        QCOMPARE(panel.reviewState(), OCRMode::ReviewState::ReviewReady);
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(!nextUncertainButton(panel)->isEnabled());
+        QVERIFY(!prevUncertainButton(panel)->isEnabled());
+
+        // Removing the last uncertain word through review also disables nav.
+        QList<MergedOcrWord> mixed = makeWords();   // 92 / 55
+        panel.setOcrResults(mixed);
+        QVERIFY(nextUncertainButton(panel)->isEnabled());
+        QVERIFY(panel.markWordDeleted(1));
+        QVERIFY(acceptButton(panel)->isEnabled());
+        QVERIFY(!nextUncertainButton(panel)->isEnabled());
+    }
+
+    // ── Two pages with similar words stay distinct in the export ──────────────
+    void twoPagesSimilarWordsKeptDistinct()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString out = dir.filePath(QStringLiteral("twopages.pdf"));
+
+        OcrReviewSession session0 = makeSession(0, { QStringLiteral("invoice"), QStringLiteral("total") });
+        OcrReviewSession session1 = makeSession(1, { QStringLiteral("invoice"), QStringLiteral("due") });
+
+        QString error;
+        const PageOcrResult payload0 = EditController::buildReviewedPageOcrResult(session0, {}, &error);
+        QVERIFY(error.isEmpty());
+        const PageOcrResult payload1 = EditController::buildReviewedPageOcrResult(session1, {}, &error);
+        QVERIFY(error.isEmpty());
+        QCOMPARE(payload0.pageIndex, 0);
+        QCOMPARE(payload1.pageIndex, 1);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.exportMrcPdfA(out, { session0.pageImage, session1.pageImage },
+                                     { payload0, payload1 }));
+
+        QVERIFY(extractContains(out, 0, QStringLiteral("total")));
+        QVERIFY(!extractContains(out, 0, QStringLiteral("due")));
+        QVERIFY(extractContains(out, 1, QStringLiteral("due")));
+        QVERIFY(!extractContains(out, 1, QStringLiteral("total")));
+        QVERIFY(extractContains(out, 1, QStringLiteral("invoice")));
+    }
+};
+
+QTEST_MAIN(TestOcrReviewLifecycle)
+#include "TestOcrReviewLifecycle.moc"

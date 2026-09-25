@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "Sidebar.h"
-#include "GpMainWindow.h"
 #include "shell/StatusBar.h"
 #include "util/GpTheme.h"
 #include "core/AppContext.h"
@@ -14,6 +13,8 @@
 
 #include <QTabBar>
 #include <QFileDialog>
+#include <QHash>
+#include <QLabel>
 #include <QMessageBox>
 #include <QStackedWidget>
 #include <QListWidget>
@@ -188,21 +189,33 @@ void Sidebar::init(const AppContext* ctx, PdfViewerWidget* viewer)
         });
 
         // 3. Layers tab (PDF OCG Layers): QListWidget
+        // R15 (PP04 honesty fix): the engine enumerates layer NAMES only —
+        // it has no visibility-mutation or state API, so the old checkbox
+        // list LIED: ticking a box only showed "Layer … is now visible/hidden"
+        // while nothing changed on the page. The checkboxes are gone; the list
+        // stays as identification, and an always-visible label states the
+        // limitation instead of a tooltip nobody sees.
         m_layersList = new QListWidget(this);
         m_layersList->setProperty("role", "sidebarList");
-        m_stack->addWidget(m_layersList);
-
-        connect(m_layersList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {
-            if (!m_ctx || !m_ctx->pdfEditor) return;
-            QString layerName = item->text();
-            bool visible = (item->checkState() == Qt::Checked);
-            
-            auto* mainWindow = qobject_cast<MainWindow*>(parentWidget() ? parentWidget()->parentWidget() : nullptr);
-            if (mainWindow && mainWindow->statusBar()) {
-                mainWindow->statusBar()->showMessage(
-                    tr("Layer '%1' is now %2").arg(layerName).arg(visible ? tr("visible") : tr("hidden")), 3000);
-            }
-        });
+        m_layersList->setObjectName("layersListWidget");
+        m_layersHost = new QWidget(this);
+        m_layersHost->setObjectName("layersPaneHost");
+        auto* layersCol = new QVBoxLayout(m_layersHost);
+        layersCol->setContentsMargins(8, 8, 8, 8);
+        layersCol->setSpacing(4);
+        m_layersNote = new QLabel(m_layersHost);
+        m_layersNote->setObjectName("layersVisibilityNote");
+        m_layersNote->setWordWrap(true);
+        m_layersNote->setText(tr(
+            "Layer visibility switching is not supported yet — displayed "
+            "layers follow the document's saved configuration. Names are "
+            "listed here for identification."));
+        m_layersNote->setAccessibleName(tr("Layers panel notice"));
+        m_layersNote->setStyleSheet(
+            QString("color: %1; background: transparent;").arg(gp::Theme::fg2().name()));
+        layersCol->addWidget(m_layersNote);
+        layersCol->addWidget(m_layersList, 1);
+        m_stack->addWidget(m_layersHost);
 
         // Wire selection changes to properties tab
         connect(m_viewer->annotationLayer(), &AnnotationLayer::selectionChanged, this, [this](int index) {
@@ -239,6 +252,34 @@ void Sidebar::onTabChanged(int index)
     }
 }
 
+// ── R15: pane switching (the real route behind the View-panes entries) ──────
+void Sidebar::showPane(const QString& name)
+{
+    if (!m_tabs) return;
+    static const QHash<QString, int> leftMap = {
+        { QStringLiteral("pages"), 0 }, { QStringLiteral("bookmarks"), 1 },
+        { QStringLiteral("comments"), 2 }, { QStringLiteral("files"), 3 } };
+    static const QHash<QString, int> rightMap = {
+        { QStringLiteral("properties"), 0 }, { QStringLiteral("comments"), 1 },
+        { QStringLiteral("layers"), 2 } };
+    const auto& map = (m_side == Left) ? leftMap : rightMap;
+    const auto it = map.constFind(name);
+    if (it != map.constEnd())
+        m_tabs->setCurrentIndex(it.value());
+}
+
+QString Sidebar::activePane() const
+{
+    if (!m_tabs) return QString();
+    const int idx = m_tabs->currentIndex();
+    if (m_side == Left) {
+        static const char* kLeft[] = { "pages", "bookmarks", "comments", "files" };
+        return (idx >= 0 && idx < 4) ? QString::fromLatin1(kLeft[idx]) : QString();
+    }
+    static const char* kRight[] = { "properties", "comments", "layers" };
+    return (idx >= 0 && idx < 3) ? QString::fromLatin1(kRight[idx]) : QString();
+}
+
 void Sidebar::updateFilesList()
 {
     if (!m_filesList || !m_ctx || !m_ctx->pdfEditor) return;
@@ -260,7 +301,7 @@ void Sidebar::updateFilesList()
 void Sidebar::updateLayersList()
 {
     if (!m_layersList || !m_ctx || !m_ctx->pdfEditor) return;
-    
+
     m_layersList->blockSignals(true);
     m_layersList->clear();
 
@@ -270,10 +311,11 @@ void Sidebar::updateLayersList()
         emptyItem->setText(tr("No layers found."));
         emptyItem->setFont(QFont("Manrope", 10, QFont::StyleItalic));
     } else {
+        // R15 (PP04): identification only — no checkboxes, no fake state.
+        // The panel's notice label carries the honest visibility disclosure.
         for (const QString& layer : layers) {
             auto* item = new QListWidgetItem(m_layersList);
             item->setText(layer);
-            item->setCheckState(Qt::Checked);
         }
     }
     m_layersList->blockSignals(false);

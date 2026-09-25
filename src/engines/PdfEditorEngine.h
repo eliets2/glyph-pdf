@@ -21,12 +21,29 @@ public:
     // Core routing integration
     bool loadDocumentForEditing(const QString &filePath) override;
     bool saveDocument(const QString &outputPath) override;
+    // EC02: saveDocument gated on the resident identity, checked under the
+    // same recursive mutex that serializes the save (see IPdfDocumentIO).
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                               const QString &outputPath) override;
+    // G04 (QUALITY-GATE-2026-09-09): engine-owned resident-load identity and
+    // the identity+path-guarded save (see IPdfDocumentIO).
+    qint64 documentLoadId() const override;
+    bool saveDocumentIfCurrent(const QString &expectedCurrentFile,
+                               qint64 expectedLoadId,
+                               const QString &outputPath) override;
+    // WP-R09b (WHOLE-ARCHITECTURE-REVIEW A05): external source-version
+    // conflict reporting and destination-baseline priming (see
+    // IPdfDocumentIO).
+    bool lastSaveRefusedForExternalConflict() const override;
+    void primeSourceBaseline(const QString &path) override;
     
     // Structural DOM manipulation
     bool editTextInline(int pageIndex, const QRectF &rect, const QString &newText,
                         const QString &fontFamily = "", int fontSize = 0,
                         const QColor &color = Qt::black, bool bold = false,
-                        bool italic = false, int alignment = 0) override;
+                        bool italic = false, int alignment = 0,
+                        double opacity = 1.0, double letterSpacing = 0.0,
+                        double lineSpacing = 1.0) override;
     bool deleteObjectAt(int pageIndex, const QPointF &pos) override;
     
     // QPDF/Structural tasks
@@ -62,18 +79,25 @@ public:
     bool rotatePage(const QString &path, int pageIndex, int degrees) override;
     QByteArray extractPageAsBytes(const QString &path, int pageIndex) override;
     bool insertPageFromBytes(const QString &path, int atIndex, const QByteArray &pageData) override;
+    bool restorePageFromBytes(const QString &path, int pageIndex, const QByteArray &pageData) override;
     bool deletePage(const QString &path, int pageIndex) override;
     bool insertBlankPage(const QString &path, int atIndex) override;
 
     // Page Geometry & Operations
     bool cropPage(const QString &path, int pageIndex, const QRectF &cropRect) override;
     bool resizePage(const QString &path, int pageIndex, const QSizeF &size) override;
+    QRectF pageCropBox(const QString &path, int pageIndex, bool *ok) override;
+    bool pageCropBoxInfo(const QString &path, int pageIndex,
+                         QRectF *outBox, int *outOrigin) override;
+    bool removePageCropBox(const QString &path, int pageIndex) override;
+    void releaseResidentFile(const QString &path) override;
     bool reorderPages(const QString &path, int fromIndex, int toIndex) override;
     bool reorderAllPages(const QString &path, const QList<int> &permutation) override;
 
     // Content Injection
     bool addHeaderFooter(const QString &path, const HeaderFooterOptions &options) override;
     bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) override;
+    bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) override;
 
     // Image operations
     QList<PdfImageInfo> listImages(int pageIndex) override;
@@ -82,14 +106,23 @@ public:
     bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) override;
     bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
     bool deleteImage(int pageIndex, const QString &xobjectName) override;
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) override;
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
+    // T2-2 (ITextReplacer): Find & Replace engine seam — see ITextReplacer.
+    bool replaceTextRegions(const QList<TextReplacementSpec>& specs,
+                            QList<double>* drawnWidthsOut = nullptr) override;
     bool applyPatternRedactions(const QRegularExpression& pattern,
                                 const QList<int>& pages = QList<int>(), const QString& outputPath = QString()) override;
     bool applyPatternRedactionsMulti(const QStringList& patterns,
                                      const QList<int>& pages = QList<int>(),
                                      const QString& outputPath = QString()) override;
     bool embedAnnotations(const QString &inputPath, const QString &outputPath, const QList<AnnotationItem> &annotations) override;
+
+    // T2-9 (IOutlineEditor): outline read/write — see IOutlineEditor.
+    QList<OutlineEntry> getOutline(const QString& path) override;
+    bool replaceOutline(const QString& path, const QList<OutlineEntry>& entries) override;
 
     // Watermarking (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &options) override;
@@ -106,6 +139,9 @@ public:
     // R2-1 D2
     bool writeUpdate(const QString &outputPath) override;
     bool hasPdfSignatures() const override;
+
+    // G1: legacy XFA form data present (redaction preflight refusal).
+    bool hasXfaDocument() const override;
 
     // ER-3
     int recipientCount() const override;

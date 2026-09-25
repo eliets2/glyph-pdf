@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "RedactMode.h"
+#include "RedactApplyDialog.h"
+#include "shell/FlowToolbarLayout.h"
 #include "util/GpTheme.h"
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
@@ -10,6 +12,7 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
 #include <QGroupBox>
@@ -17,10 +20,12 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPointer>
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
+#include <QSet>
 #include <QStackedWidget>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -33,10 +38,13 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     col->setSpacing(0);
 
     // ── Toolbar ────────────────────────────────────────────────────────────
+    // F1 (SWEEP-W3-UI): wrapping flow toolbar — identical single-line at
+    // 1920; wraps below the single-line requirement instead of forcing the
+    // window minimum past the 1366 viewport.
     auto* tb = new QFrame;
     tb->setProperty("role", "modeToolbar");
-    tb->setFixedHeight(Theme::ToolbarH);
-    auto* row = new QHBoxLayout(tb);
+    auto* row = new FlowToolbarLayout(tb);
+    row->setLineHeightFloor(Theme::ToolbarH);
     row->setContentsMargins(10, 0, 10, 0);
     row->setSpacing(6);
 
@@ -79,17 +87,35 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
     // same sanitizeDocument() pass as Security ▸ Sanitize Document.
     m_chkSanitizeCopy = new QCheckBox(tr("Sanitize copy (metadata, attachments, JS)"));
     m_chkSanitizeCopy->setObjectName(QStringLiteral("redactChkSanitizeCopy"));
-    m_chkSanitizeCopy->setChecked(true);
+    m_chkSanitizeCopy->setChecked(kDefaultSanitizeOn); // shared initial policy (D07)
     m_chkSanitizeCopy->setToolTip(tr(
         "Runs the full hidden-data scrub on the saved copy: document metadata, "
         "XMP, attachments, JavaScript actions, bookmarks and form values."));
     row->addWidget(m_chkSanitizeCopy);
 
-    // AR-8 D3: "Cancel" button HIDDEN — its connection was a no-op lambda.
-    // Planned: emit exitRequested() signal to the shell's mode controller.
-    // Restore the button and wire exitRequested() when the mode-exit contract
-    // between RedactMode and ModeController is implemented.
-    // auto* exitBtn = new QToolButton; exitBtn->setText(tr("Cancel")); ← preserved
+    // §9.8 P0: state the compliance differentiator on the redaction surface
+    // (muted, one line — the whole pipeline is in-process).
+    auto* localClaim = new QLabel(PagesMode::localFirstClaim());
+    localClaim->setObjectName("redactLocalClaimLabel");
+    localClaim->setWordWrap(true);
+    localClaim->setStyleSheet(QString("color:%1; font-size:8pt;")
+                                  .arg(gp::Theme::fg2().name()));
+    col->addWidget(localClaim);
+
+    // §9.8 P1: the Cancel/Exit control is RESTORED and honestly wired (AR-8 D3
+    // had only hidden the button whose connection was a no-op lambda — the
+    // missing affordance stayed missing). Clicking emits exitRequested(); the
+    // host returns to the standard canvas via ModeController's relay. Placed
+    // redaction marks are NOT touched — they live on the viewer and remain
+    // recoverable when the user re-enters the mode.
+    auto* exitBtn = new QToolButton;
+    exitBtn->setObjectName(QStringLiteral("redactBtnCancel"));
+    exitBtn->setText(tr("Cancel"));
+    exitBtn->setProperty("variant", "ghost");
+    exitBtn->setToolTip(tr(
+        "Exit redaction. Placed marks are kept on the document — reopen the "
+        "Redaction task to review or apply them."));
+    row->addWidget(exitBtn);
 
     col->addWidget(tb);
 
@@ -164,11 +190,25 @@ RedactMode::RedactMode(QWidget* parent) : QWidget(parent) {
             this, &RedactMode::onPatternChanged);
     connect(m_regexEdit, &QLineEdit::textChanged,
             this, &RedactMode::onRegexTextChanged);
+    // §9.8 P1: word-list import feeds the custom-regex edit.
+    connect(m_importListBtn, &QToolButton::clicked, this, &RedactMode::onImportWordList);
     connect(m_previewBtn, &QToolButton::clicked, this, &RedactMode::onPreviewMatches);
     connect(m_applyBtn,   &QToolButton::clicked, this, &RedactMode::onApplyRedactions);
     connect(m_clearBtn,   &QToolButton::clicked, this, &RedactMode::onClearMarks);
 
-    // exitBtn removed (AR-8 D3) — connection removed with it.
+    // §9.8 P1: Cancel exits the mode via the exitRequested contract (the host
+    // snaps navigation back to the standard canvas). N07 (review 2026-09-07):
+    // the exit must also DISARM the marking tool — after the screen swap the
+    // SAME shared viewer is visible again, and a still-armed ToolMode::Redact
+    // would let an ordinary drag silently place a new (irreversible-on-Apply)
+    // mark. HandTool is the neutral navigation state; AnnotationLayer passes
+    // mouse events through there, so drags create nothing. Placed marks are
+    // untouched: exit neither applies nor discards them.
+    connect(exitBtn, &QToolButton::clicked, this, [this]() {
+        if (m_viewer && m_viewer->toolMode() == ToolMode::Redact)
+            m_viewer->setToolMode(ToolMode::HandTool);
+        emit exitRequested();
+    });
 
     connect(m_scopeCurrentPage, &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
     connect(m_scopeAllPages,    &QRadioButton::toggled, this, &RedactMode::onScopeChanged);
@@ -197,11 +237,27 @@ void RedactMode::buildPatternSection(QWidget* host) {
     patternRow->addWidget(m_patternCombo, 1);
     layout->addLayout(patternRow);
 
-    // Custom regex entry — hidden until "custom" is selected
+    // Custom regex entry — hidden until "custom" is selected. The §9.8 P1
+    // word-list import sits beside it: a .txt file becomes an escaped
+    // alternation pattern placed IN THE EDIT for review before any marking.
     m_regexEdit = new QLineEdit;
     m_regexEdit->setPlaceholderText(tr("Enter regular expression (Qt syntax)"));
     m_regexEdit->setVisible(false);
-    layout->addWidget(m_regexEdit);
+
+    m_importListBtn = new QToolButton;
+    m_importListBtn->setObjectName(QStringLiteral("redactBtnImportList"));
+    m_importListBtn->setText(tr("Import list\xe2\x80\xa6"));
+    m_importListBtn->setToolTip(tr(
+        "Build the pattern from a text file, one term per line (max 256 KB). "
+        "Each line is regex-escaped and joined with |; the combined pattern "
+        "lands in the edit for review."));
+    m_importListBtn->setVisible(false);
+
+    auto* regexRow = new QHBoxLayout;
+    regexRow->setContentsMargins(0, 0, 0, 0);
+    regexRow->addWidget(m_regexEdit, 1);
+    regexRow->addWidget(m_importListBtn);
+    layout->addLayout(regexRow);
 }
 
 void RedactMode::buildScopeSection(QWidget* host) {
@@ -258,6 +314,8 @@ void RedactMode::onPatternChanged(int index) {
     const QString key = m_patternCombo->itemData(index).toString();
     const bool isCustom = (key == QLatin1String("custom"));
     if (m_regexEdit) m_regexEdit->setVisible(isCustom);
+    // §9.8 P1: the import control lives wherever the custom-regex edit lives.
+    if (m_importListBtn) m_importListBtn->setVisible(isCustom);
     m_matchCountLabel->setText(tr("Select a pattern to preview matches."));
 }
 
@@ -401,15 +459,6 @@ void RedactMode::onApplyRedactions() {
         return;
     }
 
-    // Confirm action
-    const int answer = QMessageBox::question(
-        this,
-        tr("Apply Redactions"),
-        tr("This will permanently remove all marked content. Redaction cannot be undone.\n\nContinue?"),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No);
-    if (answer != QMessageBox::Yes) return;
-
     const QString pdfPath = m_ctx->pdfEditor->currentFile();
     if (pdfPath.isEmpty()) {
         QMessageBox::warning(this, tr("Redact"), tr("No document path available."));
@@ -430,55 +479,119 @@ void RedactMode::onApplyRedactions() {
         return;
     }
 
-    bool success = m_ctx->pdfEditor->applyMarkRedactions(marks);
-    if (!success) {
-        QMessageBox::critical(this, tr("Redaction Failed"),
-            tr("Redaction failed. The document has not been modified.\n\n%1")
-                .arg(m_ctx->pdfEditor->lastError().userMessage));
-        return;
-    }
-
-    // Save the redacted result to a new file (never overwrite the source in place).
+    // U05: pre-mutation summary dialog — mark/page counts, the actual
+    // sanitization choice, and destination pickers with defaults and normal
+    // overwrite handling. Replaces the plain confirm box and the old
+    // fixed-destination direct save (RedactMode.cpp `_redacted.pdf` default is
+    // preserved as the dialog's default).
+    RedactApplyPlan plan;
+    plan.sourcePath = pdfPath;
     const QFileInfo fi(pdfPath);
-    const QString outPath = fi.absolutePath() + QLatin1Char('/')
+    plan.destinationPath = fi.absolutePath() + QLatin1Char('/')
         + fi.completeBaseName() + QStringLiteral("_redacted.pdf");
-    if (!m_ctx->pdfEditor->saveDocument(outPath)) {
-        QMessageBox::critical(this, tr("Redaction Failed"),
-            tr("Redactions were applied but saving the result failed:\n\n%1")
-                .arg(m_ctx->pdfEditor->lastError().userMessage));
-        return;
-    }
-
-    // Clear the placed marks now that they are burned in.
-    QList<AnnotationItem> remaining;
+    plan.sanitizedDestinationPath = fi.absolutePath() + QLatin1Char('/')
+        + fi.completeBaseName() + QStringLiteral("_redacted_sanitized.pdf");
+    plan.sourcePageCount = m_viewer->isLoaded() ? m_viewer->pageCount() : 0;
+    plan.sanitize = m_chkSanitizeCopy && m_chkSanitizeCopy->isChecked();
     for (const auto& a : marks) {
-        if (a.mode != ToolMode::Redact) remaining.append(a);
-    }
-    m_viewer->setAnnotations(remaining);
-
-    // §9.8 P0: run the full hidden-data scrub on the saved copy when the
-    // user kept the checkbox on. The original file is untouched (the scrub
-    // re-saves the in-memory redacted document to the new path only).
-    bool sanitized = false;
-    if (m_chkSanitizeCopy && m_chkSanitizeCopy->isChecked()) {
-        sanitized = m_ctx->pdfEditor->sanitizeDocument(outPath);
-        if (!sanitized) {
-            QMessageBox::warning(this, tr("Sanitize Failed"),
-                tr("Redactions were applied and saved, but sanitizing the copy "
-                   "failed:\n\n%1\n\nThe redacted (unsanitized) file remains at %2.")
-                    .arg(m_ctx->pdfEditor->lastError().userMessage, outPath));
+        if (a.mode == ToolMode::Redact) {
+            ++plan.markCount;
+            ++plan.marksPerPage[a.pageIndex];
         }
     }
 
-    if (sanitized) {
-        m_matchCountLabel->setText(tr("Redacted and sanitized copy saved: %1.")
-                                       .arg(QFileInfo(outPath).fileName()));
-        emit statusMessageRequested(tr("Redactions applied; sanitized copy saved to %1.")
-                                        .arg(QFileInfo(outPath).fileName()));
-    } else {
-        m_matchCountLabel->setText(tr("Redaction applied successfully to %1.").arg(QFileInfo(outPath).fileName()));
-        emit statusMessageRequested(tr("Redactions applied and saved to %1.").arg(QFileInfo(outPath).fileName()));
+    RedactApplyDialog dlg(plan, this);
+    if (dlg.exec() != QDialog::Accepted) return; // nothing mutated
+    const RedactApplyPlan chosen = dlg.plan();
+
+    // N04 (review 2026-09-07): the request is built by the ONE shared
+    // plan→request conversion — the same seam the Security entry path uses —
+    // so every dialog field (incl. the §9.8 P1 overlay label) reaches the
+    // operation identically on both paths and can never silently disappear
+    // on either one again.
+    QMap<int, QList<QRectF>> marksByPage;
+    for (const auto& a : marks) {
+        if (a.mode == ToolMode::Redact)
+            marksByPage[a.pageIndex].append(a.rect);
     }
+    runRedactOperation(redactRequestFromPlan(chosen, marksByPage));
+}
+
+// U05: the ONE transactional redaction operation behind this entry path. The
+// live document is never mutated (the operation runs on a disposable private
+// engine and a unique temp candidate); marks are cleared only after the output
+// is committed AND kept, and partial failure is presented by the shared
+// labeled presenter — never by a generic success banner.
+void RedactMode::runRedactOperation(const RedactRequest& request) {
+    // Delete the PREVIOUS operation's progress dialog here — never from the
+    // finished handler below. A modal QProgressDialog::setValue() pumps the
+    // event loop (Qt: "if (isModal() ...) processEvents()"), so a deleteLater
+    // delivered inside that pump frees the dialog under the still-executing
+    // setValue frame (use-after-free in reset()). close() from the finished
+    // handler is safe; nothing can be mid-setValue at the start of a new run.
+    if (m_redactProgress) {
+        m_redactProgress->deleteLater();
+        m_redactProgress = nullptr;
+    }
+    auto* progress = new QProgressDialog(tr("Applying redactions..."), tr("Cancel"),
+                                         0, request.redactionsByPage.size(), this);
+    m_redactProgress = progress;
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(0);
+    progress->show();
+
+    auto* op = new RedactOperation(request, this);
+    connect(progress, &QProgressDialog::canceled, op, &RedactOperation::cancel);
+    connect(op, &RedactOperation::stageChanged, this,
+            [progress](RedactStage stage, int pagesDone, int pagesTotal) {
+                if (stage == RedactStage::Redacting) {
+                    progress->setRange(0, pagesTotal);
+                    progress->setValue(pagesDone);
+                }
+            });
+
+    QPointer<RedactMode> self(this);
+    QPointer<PdfViewerWidget> viewer(m_viewer);
+    connect(op, &RedactOperation::finished, this,
+            [self, progress, viewer](const RedactResult& result) {
+                // Close only — deletion is deferred to the next runRedactOperation
+                // (see the comment there for the QProgressDialog pump hazard).
+                progress->close();
+                if (!self) return;
+                // D01: present() writes the effective terminal result here —
+                // upgraded to Completed when its Retry-sanitize succeeded — so
+                // the banner below reflects the RECOVERED flow, not the
+                // original partial-failure wording.
+                RedactResult effective = result;
+                const auto decision = RedactResultPresenter::present(self, result, &effective);
+                // Marks are cleared only once the redacted output is committed
+                // AND kept; Failed / Canceled / Discard / a FAILED retry keep
+                // them recoverable.
+                const bool committedAndKept =
+                    result.outcome == RedactOutcome::Completed
+                    || (result.outcome == RedactOutcome::PartialRedactedOnly
+                        && decision == RedactResultPresenter::MarkDecision::ClearMarks);
+                if (committedAndKept && viewer) {
+                    const QList<AnnotationItem> annos = viewer->annotations();
+                    QList<AnnotationItem> remaining;
+                    for (const auto& a : annos) {
+                        if (a.mode != ToolMode::Redact) remaining.append(a);
+                    }
+                    viewer->setAnnotations(remaining);
+                }
+                emit self->statusMessageRequested(RedactResultPresenter::bannerText(effective));
+            });
+    // SEP13 M8 (static-LOW): the operation object was heap-allocated with no
+    // deleter — one QObject leaked per run. Delete it on the completion
+    // signal (the sibling mode-owned worker idiom, ConvertController et al.).
+    // Safe against early free by construction (D02): the worker holds the
+    // durable ExecutionState and never dereferences the QObject, and
+    // ~RedactOperation detaches the guarded owner under the delivery mutex,
+    // so the deferred delete cannot race an emission or kill a running
+    // worker. Connected AFTER the result handler so the handler's queued
+    // delivery happens first; the handler itself never touches `op`.
+    connect(op, &RedactOperation::finished, op, &QObject::deleteLater);
+    op->start();
 }
 
 void RedactMode::onClearMarks() {
@@ -556,11 +669,22 @@ void RedactMode::onMarkAllOccurrences() {
     QList<AnnotationItem> annos = m_viewer->annotations();
     int placed = 0;
     for (auto it = matches.constBegin(); it != matches.constEnd(); ++it) {
+        // PGR-37 (D2 delta review 2026-09-23): PatternRedactor rects are RAW
+        // USER space (y-up); annotation marks are VIEWER space (top-origin).
+        // Convert at this boundary: viewerY = displayHeight − (userY +
+        // height). Exact for /Rotate 0; on /Rotate≠0 pages the placement is
+        // approximate (recorded limitation — the excision itself is exact,
+        // and any mark the user reviews still excises what it covers).
+        const double displayH = m_viewer->document()
+            ? m_viewer->document()->pagePointSize(it.key()).height()
+            : 0.0;
         for (const QRectF& r : it.value()) {
             AnnotationItem a;
             a.mode = ToolMode::Redact;
             a.pageIndex = it.key();
-            a.rect = r;
+            a.rect = QRectF(r.x(),
+                            displayH > 0.0 ? displayH - (r.y() + r.height()) : r.y(),
+                            r.width(), r.height());
             annos.append(a);
             ++placed;
         }
@@ -569,6 +693,77 @@ void RedactMode::onMarkAllOccurrences() {
     emit statusMessageRequested(
         tr("Marked %1 occurrence(s) across %2 page(s). Review, then Apply.")
             .arg(placed).arg(matches.size()));
+}
+
+// ── §9.8 P1: multi-term / word-list import for pattern redaction ────────────
+QStringList RedactMode::readWordList(const QString& path, qint64 maxBytes, QString* errorOut)
+{
+    if (errorOut) errorOut->clear();
+    const QFileInfo fi(path);
+    if (!fi.exists() || fi.isDir()) {
+        if (errorOut) *errorOut = tr("File not found: %1").arg(path);
+        return {};
+    }
+    // Hard size cap with an honest error — a multi-megabyte list would freeze
+    // the UI and produce an unreviewable pattern.
+    if (fi.size() > maxBytes) {
+        if (errorOut) *errorOut = tr("The word list is too large (%1 KB) — the limit is %2 KB.")
+                                      .arg((fi.size() + 1023) / 1024).arg(maxBytes / 1024);
+        return {};
+    }
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (errorOut) *errorOut = tr("Could not open %1 for reading.").arg(path);
+        return {};
+    }
+    QStringList terms;
+    QSet<QString> seen;
+    const QStringList lines = QString::fromUtf8(f.readAll())
+                                  .split(QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts);
+    for (QString line : lines) {
+        line = line.trimmed();
+        if (line.isEmpty() || seen.contains(line)) continue;
+        seen.insert(line);
+        terms.append(line);
+    }
+    return terms;
+}
+
+QString RedactMode::wordListToPattern(const QStringList& terms)
+{
+    QStringList escaped;
+    escaped.reserve(terms.size());
+    for (const QString& t : terms)
+        escaped << QRegularExpression::escape(t);
+    return escaped.join(QLatin1Char('|'));
+}
+
+// Import handler: pick a .txt, build the escaped alternation, and drop it in
+// the custom-regex edit for REVIEW — nothing is marked automatically.
+void RedactMode::onImportWordList()
+{
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Import word list"), QString(),
+        tr("Text files (*.txt);;All files (*)"));
+    if (path.isEmpty()) return;
+
+    QString err;
+    const QStringList terms = readWordList(path, 256 * 1024, &err);
+    if (!err.isEmpty()) {
+        QMessageBox::warning(this, tr("Redact"), err);
+        emit statusMessageRequested(err);
+        return;
+    }
+    if (terms.isEmpty()) {
+        const QString msg = tr("The word list contains no terms.");
+        QMessageBox::information(this, tr("Redact"), msg);
+        emit statusMessageRequested(msg);
+        return;
+    }
+    activateCustomRegex(wordListToPattern(terms));
+    emit statusMessageRequested(
+        tr("Imported %1 term(s) — review the combined pattern, then Mark All Occurrences.")
+            .arg(terms.size()));
 }
 
 } // namespace gp

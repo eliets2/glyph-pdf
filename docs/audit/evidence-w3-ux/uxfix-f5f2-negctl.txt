@@ -1,0 +1,24 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 start: image-only fixture OCRME 42 (FIRST-RUN default prefs — F5-F2 pin)
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F-route: clicking welcome card 'ocr'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() [HomeController] Pruned 1 missing recent file(s).
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step1: OCR verify screen open via the welcome route
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F2 shipped defaults as shown on screen: deskew=1 binarize=1 denoise=1
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() Tesseract OCR API Initialized with language: "eng"
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 3s; Run enabled=0 textLen=0 statusBar='Processing OCR (Ensemble (Tesseract + RapidOCR))...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 6s; Run enabled=0 textLen=0 statusBar='Processing OCR (Ensemble (Tesseract + RapidOCR))...'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 9s; Run enabled=1 textLen=17 statusBar='OCR Complete. 3 text blocks detected.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step2 verified: recognized text: 'OCRME 42 OCRME 42'
+FAIL!  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() '!deskewShownOn && !binarizeShownOn && !denoiseShownOn' returned FALSE. (F5-F2: the shipped preprocessing defaults must be honest — destructive deskew/binarize/denoise OFF out of the box (screen showed deskew=1 binarize=1 denoise=1))
+D:/pdf/pdf-r18/tests/TestSweepW3UxFlows.cpp(1466) : failure location
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() QTemporaryDir: Unable to remove "D:\\pdf\\msys64\\tmp\\TestSweepW3UxFlows-kwFvBr" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 9627ms
+********* Finished testing of TestSweepW3UxFlows *********

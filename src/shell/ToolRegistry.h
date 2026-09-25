@@ -35,9 +35,18 @@ public:
     /// Look up which controller owns a ToolId (nullptr if unregistered).
     IToolController* controllerFor(ToolId id) const;
 
+    /// ARC07: re-query every lazily created QAction's enabled state from its
+    /// controller (called when the session's read-only state changes, so
+    /// action enablement always mirrors the shared EditPolicy gate).
+    void refreshEnabledActions();
+
 signals:
     /// Emitted after a tool has been activated.
     void toolActivated(ToolId id);
+    /// ARC07: a tool activation was refused by the shared editability gate
+    /// (the owning controller's isEnabled() said no — read-only mutation).
+    /// The host surfaces EditPolicy::readOnlyMessage().
+    void toolRefused(ToolId id);
 
 private:
     QHash<ToolId, IToolController*> m_controllers;

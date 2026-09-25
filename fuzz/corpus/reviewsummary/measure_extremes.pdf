@@ -1,0 +1,38 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [4 0 R 5 0 R 6 0 R 7 0 R] >>
+endobj
+4 0 obj
+<< /Subtype /Line /Rect [0 0 100 100] /L [0 0 100 100] /Measure << /Type /Measure /R (1 m = 3 pt) /X [{1 0 R}] /A [{2 0 R}] >> >>
+endobj
+5 0 obj
+<< /Subtype /PolyLine /Rect [0 0 100 100] /Vertices [1 2 3] /Measure << /X [{1 0 R}] >> >>
+endobj
+6 0 obj
+<< /Subtype /Ink /Rect [0 0 100 100] /InkList [[1 2 3] []] >>
+endobj
+7 0 obj
+<< /Subtype /Polygon /Rect [0 0 100 100] /Vertices [] /Measure << /X [{1 0 R}] /A [{2 0 R}] >> >>
+endobj
+xref
+0 8
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000226 00000 n 
+0000000371 00000 n 
+0000000477 00000 n 
+0000000554 00000 n 
+trailer
+<< /Size 8 /Root 1 0 R  >>
+startxref
+667
+%%EOF

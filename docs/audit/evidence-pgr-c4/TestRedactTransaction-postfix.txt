@@ -1,0 +1,105 @@
+********* Start testing of TestRedactTransaction *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestRedactTransaction::initTestCase()
+Fontconfig error: Cannot load default config file: File not found
+QDEBUG : TestRedactTransaction::successCommitsRedactedOutputSourceByteIdentical() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-WJDBbd.pdf"
+QDEBUG : TestRedactTransaction::successCommitsRedactedOutputSourceByteIdentical() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-LNtSYM.pdf"
+PASS   : TestRedactTransaction::successCommitsRedactedOutputSourceByteIdentical()
+PASS   : TestRedactTransaction::candidateSaveFailureLeavesSourceAndDestinationIntact()
+QDEBUG : TestRedactTransaction::validationFailureLeavesSourceAndDestinationIntact() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-dzWNRL.pdf"
+PASS   : TestRedactTransaction::validationFailureLeavesSourceAndDestinationIntact()
+QDEBUG : TestRedactTransaction::commitFailureLeavesPreExistingDestinationByteIdentical() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-WGfDEH.pdf"
+PASS   : TestRedactTransaction::commitFailureLeavesPreExistingDestinationByteIdentical()
+PASS   : TestRedactTransaction::engineFailureAfterOnePageFailsAtRedacting()
+PASS   : TestRedactTransaction::cancelBetweenPagesWritesNothing()
+QDEBUG : TestRedactTransaction::sanitizeFailureYieldsPartialRedactedOnly() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-wbbjbA.pdf"
+QDEBUG : TestRedactTransaction::sanitizeFailureYieldsPartialRedactedOnly() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-zHsaRd.pdf"
+PASS   : TestRedactTransaction::sanitizeFailureYieldsPartialRedactedOnly()
+QDEBUG : TestRedactTransaction::signedDocumentIsRefusedInPreflight() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1947
+QDEBUG : TestRedactTransaction::signedDocumentIsRefusedInPreflight() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestRedactTransaction::signedDocumentIsRefusedInPreflight() extractOcspFromDss: catalog keys: false
+QDEBUG : TestRedactTransaction::signedDocumentIsRefusedInPreflight() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestRedactTransaction::signedDocumentIsRefusedInPreflight()
+PASS   : TestRedactTransaction::xfaDocumentIsRefusedInPreflight()
+QWARN  : TestRedactTransaction::patternDrawnSecretFailsRunWithNamedError() exciseContentRegions: "The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box." page 0 — aborting (no visual-only half edit).
+QCRITICAL: TestRedactTransaction::patternDrawnSecretFailsRunWithNamedError() SECURITY: Redaction on page 0 failed to apply content stream surgery: "The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box." Aborting operation to prevent insecure visual-only overlay.
+PASS   : TestRedactTransaction::patternDrawnSecretFailsRunWithNamedError()
+QWARN  : TestRedactTransaction::widgetFieldValueExcisedWhenWidgetMarked() applyRedactions: marked widget — cleared /V//DV on its field (redaction under the mark)
+QDEBUG : TestRedactTransaction::widgetFieldValueExcisedWhenWidgetMarked() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-fqTSpI.pdf"
+PASS   : TestRedactTransaction::widgetFieldValueExcisedWhenWidgetMarked()
+QDEBUG : TestRedactTransaction::underdrawnAppearanceIsAttributedAndRemoved() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-sNbRQI.pdf"
+PASS   : TestRedactTransaction::underdrawnAppearanceIsAttributedAndRemoved()
+QDEBUG : TestRedactTransaction::existingDestinationIsReplacedOnSuccess() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-UTLQNi.pdf"
+PASS   : TestRedactTransaction::existingDestinationIsReplacedOnSuccess()
+QDEBUG : TestRedactTransaction::sanitizeStageFaultLeavesPreExistingSanitizedDestinationIntact() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-rKteKs.pdf"
+PASS   : TestRedactTransaction::sanitizeStageFaultLeavesPreExistingSanitizedDestinationIntact()
+QDEBUG : TestRedactTransaction::sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-tdREph.pdf"
+QDEBUG : TestRedactTransaction::sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-jDeQEj.pdf"
+QDEBUG : TestRedactTransaction::sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-XadRsE.pdf"
+PASS   : TestRedactTransaction::sanitizeCommitFaultLeavesExistingSanitizedDestinationByteIdentical()
+QDEBUG : TestRedactTransaction::sanitizeReplacesExistingSanitizedDestinationOnSuccess() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-NxOYdw.pdf"
+QDEBUG : TestRedactTransaction::sanitizeReplacesExistingSanitizedDestinationOnSuccess() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-MQMqOj.pdf"
+QDEBUG : TestRedactTransaction::sanitizeReplacesExistingSanitizedDestinationOnSuccess() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-EGjTaA.pdf"
+PASS   : TestRedactTransaction::sanitizeReplacesExistingSanitizedDestinationOnSuccess()
+QDEBUG : TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFile() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-vppmHl.pdf"
+QWARN  : TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFile() This plugin does not support propagateSizeHints()
+QDEBUG : TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFile() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-FMyXHZ.pdf"
+QWARN  : TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFile() This plugin does not support propagateSizeHints()
+PASS   : TestRedactTransaction::retryThroughPresenterSucceedsFromCommittedRedactedFile()
+QDEBUG : TestRedactTransaction::retryThroughPresenterFailsAgainKeepsRedactedArtifactAndMarks() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-LLEEIX.pdf"
+QWARN  : TestRedactTransaction::retryThroughPresenterFailsAgainKeepsRedactedArtifactAndMarks() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::retryThroughPresenterFailsAgainKeepsRedactedArtifactAndMarks() This plugin does not support propagateSizeHints()
+PASS   : TestRedactTransaction::retryThroughPresenterFailsAgainKeepsRedactedArtifactAndMarks()
+QDEBUG : TestRedactTransaction::partialResultCarriesIntendedSanitizeDestination() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-oSspBJ.pdf"
+QDEBUG : TestRedactTransaction::partialResultCarriesIntendedSanitizeDestination() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-RWNwbn.pdf"
+QDEBUG : TestRedactTransaction::partialResultCarriesIntendedSanitizeDestination() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-uxHRYM.pdf"
+PASS   : TestRedactTransaction::partialResultCarriesIntendedSanitizeDestination()
+QDEBUG : TestRedactTransaction::cancelDuringSanitizingStageKeepsCommittedArtifacts() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-HAtiav.pdf"
+QDEBUG : TestRedactTransaction::cancelDuringSanitizingStageKeepsCommittedArtifacts() Successfully sanitized document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-XnPvSR.pdf"
+PASS   : TestRedactTransaction::cancelDuringSanitizingStageKeepsCommittedArtifacts()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+QWARN  : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract() This plugin does not support propagateSizeHints()
+PASS   : TestRedactTransaction::presenterMarkDecisionsPinRecoveryContract()
+PASS   : TestRedactTransaction::safeSaveCandidatePathsAreUnique()
+PASS   : TestRedactTransaction::safeSaveCommitReplacesDestinationAndFaultLeavesItIntact()
+QWARN  : TestRedactTransaction::dialogPresentsSummaryDefaultsAndRefusesSourceDestination() This plugin does not support propagateSizeHints()
+PASS   : TestRedactTransaction::dialogPresentsSummaryDefaultsAndRefusesSourceDestination()
+PASS   : TestRedactTransaction::presenterTextIsExplicitForEveryOutcome()
+QDEBUG : TestRedactTransaction::overlayTextIsPrintedOnBurnedInBoxes() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-knrDYM.pdf"
+PASS   : TestRedactTransaction::overlayTextIsPrintedOnBurnedInBoxes()
+QDEBUG : TestRedactTransaction::emptyOverlayTextPreservesCurrentBehavior() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-yoleht.pdf"
+PASS   : TestRedactTransaction::emptyOverlayTextPreservesCurrentBehavior()
+QDEBUG : TestRedactTransaction::overlaySkippedWhenBoxTooSmall() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-QvLYvA.pdf"
+PASS   : TestRedactTransaction::overlaySkippedWhenBoxTooSmall()
+QDEBUG : TestRedactTransaction::overlaySkippedWhenBoxTooNarrow() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-kJiJEB.pdf"
+PASS   : TestRedactTransaction::overlaySkippedWhenBoxTooNarrow()
+QDEBUG : TestRedactTransaction::overlayCenteredHorizontallyInWideBox() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-pxCTwB.pdf"
+PASS   : TestRedactTransaction::overlayCenteredHorizontallyInWideBox()
+QDEBUG : TestRedactTransaction::overlayGlyphsStayInsideMinimumHeightBox() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-xlJdCu.pdf"
+PASS   : TestRedactTransaction::overlayGlyphsStayInsideMinimumHeightBox()
+QDEBUG : TestRedactTransaction::startDeliversFinishedViaQueuedConnectionToLiveOwner() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-gjZoew.pdf"
+PASS   : TestRedactTransaction::startDeliversFinishedViaQueuedConnectionToLiveOwner()
+PASS   : TestRedactTransaction::asyncCancelIsHonoredAndDelivered()
+QDEBUG : TestRedactTransaction::repeatedStartRunsOnceAndOwnerDestroyedBeforeDispatchIsSafe() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-kCytxq.pdf"
+PASS   : TestRedactTransaction::repeatedStartRunsOnceAndOwnerDestroyedBeforeDispatchIsSafe()
+QDEBUG : TestRedactTransaction::ownerDestroyedMidRunWorkerCompletesOnDurableStateWithoutCallbacks() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-MNLOYg.pdf"
+PASS   : TestRedactTransaction::ownerDestroyedMidRunWorkerCompletesOnDurableStateWithoutCallbacks()
+QDEBUG : TestRedactTransaction::syncRunTwiceExecutesOnce() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-BHZtit.pdf"
+PASS   : TestRedactTransaction::syncRunTwiceExecutesOnce()
+QDEBUG : TestRedactTransaction::runThenStartExecutesOnce() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-VetSkY.pdf"
+PASS   : TestRedactTransaction::runThenStartExecutesOnce()
+QDEBUG : TestRedactTransaction::startThenRunExecutesOnce() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-APObuj.pdf"
+PASS   : TestRedactTransaction::startThenRunExecutesOnce()
+QDEBUG : TestRedactTransaction::syncOwnerDeletedFromDirectFinishedSlotRunStillCompletes() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-uWSWLf.pdf"
+PASS   : TestRedactTransaction::syncOwnerDeletedFromDirectFinishedSlotRunStillCompletes()
+QDEBUG : TestRedactTransaction::syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCallbacks() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-OVoDkB.pdf"
+PASS   : TestRedactTransaction::syncOwnerDeletedAtPageBoundaryRunCompletesWithoutCallbacks()
+PASS   : TestRedactTransaction::cleanupTestCase()
+Totals: 42 passed, 0 failed, 0 skipped, 0 blacklisted, 2321ms
+********* Finished testing of TestRedactTransaction *********

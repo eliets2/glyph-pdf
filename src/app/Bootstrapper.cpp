@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "Bootstrapper.h"
 #include "core/AppContext.h"
+#include "core/Capability.h"
+#include "core/FormStaleFieldTracker.h"
 
 #include "engines/scheduling/LaneScheduler.h"
 #include "engines/OcrEngine.h"
@@ -48,6 +50,39 @@ AppContext Bootstrapper::createContext() {
     ctx.djotCodec       = std::make_shared<pdfws::LuaDjotCodec>(djotPath);
     ctx.djotMapper      = std::make_shared<pdfws::PdfStructureMapper>();
     ctx.provenanceGuard = std::make_shared<pdfws::ProvenanceGuard>();
+
+    // U08: the ONE capability registry, registered next to the engines whose
+    // truth the probes wrap (OfficeImport→ConversionManager::locateSoffice,
+    // OcrRapidModels→the ppocrv5 path probe, R12 compression passes, export
+    // writers, signature kinds, veraPDF). Cached per (id, param); consumers
+    // invalidate after environment changes ("Download LibreOffice…", prefs).
+    ctx.capabilities = std::make_shared<gp::CapabilityRegistry>();
+    ctx.capabilities->registerEngineProbes();
+
+    // R18(a): the persistent stale-calculated-field disclosure store.
+    ctx.formStale = std::make_shared<gp::FormStaleFieldTracker>();
+    // N2 (backlog 2026-09-10): XFA honesty probe — param is the PDF file
+    // path. The probe wraps IFormManager::hasXfaForms (the /AcroForm /XFA
+    // dict check), so the open-time disclosure and any future consumer read
+    // the SAME truth through the registry. XFA present = Degraded with the
+    // canonical whyNot/alternative; no XFA = Available (nothing disclosed).
+    std::weak_ptr<IFormManager> formsWeak = ctx.forms;
+    ctx.capabilities->registerProbe(
+        gp::CapId::XfaForms, [formsWeak](const QVariant& param) -> gp::Capability {
+            gp::Capability c;
+            c.status = gp::Availability::Available;
+            const QString path = param.toString();
+            auto forms = formsWeak.lock();
+            if (path.isEmpty() || !forms) return c;   // nothing to disclose
+            if (!forms->hasXfaForms(path)) return c;  // honest "no XFA here"
+            c.status = gp::Availability::Degraded;
+            c.whyNot = gp::xfaFormsWhyNot();
+            c.alternative = gp::xfaFormsAlternative();
+            c.detail = QStringLiteral(
+                "IFormManager::hasXfaForms found an /AcroForm /XFA entry in %1")
+                .arg(path);
+            return c;
+        });
 
     return ctx;
 }

@@ -24,12 +24,29 @@ void ToolRegistry::registerController(IToolController* ctrl) {
 
 void ToolRegistry::activate(ToolId id) {
     IToolController* ctrl = m_controllers.value(id, nullptr);
-    if (ctrl) {
-        ctrl->activate(id);
-        emit toolActivated(id);
-    } else {
+    if (!ctrl) {
         qWarning() << "ToolRegistry::activate — no controller for"
                     << toolIdToString(id);
+        return;
+    }
+    // ARC07 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): the shared mutation gate.
+    // isEnabled() is the EditPolicy predicate every mutating controller
+    // implements, so tool DISPATCH and action ENABLEMENT are one decision —
+    // a read-only session refuses mutating tools here, before any controller
+    // pushes a command or calls the engine.
+    if (!ctrl->isEnabled(id)) {
+        emit toolRefused(id);
+        return;
+    }
+    ctrl->activate(id);
+    emit toolActivated(id);
+}
+
+void ToolRegistry::refreshEnabledActions() {
+    for (auto it = m_actions.begin(); it != m_actions.end(); ++it) {
+        IToolController* ctrl = m_controllers.value(it.key(), nullptr);
+        if (ctrl)
+            it.value()->setEnabled(ctrl->isEnabled(it.key()));
     }
 }
 

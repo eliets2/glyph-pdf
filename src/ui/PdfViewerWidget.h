@@ -20,7 +20,33 @@ class QSpinBox;
 class QLabel;
 class QRubberBand;
 class QMouseEvent;
+class QBuffer;
 QT_END_NAMESPACE
+
+// ── §9.7 P0: on-page signature validity badges (VIEW-LAYER ONLY) ────────────
+// ISO 32000-2 forbids embedding validation status inside the field appearance
+// and Acrobat's ribbon is viewer-drawn, so badges are never written into the
+// PDF (nor the .ann sidecar): they live exclusively in this widget's paint
+// path. Four states map from the validation flow's SignatureInfo:
+//   integrityIntact==false                  → ModifiedAfterSigning (red X)
+//   integrityIntact && isValid && trusted   → ValidTrusted          (green ✓)
+//   integrityIntact && untrusted chain      → UntrustedChain        (amber ?)
+//   no validation data                      → Unknown               (gray ?)
+enum class SignatureBadgeState {
+    ValidTrusted,           ///< Green check — integrity intact, chain trusted.
+    UntrustedChain,         ///< Amber "?" — integrity intact, chain untrusted.
+    ModifiedAfterSigning,   ///< Red X — integrity check failed.
+    Unknown                 ///< Gray "?" — not validated / no data.
+};
+
+/// One on-page badge. `fieldRect` is in PAGE space with the TOP-LEFT origin
+/// (points) — the same convention as QPdfLink::rectangles().
+struct SignatureBadgeSpec {
+    int pageIndex = -1;      ///< 0-based page; -1 = not anchored to a page.
+    QRectF fieldRect;        ///< Signature field rect in page points (top-left origin).
+    SignatureBadgeState state = SignatureBadgeState::Unknown;
+    QString tooltip;         ///< Signer name + status detail.
+};
 
 
 class PdfViewerWidget : public QWidget
@@ -46,11 +72,42 @@ public:
     // §9.7 P0: arm the pending signature image produced by the Draw/Type/Upload
     // picker (SignaturePickerDialog) for the AddSignatureTyped/Upload modes.
     void setPendingSignatureImage(const QImage &img);
+    // T2-6: arm the resolved dynamic stamp text for the Stamp placement mode
+    // (call AFTER setToolMode(ToolMode::Stamp) — setMode clears it elsewhere).
+    void setPendingStampText(const QString &text);
     void deleteSelectedAnnotation();
     QList<AnnotationItem> annotations() const;
+    // ── G14 (QUALITY-GATE-2026-09-09): sidecar persistence vs PDF commit ────
+    // The .ann sidecar is INTERMEDIATE durability: it keeps annotation work
+    // alive across switches and restarts, but the PDF on disk does not carry
+    // the annotations until embedAnnotations commits them (Save). The sidecar
+    // envelope records which state it holds ("embeddedIntoPdf"), so:
+    //   * hasPendingEmbedAnnotations() is true exactly when the displayed
+    //     document carries annotations that are NOT yet in the PDF — the
+    //     shell's checked transition policy (openDocument / close) runs on it;
+    //   * markAnnotationsCommittedIntoPdf() is called by the save boundary
+    //     AFTER embedAnnotations succeeded, so a later reopen restores CLEAN
+    //     instead of resurrecting committed work as unsaved.
+    bool hasPendingEmbedAnnotations() const;
+    void markAnnotationsCommittedIntoPdf();
     void searchDocument(const QString &text, bool forward, bool matchCase, bool wholeWords);
 
     void setOcrResults(const QList<OcrResult> &results);
+
+    // ── §9.7 P0: on-page signature validity badge overlay ───────────────────
+    // View-layer only: replaces the whole badge set and repaints (an EMPTY
+    // list clears every badge). Callers feed {pageIndex, fieldRect, state,
+    // tooltip}; specs without a valid page index / rect are stored but not
+    // painted (they carry no on-page anchor).
+    void setSignatureBadges(const QList<SignatureBadgeSpec> &badges);
+    QList<SignatureBadgeSpec> signatureBadges() const;
+    /// Badge fill color per state — single source of truth for the painter,
+    /// the tooltip layer and the tests.
+    static QColor signatureBadgeColor(SignatureBadgeState state);
+    /// Tooltip of the badge whose 16px disc contains `viewportPos` (viewport
+    /// coordinates of the PDF view), or an empty string. Backs the ToolTip
+    /// event handling for the mouse-transparent badge overlay.
+    QString signatureBadgeTooltipAt(const QPoint &viewportPos) const;
 
     // Page navigation
     void goToPage(int page);
@@ -73,10 +130,23 @@ public:
     void setPageMode(QPdfView::PageMode mode);
     void setTwoPageMode(bool enabled);
     void toggleEyeCareMode();
+    bool isEyeCareMode() const { return m_eyeCareMode; }
+    // Night Mode: full RGB inversion of the rendered page pixels (dark page,
+    // light text) — distinct from Dark Mode (application chrome only) and Eye
+    // Care (a sepia tint that leaves the page background bright). The two
+    // reading filters share the page surfaces, so enabling one turns the
+    // other off.
+    void toggleNightMode();
+    bool isNightMode() const { return m_nightMode; }
     void setOverlayImage(const QImage &img);
 
     // Export
     QImage renderPage(int page, qreal scaleFactor = 2.0) const;
+
+    /// R12: drop the internal rendered-page cache (document switches do this
+    /// automatically). Public so measurement harnesses and tests can pin the
+    /// cold-vs-cached behaviour of the real view.
+    void clearPageCache();
     void extractPages(int from, int to, const QString &outputFile);
     void deletePages(int from, int to, const QString &outputFile);
     void insertBlankPage(int index, const QString &outputFile);
@@ -104,6 +174,23 @@ public:
     // in GpMainWindow). Without a reader the viewer simply has no links.
     void setLinkReader(std::function<QList<PdfLinkInfo>(const QString &path, int page)> reader);
 
+    // ── Engine-lane residual (TEAM-ENGINE-CODE-REVIEW-2026-09-07 EC01
+    //    follow-up, repaired by the 2026-09-08 persistence lane): in-place
+    //    writes coordinate the viewer handle. Qt's QPdfDocument holds the
+    //    displayed file open, which turns the atomic SafeSave replacement
+    //    into "Access is denied" for EVERY in-place write.
+    // parkDocumentForWrite(path): when this widget displays `path`, release
+    //   the file handle by swapping the resident document to an in-memory
+    //   parking device (Qt's close() does NOT release the owned file device —
+    //   only the next load() replaces it). Idempotent; returns whether parked.
+    // restoreDocumentAfterWrite(path): when parked for `path`, reload from
+    //   disk — the file is either the committed result or the preserved
+    //   original, so the displayed bytes are truthful again either way.
+    // The SafeSave coordinator installed by MainWindow calls these around
+    // every same-path commit; forms' swap flow reuses the same primitives.
+    bool parkDocumentForWrite(const QString &path);
+    void restoreDocumentAfterWrite(const QString &path);
+
 signals:
     void pageChanged(int currentPage, int totalPages);
     void navigationChanged(bool canBack, bool canForward);
@@ -112,6 +199,20 @@ signals:
     // annotation overlay.
     void requestPageRotation(int degrees);
     void annotationsChanged();
+    // ARC04 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): a USER annotation edit
+    // (draw, comment, delete, redact mark, or an EditAnnotationCommand
+    // applied from the inspector/comments) dirties the session through the
+    // same pipeline as command mutations. Emitted for every layer change
+    // EXCEPT those made while (re)loading a document — an open/reload is not
+    // an edit of the freshly published identity.
+    void annotationEdited();
+    // G14 (QUALITY-GATE-2026-09-09): emitted once per (re)load with the
+    // document's pending-embed state — true when the loaded sidecar holds
+    // annotations that the PDF on disk does NOT carry (unembedded work). The
+    // shell marks the freshly published session dirty so the work keeps its
+    // unsaved-PDF representation across reopen (the old reopen restored the
+    // annotations and marked the session CLEAN).
+    void pendingEmbedAnnotationsRestored(bool pending);
     void textEditRequested(int pageIndex, QPointF pos);
     void pageOperationFinished();
     void cropRequested(int pageIndex, QRectF cropRect);
@@ -127,13 +228,43 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    // R17: keyboard-complete core navigation — PageUp/PageDown (and Prior/
+    // Next) turn pages, Home/End jump to the first/last page. The widget is
+    // Tab-reachable (StrongFocus), so the navigate route is keyboard-complete
+    // without reaching for the mouse.
+    void keyPressEvent(QKeyEvent *event) override;
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     void onPageChanged();
     void updateRotation();
 
 private:
-    void clearPageCache();
+
+    // ARC02 (TEAM-ARCHITECTURE-REVIEW-2026-09-07): document-identity helpers.
+    // flushPendingAnnotationSave() writes any PENDING debounced sidecar work
+    // synchronously against the CURRENT (old) document path — called before a
+    // document identity change so pending work can never resolve the NEW
+    // mutable path, and so the flush is complete before the switch returns.
+    // writeAnnotationsNow() is its synchronous single-writer primitive (the
+    // detached-thread writer at shutdown would race process teardown).
+    void flushPendingAnnotationSave();
+    void writeAnnotationsNow(const QString &filePath);
+
+    // ARC04: true while loadDocument() (re)loads annotation state — those
+    // layer changes are loads, not user edits, and must not dirty the session.
+    bool m_suppressAnnotationDirty = false;
+
+    // G14 (QUALITY-GATE-2026-09-09): whether the annotations currently held
+    // for m_filePath are committed INTO the PDF on disk. Written into (and
+    // read back from) the sidecar envelope as "embeddedIntoPdf". Defaults to
+    // true — only PROVEN-unembedded work (a user edit after commit, or a
+    // sidecar envelope that recorded unembedded work) flips it to false, so
+    // legacy/foreign sidecars never fabricate pending state.
+    bool m_annotationsEmbedded = true;
+
+    // Engine-lane residual: park/restore state for in-place writes.
+    bool m_parkedForWrite = false;
+    QBuffer *m_parkBuffer = nullptr;   // empty in-memory device; opened in the ctor
 
     QPdfDocument *m_document;
     QPdfView *m_pdfView;
@@ -156,7 +287,11 @@ private:
     // View Modes
     bool m_twoPageMode = false;
     bool m_eyeCareMode = false;
-    class QGraphicsColorizeEffect *m_eyeCareEffect = nullptr;
+    bool m_nightMode = false;
+    // Reading-filter effects are NOT cached: QWidget::setGraphicsEffect()
+    // deletes the installed effect when another one (or nullptr) replaces it,
+    // so a cached pointer dangles after the first toggle-off.
+    void applyReadingFilter();
     class QScrollArea *m_twoPageScrollArea = nullptr;
     class QLabel *m_leftPageLabel = nullptr;
     class QLabel *m_rightPageLabel = nullptr;
@@ -208,4 +343,17 @@ private:
     QList<int> m_pageHistory;
     int m_historyIndex = -1;
     bool m_navigatingHistory = false;
+
+    // ── §9.7 P0: on-page signature validity badges ──────────────────────────
+    // m_badgeOverlay is a mouse-transparent child stacked above the annotation
+    // layer; it paints the badges for the current page in single-page mode.
+    // Two-page mode instead composites them into the page pixmaps via
+    // paintTwoPageOverlays(). Nothing here is ever serialized.
+    friend class SignatureBadgeOverlay;
+    class SignatureBadgeOverlay *m_badgeOverlay = nullptr;
+    QList<SignatureBadgeSpec> m_badges;
+    void syncBadgeOverlayGeometry();
+    /// Viewport-coordinate center of the badge disc for `spec` (top-right
+    /// corner of the field rect mapped like handleLinkClick's page mapping).
+    QPointF badgeViewportCenter(const SignatureBadgeSpec &spec, const QSize &vpSize, qreal zoom) const;
 };

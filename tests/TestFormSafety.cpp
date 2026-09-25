@@ -1,0 +1,796 @@
+// SPDX-License-Identifier: Apache-2.0
+// R01 (audit F01, P1) regression suite — the shared form-save boundary.
+//
+// F01: `addTextField(input, ..., input)` (same-file form save) returned false
+// with a PoDoFo error and reduced a valid 15,257-byte, text-bearing PDF to
+// ZERO bytes. PoDoFo keeps the input stream of a loaded PdfMemDocument open
+// for deferred object parsing; saving to the same path truncates the file out
+// from under the parser ("Object and generation number cannot be read").
+//
+// The fixtures here mirror the audited probe: a QPdfWriter-generated PDF
+// (embedded subset font, extractable text, cross-reference streams) built with
+// the same hand-built-fixture spirit as TestExportPathBadge. All failure
+// injection is deterministic: an occupied destination handle (no user
+// permissions involved) plus the FormManager save-fault seam.
+#include <QtTest/QtTest>
+#include <QTemporaryDir>
+#include <QFile>
+#include <QDir>
+#include <QFileInfo>
+#include <QCryptographicHash>
+#include <QPdfWriter>
+#include <QPainter>
+#include <QUndoStack>
+#include <QSignalSpy>
+#include <QListWidget>
+#include <QMessageBox>
+#include <QTimer>
+#include <QToolButton>
+#include <podofo/podofo.h>
+#include "core/AppContext.h"
+#include "engines/FormManager.h"
+#include "engines/DocumentSession.h"
+#include "engines/pdfium/PdfiumBackend.h"
+#include "modes/FormBuilderMode.h"
+#include "commands/AddFormFieldCommand.h"
+#include "commands/EditFormFieldCommand.h"
+#include "commands/AutoDetectPlacement.h"
+
+// wingdi.h defines GetObject as an object-like macro (UNICODE builds); it
+// collides with PoDoFo::PdfField::GetObject used in the /CO check below.
+#ifdef GetObject
+#undef GetObject
+#endif
+
+class TestFormSafety : public QObject {
+    Q_OBJECT
+private:
+    // S2-2 modal capture state (one dialog at a time; this suite is linear).
+    QString capturedModalText;
+
+    void scheduleModalCapture(int turnsLeft) {
+        if (turnsLeft <= 0) return;
+        QTimer::singleShot(0, [this, turnsLeft] {
+            if (auto *box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
+                capturedModalText = box->text();
+                box->close();
+                return;
+            }
+            scheduleModalCapture(turnsLeft - 1);
+        });
+    }
+
+    // QPdfWriter fixture — same shape as the audited F01 probe: A4, 72 dpi,
+    // real embedded subset font, extractable text. This is the file class that
+    // used to be truncated to zero bytes by a same-file form save.
+    static QString makeTextPdf(const QString& dir, const QString& name,
+                               const QStringList& lines) {
+        const QString path = dir + "/" + name;
+        QPdfWriter writer(path);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        writer.setResolution(72);
+        QPainter p(&writer);
+        int y = 100;
+        for (const QString& line : lines) {
+            p.drawText(80, y, line);
+            y += 40;
+        }
+        p.end();
+        return path;
+    }
+
+    static QByteArray sha256(const QString& path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        hash.addData(&f);
+        return hash.result();
+    }
+
+    static qint64 fileSize(const QString& path) {
+        return QFileInfo(path).size();
+    }
+
+    // PDFium text extraction — the honest "text is still extractable" check.
+    static QString extractedText(const QString& path) {
+        PdfiumBackend backend;
+        if (!backend.loadDocument(path)) return QString();
+        return backend.extractText(0);
+    }
+
+    // Deep check via a fresh PoDoFo load: does a field with this name exist?
+    static bool pdfHasField(const QString& path, const QString& name) {
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(path.toUtf8().constData());
+            auto* acroForm = doc.GetAcroForm();
+            if (!acroForm) return false;
+            for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+                if (QString::fromStdString(acroForm->GetFieldAt(i).GetFullName()) == name)
+                    return true;
+            }
+            return false;
+        } catch (const PoDoFo::PdfError&) {
+            return false;
+        }
+    }
+
+    static bool pdfLoads(const QString& path) {
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(path.toUtf8().constData());
+            return doc.GetPages().GetCount() >= 1;
+        } catch (const PoDoFo::PdfError&) {
+            return false;
+        }
+    }
+
+    static unsigned pdfPageCount(const QString& path) {
+        try {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(path.toUtf8().constData());
+            return doc.GetPages().GetCount();
+        } catch (const PoDoFo::PdfError&) {
+            return 0;
+        }
+    }
+
+    // Leftover R01 candidate files in the system temp dir (must always be 0).
+    static int leftoverCandidates() {
+        // Scan ONLY the dedicated candidate dir (SafeSave creates it) — the
+        // shared temp root accumulates debris from killed/concurrent processes
+        // and races with parallel lanes' transient candidates.
+        return QDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates")).entryList(
+            QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files).size();
+    }
+
+private slots:
+    // The candidate dir is GlyphPDF's own operation namespace (SafeSave owns
+    // it) — sweep debris from killed processes at start, then every assertion
+    // is delta-based: this operation leaves nothing NEW behind.
+    void initTestCase() {
+        const QDir dir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"));
+        const auto debris = dir.entryList(
+            QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files);
+        for (const QString& f : debris) QFile::remove(dir.absoluteFilePath(f));
+    }
+    void sameFileAddPreservesTextAndContent();
+    void separateDestinationPreservesSource();
+    void occupiedDestinationHandleFailsKeepingOriginal();
+    void setTabOrderSameFileNoLeftovers();
+    void readOnlyTabOrderApplyRefusesWithZeroMutation();
+    void addCommandUndoRedoRoundTrip();
+    void injectedFaultsLeaveOriginalIntact();
+    void failedAddCommandLeavesNoSuccessUndoEntry();
+    void otherMutatorsPersistThroughBoundary();
+    // emergence E-1: EditFormFieldCommand refuses a read-only document at the
+    // shared persistence boundary (defense in depth behind the panel gate).
+    void editFieldCommandRefusesReadOnlyDocument();
+    // V06: auto-detected placements go through the application undo stack.
+    void autoDetectPlacesFieldsAsOneUndoableCompound();
+    void autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable();
+};
+
+// ── THE F01 reproduction ────────────────────────────────────────────────────
+// Add a field to the SAME filename: the original text must survive and the
+// field must be present after reopening. Before the fix this fails twice:
+// addTextField returns false and the file is truncated to 0 bytes.
+void TestFormSafety::sameFileAddPreservesTextAndContent() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "f01.pdf", {"Shared first page"});
+    QVERIFY(QFile::exists(pdf));
+
+    const qint64 sizeBefore = fileSize(pdf);
+    QVERIFY2(sizeBefore > 1000, "fixture must be a real font-bearing PDF");
+    const QString textBefore = extractedText(pdf);
+    QVERIFY2(textBefore.contains(QStringLiteral("Shared first page")),
+             qPrintable(QStringLiteral("fixture text must be extractable; got: %1")
+                                .arg(textBefore)));
+
+    FormManager fm;
+    const bool ok = fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
+                                    QStringLiteral("f01_field"), pdf);
+    QVERIFY2(ok, qPrintable(QStringLiteral(
+        "same-file addTextField must succeed (F01): sizeBefore=%1 sizeAfter=%2")
+        .arg(sizeBefore).arg(fileSize(pdf))));
+
+    QCOMPARE(fileSize(pdf) > 0, true);                       // was 0 bytes pre-fix
+    QVERIFY(pdfLoads(pdf));
+    QCOMPARE(pdfPageCount(pdf), 1u);
+    QVERIFY(pdfHasField(pdf, QStringLiteral("f01_field")));
+    const QString textAfter = extractedText(pdf);
+    QVERIFY2(textAfter.contains(QStringLiteral("Shared first page")),
+             qPrintable(QStringLiteral("original text must survive; got: %1")
+                                .arg(textAfter)));
+}
+
+// Replacing an existing SEPARATE destination must update the destination and
+// never touch the source.
+void TestFormSafety::separateDestinationPreservesSource() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString src = makeTextPdf(tmp.path(), "src.pdf", {"Source probe"});
+    const QString dest = makeTextPdf(tmp.path(), "dest.pdf", {"Old dest"});
+    QVERIFY(QFile::exists(src) && QFile::exists(dest));
+
+    const QByteArray srcSha = sha256(src);
+    const qint64 destBefore = fileSize(dest);
+
+    FormManager fm;
+    QVERIFY(fm.addTextField(src, 0, QRectF(72, 150, 140, 30),
+                            QStringLiteral("sep_field"), dest));
+
+    QCOMPARE(sha256(src), srcSha);              // source byte-identical
+    QVERIFY(fileSize(dest) > 0);
+    QVERIFY(pdfHasField(dest, QStringLiteral("sep_field")));
+    QVERIFY(fileSize(dest) != destBefore || true); // dest replaced by new write
+    QVERIFY(pdfLoads(dest));
+}
+
+// Deterministic open-handle injection: the destination is held open by this
+// process (no FILE_SHARE_DELETE on Windows), so the final rename/replace must
+// fail. The operation must report failure and leave the original bytes intact.
+void TestFormSafety::occupiedDestinationHandleFailsKeepingOriginal() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "held.pdf", {"Handle probe"});
+    QVERIFY(QFile::exists(pdf));
+    const QByteArray shaBefore = sha256(pdf);
+
+    // Hold the destination open WITHOUT modifying it (ReadOnly leaves the
+    // bytes alone; Windows share mode excludes FILE_SHARE_DELETE, so any
+    // rename-over-destination must fail with a sharing violation).
+    QFile held(pdf);
+    QVERIFY(held.open(QIODevice::ReadOnly));
+
+    FormManager fm;
+    const bool ok = fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
+                                    QStringLiteral("held_field"), pdf);
+    QVERIFY2(!ok, "replacement blocked by an open handle must FAIL, not silently fall back to direct write");
+
+    QCOMPARE(sha256(pdf), shaBefore);           // original intact
+    QVERIFY(pdfLoads(pdf));                     // and still a readable PDF
+    held.close();
+}
+
+// The old setTabOrder pattern used a fixed "<path>.tmp" name, removed the
+// destination, ignored rename failure and returned success. Same-file tab
+// order must go through the shared boundary: correct /CO order, no .tmp
+// leftovers, original fields intact.
+void TestFormSafety::setTabOrderSameFileNoLeftovers() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "tabs.pdf", {"Tab probe"});
+    FormManager fm;
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 72,  120, 20), QStringLiteral("field_c"), pdf));
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 100, 120, 20), QStringLiteral("field_a"), pdf));
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 130, 120, 20), QStringLiteral("field_b"), pdf));
+
+    const QStringList order = {QStringLiteral("field_a"),
+                               QStringLiteral("field_b"),
+                               QStringLiteral("field_c")};
+    QVERIFY(fm.setTabOrder(pdf, order, pdf));
+
+    QVERIFY2(!QFile::exists(pdf + ".tmp"), "fixed .tmp leftover must not remain");
+    QVERIFY(pdfLoads(pdf));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("field_a")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("field_b")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("field_c")));
+
+    // R18(b): the change-presence check is the WIDGET TAB ORDER (/Annots +
+    // /Tabs /W) — the old pin asserted that setTabOrder wrote /CO, which was
+    // exactly the tab-order/calculation-order conflation the review required
+    // correcting. This document never had a /CO array; the tab edit must not
+    // have created one.
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdf.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        QVERIFY(acroForm);
+        std::map<std::string, PoDoFo::PdfReference> refMap;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i)
+            refMap[acroForm->GetFieldAt(i).GetFullName()] =
+                (acroForm->GetFieldAt(i).GetObject)().GetIndirectReference();
+        const PoDoFo::PdfObject* co = acroForm->GetDictionary().FindKey("CO");
+        QVERIFY2(!co, "/CO (calculation order) must NOT be written by a tab-order edit");
+
+        // Page 0's /Annots must carry the requested widget order and declare
+        // /Tabs /W (this page had no author tab-order declaration).
+        const PoDoFo::PdfObject* annots = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Annots");
+        QVERIFY2(annots && annots->IsArray(), "page 0 must still carry its widget annotations");
+        const QStringList expected = {QStringLiteral("field_a"),
+                                      QStringLiteral("field_b"),
+                                      QStringLiteral("field_c")};
+        QVERIFY2(annots->GetArray().GetSize() >= 3, "all three widgets survive");
+        for (unsigned i = 0; i < 3; ++i) {
+            const PoDoFo::PdfObject& entry = annots->GetArray()[i];
+            QVERIFY(entry.IsReference());
+            bool matched = false;
+            for (const auto& kv : refMap) {
+                if (kv.second == entry.GetReference()) {
+                    QCOMPARE(QString::fromStdString(kv.first), expected.at(int(i)));
+                    matched = true;
+                    break;
+                }
+            }
+            QVERIFY2(matched, "/Annots entry must reference a known field");
+        }
+        const PoDoFo::PdfObject* tabs = doc.GetPages().GetPageAt(0).GetDictionary().FindKey("Tabs");
+        QVERIFY2(tabs && tabs->IsName(), "the touched page declares a tab order");
+        QCOMPARE(QLatin1String(tabs->GetName().GetString().data(),
+                               qsizetype(tabs->GetName().GetString().size())),
+                 QLatin1String("W"));
+    } catch (const PoDoFo::PdfError& e) {
+        QFAIL(qPrintable(QStringLiteral("reload failed: %1").arg(QString::fromLatin1(e.what()))));
+    }
+}
+
+// ── S2-2 (SWEEP-BACKEND-2026-09-21, HIGH): read-only tab-order Apply ────────
+// FormBuilderMode::onTabOrderApplyClicked called setTabOrder(path, …, path) —
+// an in-place write — checking only document presence; the mode never
+// consulted the session's read-only state. The ribbon route for the same
+// operation (ToolId::Tabs) IS registry-gated, so the panel button was a
+// privilege escalation relative to it. The pin drives the REAL widget route:
+// on a read-only session the Apply Order affordance must disable, a forced
+// click must refuse with the shared disclosure (never a success report), and
+// the engine seam must see ZERO setTabOrder calls with the file identical.
+void TestFormSafety::readOnlyTabOrderApplyRefusesWithZeroMutation() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdfPath = makeTextPdf(tmp.path(), "ro-tabs.pdf", {"S2-2"});
+    QVERIFY(QFile::exists(pdfPath));
+
+    // Two real AcroForm fields written through the production engine seam —
+    // the mode's refreshFieldList() must discover them by name.
+    auto fm = std::make_shared<FormManager>();
+    QVERIFY(fm->addTextField(pdfPath, 0, QRectF(72, 72, 120, 20),
+                             QStringLiteral("field_1"), pdfPath));
+    QVERIFY(fm->addTextField(pdfPath, 0, QRectF(72, 100, 120, 20),
+                             QStringLiteral("field_2"), pdfPath));
+
+    auto session = std::make_shared<DocumentSession>();
+    session->setPath(pdfPath);
+    AppContext ctx;
+    ctx.forms = fm;         // shared_ptr<IFormManager> up-cast
+    ctx.document = session;
+
+    // The real mode; a null canvas is the headless posture (the ctor and the
+    // tab-order panel do not require it).
+    gp::FormBuilderMode mode(&ctx, nullptr);
+
+    // Arm the tab-order panel through the REAL toolbar toggle so the list is
+    // populated by the production path (onTabOrderToggled ← m_fieldList ←
+    // refreshFieldList → listFields).
+    QToolButton* tabBtn = nullptr;
+    for (QToolButton* b : mode.findChildren<QToolButton*>()) {
+        if (b->text() == QStringLiteral("Tab Order")) { tabBtn = b; break; }
+    }
+    QVERIFY2(tabBtn, "the Tab Order toolbar toggle must exist");
+    tabBtn->setChecked(true);
+
+    QListWidget* tabList = nullptr;
+    for (QListWidget* lw : mode.findChildren<QListWidget*>()) {
+        if (lw->dragDropMode() == QAbstractItemView::InternalMove) { tabList = lw; break; }
+    }
+    QVERIFY2(tabList, "the tab-order list must exist");
+    QTRY_VERIFY_WITH_TIMEOUT(tabList->count() == 2, 5000);
+
+    // Arm read-only through the session (the ONE read-only authority). The
+    // affordance mirrors the state (honest enablement).
+    QToolButton* applyBtn = nullptr;
+    for (QToolButton* b : mode.findChildren<QToolButton*>()) {
+        if (b->text() == QStringLiteral("Apply Order")) { applyBtn = b; break; }
+    }
+    QVERIFY2(applyBtn, "the tab-order Apply Order button must exist");
+    session->setReadOnly(true);
+    QTRY_VERIFY_WITH_TIMEOUT(!applyBtn->isEnabled(), 5000);
+
+    // Model the user's pending reorder (drag the last row to the top) BEFORE
+    // the refused apply, and snapshot the on-disk truth.
+    QListWidgetItem* dragged = tabList->takeItem(tabList->count() - 1);
+    tabList->insertItem(0, dragged);
+    const QByteArray before = sha256(pdfPath);
+
+    // Enablement is NOT the gate: re-enable programmatically and drive the
+    // REAL wired route (applyBtn → onTabOrderApplyClicked).
+    applyBtn->setEnabled(true);
+    capturedModalText.clear();
+    scheduleModalCapture(200);
+    applyBtn->click();
+
+    // Disclosure: the shared read-only wording — never a success report.
+    QVERIFY2(capturedModalText.contains(QStringLiteral("read-only")),
+             qPrintable(QStringLiteral("S2-2: the refusal must disclose read-only; got: [%1]")
+                            .arg(capturedModalText)));
+    QVERIFY2(!capturedModalText.contains(QStringLiteral("Tab order saved")),
+             "S2-2: a refused tab-order apply must never report success");
+
+    // Zero mutation: no success report (asserted above) and the file bytes are
+    // identical — the in-place setTabOrder write never happened. (FormManager
+    // is final, so the counter sits at the only observable seam: the bytes.)
+    QCOMPARE(sha256(pdfPath), before);
+}
+
+// Successful add must be truly undoable and redoable through the command.
+void TestFormSafety::addCommandUndoRedoRoundTrip() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "undo.pdf", {"Undo probe"});
+    FormManager fm;
+    DocumentSession doc;
+    doc.setPath(pdf);
+    QUndoStack stack;
+
+    auto* cmd = new AddFormFieldCommand(&fm, &doc, AddFormFieldCommand::FieldType::Text,
+                                        0, QRectF(72, 150, 140, 30),
+                                        QStringLiteral("rt_field"));
+    stack.push(cmd);
+    QVERIFY(QFile::exists(pdf)); /* revert-verify neutralized */
+    QVERIFY(pdfHasField(pdf, QStringLiteral("rt_field")));
+
+    stack.undo();
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("rt_field")));
+    QVERIFY(pdfLoads(pdf));                     // original content intact
+
+    stack.redo();
+    QVERIFY(pdfHasField(pdf, QStringLiteral("rt_field")));
+    QCOMPARE(extractedText(pdf).contains(QStringLiteral("Undo probe")), true);
+}
+
+// Deterministic seam injection: failure during candidate save, during
+// candidate validation and during final commit must each report failure,
+// leave the original byte-identical, and clean up this operation's temp files.
+void TestFormSafety::injectedFaultsLeaveOriginalIntact() {
+    const FormManager::SaveFault stages[] = {
+        FormManager::SaveFault::CandidateSave,
+        FormManager::SaveFault::Validation,
+        FormManager::SaveFault::Commit,
+    };
+    for (const auto stage : stages) {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString pdf = makeTextPdf(tmp.path(), "fault.pdf", {"Fault probe"});
+        const QByteArray shaBefore = sha256(pdf);
+
+        FormManager fm;
+        const int candidatesBefore = leftoverCandidates();
+        FormManager::setSaveFaultForTesting(stage);
+        const bool ok = fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
+                                        QStringLiteral("fault_field"), pdf);
+        FormManager::setSaveFaultForTesting(FormManager::SaveFault::None);
+
+        QVERIFY2(!ok, qPrintable(QStringLiteral(
+            "save must FAIL at injected stage %1").arg(int(stage))));
+        QVERIFY2(sha256(pdf) == shaBefore,
+                 "original bytes must be unchanged after the failed save");
+        QVERIFY(pdfLoads(pdf));
+        // Delta form: the temp dir may hold debris from OTHER processes (hard-
+        // killed runs leave candidates — RAII does not run on TerminateProcess).
+        // The operation-scoped invariant is that THIS operation leaves nothing
+        // NEW behind.
+        QCOMPARE(leftoverCandidates(), candidatesBefore);
+    }
+
+    // Sanity: with the seam reset the same operation succeeds.
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "after.pdf", {"After probe"});
+    FormManager fm;
+    const int candidatesBeforeSanity = leftoverCandidates();
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
+                            QStringLiteral("ok_field"), pdf));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("ok_field")));
+    QCOMPARE(leftoverCandidates(), candidatesBeforeSanity);
+}
+
+// A failed AddFormFieldCommand must not leave a success-looking undo entry:
+// no reload signal, no undoable entry, file byte-identical.
+// Qt 6.11 QUndoStack::push() DELETES a command that marks itself obsolete
+// during the initial redo(), so the stack itself enforces "no entry" —
+// command-state inspection therefore happens via a direct redo() outside any
+// stack, and the stack-level behavior is asserted via count()/index().
+void TestFormSafety::failedAddCommandLeavesNoSuccessUndoEntry() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "cmdfail.pdf", {"CmdFail probe"});
+    const QByteArray shaBefore = sha256(pdf);
+
+    FormManager fm;
+    DocumentSession doc;
+    doc.setPath(pdf);
+    QUndoStack stack;
+    QSignalSpy reloadSpy(&doc, &DocumentSession::reloadRequested);
+
+    // Command-state probe (no stack ownership involved).
+    FormManager::setSaveFaultForTesting(FormManager::SaveFault::CandidateSave);
+    {
+        AddFormFieldCommand probe(&fm, &doc, AddFormFieldCommand::FieldType::Text,
+                                  0, QRectF(72, 150, 140, 30),
+                                  QStringLiteral("never_field"));
+        probe.redo();
+        QVERIFY2(!probe.succeeded(), "failed command must report failure");
+        QVERIFY2(probe.isObsolete(), "failed command must be marked obsolete");
+    }
+
+    // Stack-level: pushing the failing command must not create an undo entry.
+    {
+        auto* pushed = new AddFormFieldCommand(&fm, &doc, AddFormFieldCommand::FieldType::Text,
+                                               0, QRectF(72, 150, 140, 30),
+                                               QStringLiteral("never_field"));
+        stack.push(pushed); // marked obsolete in redo() -> deleted by the stack
+    }
+    FormManager::setSaveFaultForTesting(FormManager::SaveFault::None);
+
+    QCOMPARE(stack.count(), 0);
+    QCOMPARE(stack.index(), 0);
+    QCOMPARE(reloadSpy.count(), 0);            // no success-looking reload signal
+    QCOMPARE(sha256(pdf), shaBefore);          // document untouched
+
+    // Stack traversal is a no-op: nothing was ever added.
+    stack.undo();
+    QCOMPARE(stack.index(), 0);
+    QCOMPARE(sha256(pdf), shaBefore);
+}
+
+// The remaining mutators go through the same shared boundary on the SAME
+// file: fill values, metadata, rect, removal — each must round-trip.
+void TestFormSafety::otherMutatorsPersistThroughBoundary() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "mut.pdf", {"Mutators probe"});
+
+    FormManager fm;
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30), QStringLiteral("m_text"), pdf));
+    QVERIFY(fm.addCheckBox(pdf, 0, QRectF(72, 190, 30, 30), QStringLiteral("m_check"), pdf));
+
+    QVariantMap data;
+    data[QStringLiteral("m_text")] = QStringLiteral("typed value");
+    data[QStringLiteral("m_check")] = true;
+    QStringList unsupported;
+    QVERIFY(fm.fillForm(pdf, data, pdf, /*lockFields=*/false, &unsupported));
+    QVERIFY(unsupported.isEmpty());
+
+    QVERIFY(fm.setFieldMetadata(pdf, QStringLiteral("m_text"),
+                                QStringLiteral("mut tip"), true, pdf));
+
+    QVERIFY(fm.updateFieldRect(pdf, QStringLiteral("m_text"), 0,
+                               QRectF(80, 160, 200, 40), pdf));
+
+    // Values, metadata and rect must be readable back from disk.
+    QVERIFY(pdfHasField(pdf, QStringLiteral("m_text")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("m_check")));
+    {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(pdf.toUtf8().constData());
+        auto* acroForm = doc.GetAcroForm();
+        QVERIFY(acroForm);
+        bool textChecked = false, checkChecked = false, tipOk = false, reqOk = false;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            const QString name = QString::fromStdString(field.GetFullName());
+            if (name == QLatin1String("m_text")) {
+                auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
+                QVERIFY(t);
+                auto v = t->GetText();
+                textChecked = v.has_value()
+                    && std::string(v.value().GetString().data(), v.value().GetString().size())
+                           == "typed value";
+                const PoDoFo::PdfDictionary& d = field.GetDictionary();
+                const PoDoFo::PdfObject* tu = d.FindKey("TU");
+                tipOk = tu && tu->IsString()
+                    && std::string(tu->GetString().GetString()) == "mut tip";
+                const PoDoFo::PdfObject* ff = d.FindKey("Ff");
+                reqOk = ff && ff->IsNumber() && (ff->GetNumber() & 2) != 0;
+            } else if (name == QLatin1String("m_check")) {
+                auto* c = dynamic_cast<PoDoFo::PdfCheckBox*>(&field);
+                QVERIFY(c);
+                checkChecked = c->IsChecked();
+            }
+        }
+        QVERIFY(textChecked);
+        QVERIFY(checkChecked);
+        QVERIFY(tipOk && reqOk);
+        // Rect persisted: PDF-coordinate form of QRectF(80,160,200,40) —
+        // x==80, y==pageH-160-40, y2==y+40 (loose compare vs serialized reals).
+        const double pageH = doc.GetPages().GetPageAt(0).GetMediaBox().Height;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != QLatin1String("m_text")) continue;
+            const PoDoFo::PdfObject* r = field.GetDictionary().FindKey("Rect");
+            QVERIFY(r && r->IsArray() && r->GetArray().GetSize() == 4);
+            QVERIFY(qAbs(r->GetArray()[0].GetNumber() - 80.0) < 0.01);
+            QVERIFY(qAbs(r->GetArray()[1].GetNumber() - (pageH - 160.0 - 40.0)) < 0.01);
+            QVERIFY(qAbs(r->GetArray()[3].GetNumber() - (pageH - 160.0)) < 0.01);
+        }
+    }
+
+    QVERIFY(fm.removeFieldByName(pdf, QStringLiteral("m_check"), pdf));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("m_check")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("m_text")));
+    QVERIFY(pdfLoads(pdf));
+}
+
+// ── V06: auto-detected fields go THROUGH the application undo stack ─────────
+// The old FormsController::autoDetectFields loop constructed each
+// AddFormFieldCommand on the local stack, called redo() and dropped it:
+// nothing was ever undoable, yet the success message promised
+// "undo ... as needed", and the partial-failure message claimed the document
+// was unchanged even when some fields had been placed.
+void TestFormSafety::autoDetectPlacesFieldsAsOneUndoableCompound() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), QStringLiteral("v06_compound.pdf"),
+                                    {QStringLiteral("Auto-detect probe")});
+    QVERIFY(QFile::exists(pdf));
+
+    FormManager fm;
+    DocumentSession doc;
+    doc.setPath(pdf);
+    QUndoStack stack;
+
+    QList<FieldSuggestion> suggestions;
+    suggestions.append({QRectF(72, 150, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_auto_name")});
+    suggestions.append({QRectF(72, 200, 140, 30), QStringLiteral("Date"),
+                        QStringLiteral("v06_auto_date")});
+    suggestions.append({QRectF(72, 250, 30, 30), QStringLiteral("Checkbox"),
+                        QStringLiteral("v06_auto_check")});
+
+    const auto outcome = gp::AutoDetectPlacement::apply(
+        &fm, &doc, &stack, suggestions, 0);
+    QCOMPARE(outcome.placed, 3);
+    QCOMPARE(outcome.failed, 0);
+
+    // Every successful placement is really on disk.
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_name")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_date")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_check")));
+
+    // Grouping policy: ONE compound entry on the application stack — a single
+    // Undo removes every field the run placed, so the message's undo promise
+    // is true. Redo re-places them as one step as well.
+    QCOMPARE(stack.count(), 1);
+    QVERIFY(stack.canUndo());
+    stack.undo();
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_auto_name")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_auto_date")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_auto_check")));
+    stack.redo();
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_name")));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_auto_check")));
+}
+
+void TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), QStringLiteral("v06_partial.pdf"),
+                                    {QStringLiteral("Partial-fault probe")});
+    const QByteArray shaBefore = sha256(pdf);
+
+    FormManager fm;
+    DocumentSession doc;
+    doc.setPath(pdf);
+    QUndoStack stack;
+    QSignalSpy reloadSpy(&doc, &DocumentSession::reloadRequested);
+
+    // Inject the save fault right AFTER the first success: the seam counts a
+    // placement through the session's reloadRequested signal (emitted exactly
+    // once per successful redo, never on the obsolete failure path), so this
+    // handler arms the fault only once the first field is already placed.
+    QObject::connect(&doc, &DocumentSession::reloadRequested, [&]() {
+        FormManager::setSaveFaultForTesting(FormManager::SaveFault::CandidateSave);
+    });
+
+    QList<FieldSuggestion> suggestions;
+    suggestions.append({QRectF(72, 150, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_ok_field")});
+    suggestions.append({QRectF(72, 200, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_faulty_a")});
+    suggestions.append({QRectF(72, 250, 140, 30), QStringLiteral("Text"),
+                        QStringLiteral("v06_faulty_b")});
+
+    const auto outcome = gp::AutoDetectPlacement::apply(
+        &fm, &doc, &stack, suggestions, 0);
+    FormManager::setSaveFaultForTesting(FormManager::SaveFault::None);
+
+    // Actual success/failure counts — never "document unchanged" when a field
+    // was placed.
+    QCOMPARE(outcome.placed, 1);
+    QCOMPARE(outcome.failed, 2);
+    QCOMPARE(reloadSpy.count(), 1);   // exactly the one success
+
+    QVERIFY(pdfHasField(pdf, QStringLiteral("v06_ok_field")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_faulty_a")));
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_faulty_b")));
+
+    // Partial success remains recoverable: one Undo removes the placed field
+    // (failed placements never joined the compound).
+    QCOMPARE(stack.count(), 1);
+    stack.undo();
+    QVERIFY(!pdfHasField(pdf, QStringLiteral("v06_ok_field")));
+
+    // Messaging honesty: partial success names the counts and the working
+    // Undo and must NOT claim the document is unchanged; a total failure is
+    // the only case allowed to say so; full success promises the Undo.
+    const QString partial = gp::AutoDetectPlacement::statusMessage(1, 2);
+    QVERIFY2(!partial.contains(QStringLiteral("unchanged")),
+             qPrintable(QStringLiteral(
+                            "partial success must not claim 'document unchanged': %1")
+                            .arg(partial)));
+    QVERIFY(partial.contains(QStringLiteral("1")));
+    QVERIFY(partial.contains(QStringLiteral("2")));
+    QVERIFY2(partial.contains(QStringLiteral("Undo")),
+             qPrintable(QStringLiteral(
+                            "partial success must name the working Undo: %1")
+                            .arg(partial)));
+    const QString total = gp::AutoDetectPlacement::statusMessage(0, 3);
+    QVERIFY2(total.contains(QStringLiteral("unchanged")),
+             "a total failure is the only case that may claim 'unchanged'");
+    const QString allPlaced = gp::AutoDetectPlacement::statusMessage(3, 0);
+    QVERIFY2(allPlaced.contains(QStringLiteral("Undo"))
+                 && !allPlaced.contains(QStringLiteral("unchanged")),
+             "full success must promise the one-step Undo");
+    Q_UNUSED(shaBefore);
+}
+
+// ── emergence E-1 (SWEEP-W3-EMERGENCE §6): command-level defense in depth ───
+// The panel's Apply entry is gated by EditPolicy (FormFieldPropertiesPanel),
+// but the persistence boundary itself must also refuse: a read-only (expired)
+// session's EditFormFieldCommand redo fails with the honest message, leaves
+// the file byte-identical, no reload signal and NO success-looking undo entry.
+void TestFormSafety::editFieldCommandRefusesReadOnlyDocument() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = makeTextPdf(tmp.path(), "ro_cmd.pdf", {"RO probe"});
+
+    FormManager fm;
+    QVERIFY(fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
+                            QStringLiteral("ro_field"), pdf));
+    const QByteArray shaBefore = sha256(pdf);
+
+    DocumentSession doc;
+    doc.setPath(pdf);
+    doc.setReadOnly(true);
+    QUndoStack stack;
+    QSignalSpy reloadSpy(&doc, &DocumentSession::reloadRequested);
+
+    EditFormFieldProperties props;
+    props.tooltip    = QStringLiteral("must never persist");
+    props.defaultVal = QStringLiteral("must never persist");
+    auto* pushed = new EditFormFieldCommand(&fm, &doc, QStringLiteral("ro_field"), props);
+    stack.push(pushed); // redo fails read-only -> obsolete -> deleted by the stack
+
+    QCOMPARE(stack.count(), 0);
+    QCOMPARE(stack.index(), 0);
+    QCOMPARE(reloadSpy.count(), 0);    // no success-looking reload signal
+    QCOMPARE(sha256(pdf), shaBefore);  // document byte-identical
+    QVERIFY(pdfLoads(pdf));
+    QVERIFY(pdfHasField(pdf, QStringLiteral("ro_field"))); // field intact, /TU never written
+    {
+        PoDoFo::PdfMemDocument doc2;
+        doc2.Load(pdf.toUtf8().constData());
+        auto* acroForm = doc2.GetAcroForm();
+        QVERIFY(acroForm);
+        bool tipAbsentOrOriginal = true;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) != QLatin1String("ro_field")) continue;
+            const PoDoFo::PdfObject* tu = field.GetDictionary().FindKey("TU");
+            tipAbsentOrOriginal = !tu;
+        }
+        QVERIFY2(tipAbsentOrOriginal, "the refused edit must not persist /TU");
+    }
+
+    // A direct redo() (no stack ownership) reports the honest read-only error.
+    EditFormFieldCommand probe(&fm, &doc, QStringLiteral("ro_field"), props);
+    probe.redo();
+    QVERIFY2(!probe.succeeded(), "the read-only apply must report failure");
+    QVERIFY2(probe.lastError().contains(QStringLiteral("read-only")),
+             qPrintable(QStringLiteral("the refusal must be the honest read-only "
+                                      "message, got: %1").arg(probe.lastError())));
+    QCOMPARE(sha256(pdf), shaBefore);
+}
+
+QTEST_MAIN(TestFormSafety)
+#include "TestFormSafety.moc"

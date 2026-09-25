@@ -1,0 +1,873 @@
+// SPDX-License-Identifier: Apache-2.0
+// §9.7 P0 audit item: on-page signature validity badges.
+//
+// The badge layer is a Qt VIEW-LAYER overlay ONLY — it must never be written
+// into the PDF (ISO 32000-2 forbids validation status inside the field
+// appearance; Acrobat's ribbon is viewer-drawn). These tests pin:
+//   * the four badge states and their distinct colors (green trusted check,
+//     amber untrusted "?", red modified X, gray unknown),
+//   * the set/clear data API on PdfViewerWidget,
+//   * that a badge fed with {pageIndex, fieldRect, state, tooltip} is painted
+//     at the field rect's TOP-RIGHT corner on the page (pixel scan of the
+//     overlay grab), single-page mode AND two-page composite mode,
+//   * that an empty badge list clears the paint,
+//   * the tooltip payload (signer name + status detail),
+//   * the SignaturesPanel → PdfViewerWidget badge push: after the panel's
+//     validateSignatures() run, per-signature states derived from the binding
+//     mapping reach the viewer (stub-driven: MockSignatureManager; the
+//     production connect() lives in GpMainWindow, which is outside this
+//     test's file-ownership lane).
+#include <QtTest/QtTest>
+#include <QAbstractScrollArea>
+#include <QApplication>
+#include <QBasicTimer>
+#include <QComboBox>
+#include <QDialogButtonBox>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
+#include <QLabel>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QScrollBar>
+#include <QSettings>
+#include <QTemporaryDir>
+
+#include "ui/PdfViewerWidget.h"
+#include "ui/PreferencesDialog.h"
+#include "modes/SignaturesPanel.h"
+#include "mocks/MockSignatureManager.h"
+#include "engines/SignatureManager.h"
+#include "shell/controllers/SecurityController.h" // §9.7 P1: pure outcome-warning builder
+
+#ifdef SOURCE_DIR
+static const QString kFixtureDir = QStringLiteral(SOURCE_DIR "/tests/fixtures/signing");
+#else
+static const QString kFixtureDir = QStringLiteral("tests/fixtures/signing");
+#endif
+static const QString kInputPdf = kFixtureDir + QStringLiteral("/test_input.pdf");
+
+class TestSignatureBadges : public QObject {
+    Q_OBJECT
+
+private slots:
+    void initTestCase() {
+        // Isolate QSettings (same idiom as TestOcrPreprocessPrefs).
+        QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TestSignatureBadges"));
+    }
+
+    // ── State → color: the four states must be visually distinct ────────────
+    void stateColorsAreDistinct() {
+        const QColor green = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::ValidTrusted);
+        const QColor amber = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::UntrustedChain);
+        const QColor red   = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::ModifiedAfterSigning);
+        const QColor gray  = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::Unknown);
+        QVERIFY(green != amber);
+        QVERIFY(green != red);
+        QVERIFY(green != gray);
+        QVERIFY(amber != red);
+        QVERIFY(amber != gray);
+        QVERIFY(red != gray);
+        // Design: green trusted / amber untrusted / red modified / gray unknown.
+        QVERIFY2(green.green() > green.red() && green.green() > green.blue(),
+                 "ValidTrusted must be a green-dominant color");
+        QVERIFY2(red.red() > red.green() && red.red() > red.blue(),
+                 "ModifiedAfterSigning must be a red-dominant color");
+        QVERIFY2(amber.red() > amber.blue() && amber.green() > amber.blue(),
+                 "UntrustedChain must be an amber (red+green, low blue) color");
+        QVERIFY2(qAbs(gray.red() - gray.green()) < 24 && qAbs(gray.green() - gray.blue()) < 24,
+                 "Unknown must be a neutral gray");
+    }
+
+    // ── Data API: store, query, clear on empty list ─────────────────────────
+    void setAndClearBadges() {
+        PdfViewerWidget w;
+        QVERIFY(w.signatureBadges().isEmpty());
+
+        SignatureBadgeSpec spec;
+        spec.pageIndex = 0;
+        spec.fieldRect = QRectF(60, 60, 200, 50);
+        spec.state = SignatureBadgeState::ValidTrusted;
+        spec.tooltip = QStringLiteral("Alice — VALID (trust: Valid)");
+        w.setSignatureBadges({spec});
+
+        QCOMPARE(w.signatureBadges().size(), 1);
+        QCOMPARE(w.signatureBadges().first().pageIndex, 0);
+        QCOMPARE(w.signatureBadges().first().fieldRect, QRectF(60, 60, 200, 50));
+        QVERIFY(w.signatureBadges().first().state == SignatureBadgeState::ValidTrusted);
+        QCOMPARE(w.signatureBadges().first().tooltip, QStringLiteral("Alice — VALID (trust: Valid)"));
+
+        w.setSignatureBadges({});   // empty list must clear
+        QVERIFY2(w.signatureBadges().isEmpty(), "an empty badge list must clear all badges");
+    }
+
+    // ── Painted at the field rect's top-right corner (single-page mode) ─────
+    void badgePaintedAtFieldCorner_singlePageMode() {
+        if (!QFileInfo::exists(kInputPdf))
+            QSKIP("test_input.pdf missing — run tests/fixtures/signing/generate_test_input.py");
+
+        PdfViewerWidget w;
+        w.resize(900, 1000);
+        QVERIFY(w.loadDocument(kInputPdf));
+        QCOMPARE(w.pageCount(), 1);
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QApplication::processEvents();
+
+        // Field well inside the blank 612x792 page so corner + control windows
+        // are unambiguous (the fixture page has no content streams).
+        const QRectF field(200, 200, 300, 100);
+        w.setSignatureBadges({makeSpec(0, field, SignatureBadgeState::ValidTrusted,
+                                       QStringLiteral("Alice — VALID"))});
+        QApplication::processEvents();
+
+        QWidget *overlay = w.findChild<QWidget *>(QStringLiteral("signatureBadgeOverlay"));
+        QVERIFY2(overlay, "PdfViewerWidget must own a signatureBadgeOverlay child");
+
+        // INDEPENDENT recomputation of the documented viewport mapping (the
+        // same convention as PdfViewerWidget::handleLinkClick, top-left origin
+        // page space): viewport pos = pageOrigin + pagePoint * zoom,
+        // pageOrigin = (viewportSize - pageSize*zoom)/2 - scrollbar values.
+        QWidget *pdfView = w.findChild<QWidget *>(QStringLiteral("pdfView"));
+        QVERIFY(pdfView);
+        QWidget *vp = pdfView->findChild<QWidget *>(QStringLiteral("qt_scrollarea_viewport"));
+        QVERIFY(vp);
+        auto *area = qobject_cast<QAbstractScrollArea *>(pdfView);
+        QVERIFY(area);
+        const QPointF vpTopLeft = vp->mapTo(&w, QPoint(0, 0)) - overlay->mapTo(&w, QPoint(0, 0));
+        const QSizeF page = w.document()->pagePointSize(0);
+        const qreal zoom = w.zoomLevel();
+        const qreal originX = qMax<qreal>(0, (vp->width() - page.width() * zoom) / 2.0)
+                            - area->horizontalScrollBar()->value();
+        const qreal originY = qMax<qreal>(0, (vp->height() - page.height() * zoom) / 2.0)
+                            - area->verticalScrollBar()->value();
+        const QPointF corner = vpTopLeft
+                             + QPointF(originX + field.right() * zoom, originY + field.top() * zoom);
+
+        const QImage img = overlay->grab().toImage();
+        QVERIFY(!img.isNull());
+        const QColor green = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::ValidTrusted);
+        const QRect cornerWin((corner - QPointF(20, 20)).toPoint(), QSize(40, 40));
+        QVERIFY2(windowHasColor(img, cornerWin, green, 40, 8),
+                 "the green trusted badge must be painted at the field rect's "
+                 "top-right corner on the page");
+
+        // Control regions: the field's top-LEFT corner (mirrored across the
+        // field) and the page interior must carry no badge color.
+        const QPointF ctrlCorner = corner - QPointF(field.width() * zoom, 0);
+        const QRect ctrlWin((ctrlCorner - QPointF(20, 20)).toPoint(), QSize(40, 40));
+        QVERIFY2(!windowHasColor(img, ctrlWin, green, 40, 1),
+                 "no badge color may appear away from the field's top-right corner");
+        const QPointF fieldCenter = vpTopLeft
+                                  + QPointF(originX + field.center().x() * zoom,
+                                            originY + field.center().y() * zoom);
+        const QRect centerWin((fieldCenter - QPointF(20, 20)).toPoint(), QSize(40, 40));
+        QVERIFY2(!windowHasColor(img, centerWin, green, 40, 1),
+                 "no badge color may appear in the middle of the field rect");
+    }
+
+    // ── Empty list clears the paint ─────────────────────────────────────────
+    void clearingBadgesRemovesPaint_singlePageMode() {
+        if (!QFileInfo::exists(kInputPdf))
+            QSKIP("test_input.pdf missing — run tests/fixtures/signing/generate_test_input.py");
+
+        PdfViewerWidget w;
+        w.resize(900, 1000);
+        QVERIFY(w.loadDocument(kInputPdf));
+        w.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&w));
+        QApplication::processEvents();
+
+        const QRectF field(200, 200, 300, 100);
+        w.setSignatureBadges({makeSpec(0, field, SignatureBadgeState::ModifiedAfterSigning,
+                                       QStringLiteral("Bob — MODIFIED"))});
+        QApplication::processEvents();
+        QWidget *overlay = w.findChild<QWidget *>(QStringLiteral("signatureBadgeOverlay"));
+        QVERIFY(overlay);
+        const QColor red = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::ModifiedAfterSigning);
+
+        // With the badge set, SOME corner window holds the red — compute it the
+        // same independent way as badgePaintedAtFieldCorner_singlePageMode.
+        const QPointF corner = singlePageOverlayCorner(w, overlay, field);
+        const QRect cornerWin((corner - QPointF(20, 20)).toPoint(), QSize(40, 40));
+        QVERIFY2(windowHasColor(overlay->grab().toImage(), cornerWin, red, 40, 8),
+                 "precondition: the modified badge is painted at the corner");
+
+        w.setSignatureBadges({});
+        QApplication::processEvents();
+        QVERIFY2(!windowHasColor(overlay->grab().toImage(), cornerWin, red, 40, 1),
+                 "an empty badge list must remove the on-page badge");
+    }
+
+    // ── Painted into the two-page composite too ─────────────────────────────
+    void badgePaintedInTwoPageMode() {
+        if (!QFileInfo::exists(kInputPdf))
+            QSKIP("test_input.pdf missing — run tests/fixtures/signing/generate_test_input.py");
+
+        PdfViewerWidget w;
+        w.resize(1200, 900);
+        QVERIFY(w.loadDocument(kInputPdf));
+        w.setTwoPageMode(true);
+        QApplication::processEvents();
+
+        const QRectF field(200, 200, 300, 100);
+        w.setSignatureBadges({makeSpec(0, field, SignatureBadgeState::UntrustedChain,
+                                       QStringLiteral("Carol — UNTRUSTED"))});
+        QApplication::processEvents();
+
+        QLabel *left = w.findChild<QLabel *>(QStringLiteral("twoPageLeftLabel"));
+        QVERIFY(left);
+        const QImage img = left->pixmap().toImage();
+        QVERIFY(!img.isNull());
+        // updateTwoPageView renders at renderScale = zoom * 2 and paintTwoPage-
+        // Overlays maps top-left-origin page points directly by renderScale
+        // (documented §9.1 convention, same as search highlights).
+        const qreal renderScale = w.zoomLevel() * 2.0;
+        const QPointF corner(field.right() * renderScale, field.top() * renderScale);
+        const QColor amber = PdfViewerWidget::signatureBadgeColor(SignatureBadgeState::UntrustedChain);
+        const QRect cornerWin((corner - QPointF(24, 24)).toPoint(), QSize(48, 48));
+        QVERIFY2(windowHasColor(img, cornerWin, amber, 40, 8),
+                 "the amber untrusted badge must appear in the two-page composite "
+                 "at the field rect's top-right corner");
+
+        const QPointF center(field.center().x() * renderScale, field.center().y() * renderScale);
+        const QRect centerWin((center - QPointF(24, 24)).toPoint(), QSize(48, 48));
+        QVERIFY2(!windowHasColor(img, centerWin, amber, 40, 1),
+                 "no badge color may appear in the middle of the field rect in "
+                 "the two-page composite");
+    }
+
+    // ── Tooltip payload: signer name + status detail, hit-testable ──────────
+    void badgeTooltipPayloadAndHitTest() {
+        if (!QFileInfo::exists(kInputPdf))
+            QSKIP("test_input.pdf missing — run tests/fixtures/signing/generate_test_input.py");
+
+        PdfViewerWidget w;
+        w.resize(900, 1000);
+        QVERIFY(w.loadDocument(kInputPdf));
+        const QString tip = QStringLiteral("Alice — VALID (trust: Valid)");
+        w.setSignatureBadges({makeSpec(0, QRectF(200, 200, 300, 100),
+                                       SignatureBadgeState::ValidTrusted, tip)});
+        QCOMPARE(w.signatureBadges().first().tooltip, tip);
+
+        // Hit-test seam: the tooltip must be retrievable at the badge center in
+        // viewport coordinates and nowhere else. (The real QToolTip popup is
+        // driven from the viewport's ToolTip event and is not headless-assertable.)
+        QWidget *pdfView = w.findChild<QWidget *>(QStringLiteral("pdfView"));
+        QVERIFY(pdfView);
+        QWidget *vp = pdfView->findChild<QWidget *>(QStringLiteral("qt_scrollarea_viewport"));
+        QVERIFY(vp);
+        auto *area = qobject_cast<QAbstractScrollArea *>(pdfView);
+        QVERIFY(area);
+        const QSizeF page = w.document()->pagePointSize(0);
+        const qreal zoom = w.zoomLevel();
+        const qreal originX = qMax<qreal>(0, (vp->width() - page.width() * zoom) / 2.0)
+                            - area->horizontalScrollBar()->value();
+        const qreal originY = qMax<qreal>(0, (vp->height() - page.height() * zoom) / 2.0)
+                            - area->verticalScrollBar()->value();
+        const QPointF center(originX + 500 * zoom, originY + 200 * zoom); // field.topRight()
+        QCOMPARE(w.signatureBadgeTooltipAt(center.toPoint()), tip);
+        QVERIFY2(w.signatureBadgeTooltipAt(QPoint(1, 1)).isEmpty(),
+                 "no tooltip away from the badge");
+    }
+
+    // ── Panel → viewer push: SignatureInfo → the four badge states ──────────
+    // Binding mapping: integrityIntact==false → ModifiedAfterSigning;
+    // integrityIntact && isValid && trusted → ValidTrusted; integrityIntact &&
+    // !isValid (or untrusted chain) → UntrustedChain; no data → Unknown.
+    void panelPushMapsValidTrustedSignature() {
+        PanelPush p;
+        SignatureInfo s;
+        s.fieldName = QStringLiteral("Sig1");
+        s.signerName = QStringLiteral("Alice");
+        s.integrityIntact = true;
+        s.isValid = true;
+        s.trustStatus = QStringLiteral("Valid");
+        p.mock.m_signatures = {s};
+
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        const SignatureBadgeSpec b = p.viewer.signatureBadges().first(); // copy: QList temporary
+        QVERIFY2(b.state == SignatureBadgeState::ValidTrusted,
+                 "integrity intact + valid + trusted must map to the green state");
+        QVERIFY2(b.tooltip.contains(QStringLiteral("Alice")),
+                 "the tooltip must carry the signer name");
+        QVERIFY2(b.tooltip.contains(QStringLiteral("VALID")),
+                 "the tooltip must carry the status detail");
+        // ValidWithDSS is a trusted status too.
+        s.trustStatus = QStringLiteral("ValidWithDSS");
+        p.mock.m_signatures = {s};
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        QVERIFY(p.viewer.signatureBadges().first().state == SignatureBadgeState::ValidTrusted);
+    }
+
+    void panelPushMapsModifiedSignature() {
+        PanelPush p;
+        SignatureInfo s;
+        s.fieldName = QStringLiteral("Sig1");
+        s.signerName = QStringLiteral("Bob");
+        s.integrityIntact = false;   // byte range broke → document modified
+        s.isValid = false;
+        s.trustStatus = QStringLiteral("ByteRangeMismatch");
+        p.mock.m_signatures = {s};
+
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        const SignatureBadgeSpec b = p.viewer.signatureBadges().first(); // copy: QList temporary
+        QVERIFY2(b.state == SignatureBadgeState::ModifiedAfterSigning,
+                 "integrityIntact==false must map to the red modified state");
+        QVERIFY2(b.tooltip.contains(QStringLiteral("Bob")),
+                 "the tooltip must carry the signer name");
+        QVERIFY2(b.tooltip.contains(QStringLiteral("MODIFIED")),
+                 "the tooltip must carry the status detail");
+    }
+
+    void panelPushMapsUntrustedChainSignature() {
+        PanelPush p;
+        SignatureInfo s;
+        s.fieldName = QStringLiteral("Sig1");
+        s.signerName = QStringLiteral("Carol");
+        s.integrityIntact = true;
+        s.isValid = false;
+        s.trustStatus = QStringLiteral("UntrustedChain");
+        p.mock.m_signatures = {s};
+
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        QVERIFY2(p.viewer.signatureBadges().first().state == SignatureBadgeState::UntrustedChain,
+                 "integrity intact + not valid must map to the amber state");
+
+        // Integrity ok and cryptographically valid, but the chain is untrusted
+        // (cert expired) — still the amber "integrity-ok-but-untrusted" state.
+        s.isValid = true;
+        s.trustStatus = QStringLiteral("CertExpired");
+        p.mock.m_signatures = {s};
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        QVERIFY2(p.viewer.signatureBadges().first().state == SignatureBadgeState::UntrustedChain,
+                 "integrity intact + untrusted chain must map to the amber state, "
+                 "even when isValid is true");
+        QVERIFY2(p.viewer.signatureBadges().first().tooltip.contains(QStringLiteral("Carol")),
+                 "the tooltip must carry the signer name");
+    }
+
+    void panelPushMapsUnknownSignature() {
+        PanelPush p;
+        // No data at all: validation produced an empty shell → gray.
+        p.mock.m_signatures = {SignatureInfo{}};
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        QVERIFY2(p.viewer.signatureBadges().first().state == SignatureBadgeState::Unknown,
+                 "a signature with no validation data must map to the gray state");
+    }
+
+    void panelPushClearsOnUnsignedDocument() {
+        PanelPush p;
+        SignatureInfo s;
+        s.signerName = QStringLiteral("Alice");
+        s.integrityIntact = true;
+        s.isValid = true;
+        s.trustStatus = QStringLiteral("Valid");
+        p.mock.m_signatures = {s};
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+
+        p.mock.m_signatures = {};
+        p.panel.setDocument(QStringLiteral("unsigned.pdf"), &p.mock);
+        QVERIFY2(p.viewer.signatureBadges().isEmpty(),
+                 "an unsigned document must push an EMPTY badge list (clears)");
+    }
+
+private:
+    // Stub seam harness: the panel→viewer connect() that production does in
+    // GpMainWindow; here it IS the contract under test (direct connection).
+    struct PanelPush {
+        gp::SignaturesPanel panel;
+        PdfViewerWidget viewer;
+        MockSignatureManager mock;
+        PanelPush() {
+            QObject::connect(&panel, &gp::SignaturesPanel::signatureBadgesChanged,
+                             &viewer, &PdfViewerWidget::setSignatureBadges);
+        }
+    };
+
+    static SignatureBadgeSpec makeSpec(int page, const QRectF &rect,
+                                       SignatureBadgeState state, const QString &tip) {
+        SignatureBadgeSpec s;
+        s.pageIndex = page;
+        s.fieldRect = rect;
+        s.state = state;
+        s.tooltip = tip;
+        return s;
+    }
+
+    static bool windowHasColor(const QImage &img, const QRect &window,
+                               const QColor &target, int tol, int minCount) {
+        if (img.isNull()) return false;
+        int hits = 0;
+        for (int y = window.top(); y <= window.bottom(); ++y) {
+            for (int x = window.left(); x <= window.right(); ++x) {
+                if (x < 0 || y < 0 || x >= img.width() || y >= img.height()) continue;
+                const QColor px = img.pixelColor(x, y);
+                if (qAbs(px.red() - target.red()) <= tol
+                    && qAbs(px.green() - target.green()) <= tol
+                    && qAbs(px.blue() - target.blue()) <= tol) {
+                    if (++hits >= minCount) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Independent recomputation of the single-page overlay corner (documented
+    // viewport mapping; see badgePaintedAtFieldCorner_singlePageMode).
+    static QPointF singlePageOverlayCorner(PdfViewerWidget &w, QWidget *overlay, const QRectF &field) {
+        QWidget *pdfView = w.findChild<QWidget *>(QStringLiteral("pdfView"));
+        QWidget *vp = pdfView->findChild<QWidget *>(QStringLiteral("qt_scrollarea_viewport"));
+        auto *area = qobject_cast<QAbstractScrollArea *>(pdfView);
+        const QPointF vpTopLeft = vp->mapTo(&w, QPoint(0, 0)) - overlay->mapTo(&w, QPoint(0, 0));
+        const QSizeF page = w.document()->pagePointSize(0);
+        const qreal zoom = w.zoomLevel();
+        const qreal originX = qMax<qreal>(0, (vp->width() - page.width() * zoom) / 2.0)
+                            - area->horizontalScrollBar()->value();
+        const qreal originY = qMax<qreal>(0, (vp->height() - page.height() * zoom) / 2.0)
+                            - area->verticalScrollBar()->value();
+        return vpTopLeft + QPointF(originX + field.right() * zoom, originY + field.top() * zoom);
+    }
+private slots:
+    // ── §9.7 badge anchoring: real field page + rect from the engine ────────
+    void engineResolvesFieldAnchorsOnSignedFixture() {
+        if (!QFileInfo::exists(kInputPdf) || !QFileInfo::exists(kFixtureDir + "/test_signer.p12"))
+            QSKIP("signing fixtures missing");
+
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        const QString signedPdf = tmp.filePath("anchored.pdf");
+        SignatureManager mgr;
+        QVERIFY2(mgr.signDocument(kInputPdf, signedPdf, kFixtureDir + "/test_signer.p12",
+                                  QStringLiteral("test"), QStringLiteral("AnchorTest"),
+                                  QString()) == SignOutcome::Success,
+                 "signDocument must succeed with the test P12");
+
+        const auto anchors = mgr.signatureFieldAnchors(signedPdf);
+        QVERIFY2(anchors.size() == 1,
+                 qPrintable(QStringLiteral("signed fixture must expose exactly 1 anchor, got %1")
+                                .arg(anchors.size())));
+        const auto &a = anchors.first();
+        QCOMPARE(a.pageIndex, 0);
+        QVERIFY2(!a.fieldName.isEmpty(), "the anchor must carry the field name");
+        QVERIFY2(a.rect.width() > 50 && a.rect.height() > 20,
+                 qPrintable(QStringLiteral("anchor rect must be the real widget rect: %1x%2")
+                                .arg(a.rect.width()).arg(a.rect.height())));
+
+        // The validator's fieldName and the anchor must describe the SAME field —
+        // this equality is what the panel matches on.
+        const auto sigs = mgr.validateSignatures(signedPdf);
+        QVERIFY2(!sigs.isEmpty() && sigs.first().fieldName == a.fieldName,
+                 qPrintable(QStringLiteral("fieldName mismatch: validator='%1' anchor='%2'")
+                                .arg(sigs.isEmpty() ? QStringLiteral("<none>") : sigs.first().fieldName,
+                                        a.fieldName)));
+    }
+
+    void panelAnchorsSpecsThroughMockAnchors() {
+        PanelPush p;
+        SignatureInfo s;
+        s.fieldName = QStringLiteral("Sig1");
+        s.signerName = QStringLiteral("Alice");
+        s.integrityIntact = true;
+        s.isValid = true;
+        s.trustStatus = QStringLiteral("Valid");
+        p.mock.m_signatures = {s};
+        // The engine side supplies the on-page anchor for THAT field name.
+        ISignatureManager::SignatureFieldAnchor a;
+        a.fieldName = QStringLiteral("Sig1");
+        a.pageIndex = 2;
+        a.rect = QRectF(100, 650, 200, 100);
+        p.mock.m_anchors = {a};
+
+        p.panel.setDocument(QStringLiteral("mock.pdf"), &p.mock);
+        QCOMPARE(p.viewer.signatureBadges().size(), 1);
+        const SignatureBadgeSpec b = p.viewer.signatureBadges().first();
+        QCOMPARE(b.pageIndex, 2);
+        QCOMPARE(b.fieldRect, QRectF(100, 650, 200, 100));
+        QVERIFY(b.state == SignatureBadgeState::ValidTrusted); // state mapping unaffected
+    }
+
+private slots:
+    // ── §9.7 P1: SignOutcome degradation surfaced at signing time ───────────
+    // Pure wording builder: the warning must name EXACTLY which long-term-
+    // validation piece is missing (DSS dictionary / archive timestamp), embed
+    // the output path, and stay empty for anything that is not a
+    // PartialLtvMissing degradation.
+    void signingOutcomeWarningNamesExactMissingPieces() {
+        SignatureOutcomeDetail both;
+        both.dssMissing = true;
+        both.docTimestampMissing = true;
+        const QString bothText = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), both, false);
+        QVERIFY2(bothText.contains(QStringLiteral("out.pdf")),
+                 "the warning must tell the user WHERE the signed file is");
+        QVERIFY2(bothText.contains(QStringLiteral("was signed")),
+                 "the sign flow wording must say the document was signed");
+        QVERIFY2(bothText.contains(QStringLiteral("DSS dictionary (B-LT)")),
+                 "both-missing wording must name the DSS dictionary (B-LT)");
+        QVERIFY2(bothText.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "both-missing wording must name the archive timestamp (B-LTA)");
+
+        SignatureOutcomeDetail dssOnly;
+        dssOnly.dssMissing = true;
+        const QString dssText = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), dssOnly, false);
+        QVERIFY2(dssText.contains(QStringLiteral("DSS dictionary (B-LT)")),
+                 "dss-only wording must name the DSS dictionary (B-LT)");
+        QVERIFY2(!dssText.contains(QStringLiteral("archive timestamp")),
+                 "dss-only wording must NOT claim the archive timestamp is missing");
+
+        SignatureOutcomeDetail tsOnly;
+        tsOnly.docTimestampMissing = true;
+        const QString tsText = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), tsOnly, false);
+        QVERIFY2(tsText.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "timestamp-only wording must name the archive timestamp (B-LTA)");
+        QVERIFY2(!tsText.contains(QStringLiteral("DSS")),
+                 "timestamp-only wording must NOT claim the DSS is missing");
+    }
+
+    // The certify flow gets the SAME exact wording with the right verb, and
+    // non-degradation outcomes never raise the warning.
+    void signingOutcomeWarningVerbAndNonDegradation() {
+        SignatureOutcomeDetail both;
+        both.dssMissing = true;
+        both.docTimestampMissing = true;
+        const QString cert = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), both, true);
+        QVERIFY2(cert.contains(QStringLiteral("certified")),
+                 "certify flow must say the document was certified");
+        QVERIFY2(!cert.contains(QStringLiteral("was signed")),
+                 "certify wording must not say the document was signed");
+        QVERIFY2(cert.contains(QStringLiteral("DSS dictionary (B-LT)")) &&
+                     cert.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "certify flow gets the exact same detail wording");
+
+        SignatureOutcomeDetail clean;
+        QVERIFY2(gp::SecurityController::buildSigningOutcomeWarning(
+                     SignOutcome::Success, QStringLiteral("out.pdf"), clean, false).isEmpty(),
+                 "Success must not produce a degradation warning");
+        QVERIFY2(gp::SecurityController::buildSigningOutcomeWarning(
+                     SignOutcome::Failed, QStringLiteral("out.pdf"), clean, false).isEmpty(),
+                 "Failed must not produce the partial-degradation warning");
+        QVERIFY2(gp::SecurityController::buildSigningOutcomeWarning(
+                     SignOutcome::NotRun, QStringLiteral("out.pdf"), clean, false).isEmpty(),
+                 "NotRun must not produce a degradation warning");
+    }
+
+    // The interface ships a NON-pure default so existing implementations —
+    // including this test mock, compiled UNCHANGED — keep linking.
+    void mockManagerCompilesWithDefaultDetail() {
+        MockSignatureManager mock;
+        const SignatureOutcomeDetail d = mock.lastSignOutcomeDetail();
+        QVERIFY2(!d.dssMissing && !d.docTimestampMissing,
+                 "the default detail must report no missing pieces");
+    }
+
+    // ── R19(a–c): settings-driven signing configuration — pure pins ──────────
+
+    // R19c: the attained-level label names the HIGHEST standard level whose
+    // required pieces are all present given the outcome detail.
+    void attainedLevelLabelPins() {
+        SignatureOutcomeDetail clean;
+        using L = PAdESLevel;
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_B, clean), QStringLiteral("B-B"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_T, clean), QStringLiteral("B-T"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LT, clean), QStringLiteral("B-LT"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, clean), QStringLiteral("B-LTA"));
+
+        SignatureOutcomeDetail docTsMissing;
+        docTsMissing.docTimestampMissing = true;
+        // The handoff's example: requested B_LTA with a missing archive
+        // timestamp attests B-LT, never a silent claim of the full level.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, docTsMissing),
+                 QStringLiteral("B-LT"));
+
+        SignatureOutcomeDetail dssMissing;
+        dssMissing.dssMissing = true;
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, dssMissing),
+                 QStringLiteral("B-T"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LT, dssMissing),
+                 QStringLiteral("B-T"));
+
+        SignatureOutcomeDetail both;
+        both.dssMissing = true;
+        both.docTimestampMissing = true;
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, both),
+                 QStringLiteral("B-T"));
+    }
+
+    // R19a: the stored combo value maps to the engine level; unknown values
+    // fall to B-B — the only honest level without a TSA.
+    void padesLevelFromSettingPins() {
+        using L = PAdESLevel;
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-B")), L::B_B);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-T")), L::B_T);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-LT")), L::B_LT);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("B-LTA")), L::B_LTA);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QStringLiteral("garbage")), L::B_B);
+        QCOMPARE(gp::SecurityController::padesLevelFromSetting(QString()), L::B_B);
+    }
+
+    // R19a: readSigningConfig reads the two documented keys from an INI
+    // settings file (temp dir — the developer's real settings are untouched).
+    void readSigningConfigReadsTheDocumentedKeys() {
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QSettings ini(tmp.filePath("settings.ini"), QSettings::IniFormat);
+        ini.setValue(QStringLiteral("signing/tsaUrl"), QStringLiteral(" https://ts.example.com "));
+        ini.setValue(QStringLiteral("signing/padesLevel"), QStringLiteral("B-LTA"));
+        ini.sync();
+        const auto cfg = gp::SecurityController::readSigningConfig(&ini);
+        QCOMPARE(cfg.tsaUrl, QStringLiteral("https://ts.example.com")); // trimmed
+        QCOMPARE(cfg.level, PAdESLevel::B_LTA);
+
+        QSettings empty(tmp.filePath("empty.ini"), QSettings::IniFormat);
+        const auto defaults = gp::SecurityController::readSigningConfig(&empty);
+        QVERIFY2(defaults.tsaUrl.isEmpty(), "an unconfigured TSA URL stays empty");
+        QCOMPARE(defaults.level, PAdESLevel::B_B);
+    }
+
+    // R19b: the honest pre-flight — a level above B-B with no TSA URL is
+    // refused BEFORE any attempt with the exact reason (the engine would
+    // silently downgrade it to B-B while reporting Success).
+    void signingPreflightRefusalPins() {
+        using L = PAdESLevel;
+        // B-B needs no TSA — never refused.
+        QVERIFY(gp::SecurityController::signingPreflightRefusal(L::B_B, QString()).isEmpty());
+        // A configured TSA never refuses the pre-flight (reachability is the
+        // engine's honest failure to disclose, not a pre-flight matter).
+        QVERIFY(gp::SecurityController::signingPreflightRefusal(L::B_LTA,
+                                                                QStringLiteral("http://ts.example.com")).isEmpty());
+        // Every level above B-B without a TSA: refused, naming what is
+        // missing and where to set it.
+        for (const L level : { L::B_T, L::B_LT, L::B_LTA }) {
+            const QString refusal = gp::SecurityController::signingPreflightRefusal(level, QString());
+            QVERIFY2(!refusal.isEmpty(),
+                     "a level above B-B without a TSA URL must be refused");
+            QVERIFY2(refusal.contains(QStringLiteral("TSA")),
+                     "the refusal names what is missing (the timestamp authority)");
+            QVERIFY2(refusal.contains(QStringLiteral("Preferences")),
+                     "the refusal says where to set it");
+            QVERIFY2(refusal.contains(QStringLiteral("No signature was attempted")),
+                     "the refusal is honest that nothing was attempted");
+        }
+        // The document-timestamp flow ALWAYS needs a TSA — even at B-B.
+        QVERIFY2(!gp::SecurityController::signingPreflightRefusal(L::B_B, QString(),
+                                                                  /*forTimestamp=*/true).isEmpty(),
+                 "timestamping without a TSA is refused before any attempt");
+        QVERIFY2(gp::SecurityController::signingPreflightRefusal(L::B_B,
+                                                                 QStringLiteral("http://127.0.0.1:9/"),
+                                                                 true).isEmpty(),
+                 "a configured TSA passes the pre-flight (the refusal names it on failure instead)");
+    }
+
+    // R19c: the degradation warning carries the ATTAINED level.
+    void signingOutcomeWarningCarriesTheAttainedLevel() {
+        SignatureOutcomeDetail docTsMissing;
+        docTsMissing.docTimestampMissing = true;
+        const QString text = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), docTsMissing, false,
+            PAdESLevel::B_LTA);
+        QVERIFY2(text.contains(QStringLiteral("attained PAdES B-LT")),
+                 qPrintable(QStringLiteral("a requested B-LTA whose archive timestamp failed "
+                                          "must attest B-LT — got: %1").arg(text)));
+        QVERIFY2(text.contains(QStringLiteral("archive timestamp (B-LTA)")),
+                 "the wording still names exactly which piece is missing");
+
+        // A fully-successful B-LTA keeps its full label in the Success STATUS
+        // (attainedLevelLabel(B_LTA, clean) == "B-LTA" — pinned above).
+    }
+
+    // ── SEP13 lead-1 residual: the B-T degradation surfaces in the UI wording ─
+    // The engine (SEP13 lead 1) returns PartialLtvMissing with the
+    // timestampMissing detail when a REQUESTED B-T timestamp (TSA URL
+    // configured) could not be fetched/embedded — the signature attained B-B.
+    // The UI wording must render that piece exactly like the DSS/archive
+    // pieces: the missing-pieces list names the timestamp, a plain-language
+    // note says the timestamp server was unreachable, and the attained-level
+    // label attests B-B — never the requested B-T.
+    void timestampMissingWarningAndAttainedLabel() {
+        using L = PAdESLevel;
+        SignatureOutcomeDetail tsMissing;
+        tsMissing.timestampMissing = true;
+
+        // Attained label: a requested B-T whose token fetch failed attests B-B.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_T, tsMissing),
+                 QStringLiteral("B-B"));
+        // B-LT/B-LTA REQUIRE the B-T timestamp: without the token the
+        // signature is B-B regardless of the other pieces.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LT, tsMissing),
+                 QStringLiteral("B-B"));
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_LTA, tsMissing),
+                 QStringLiteral("B-B"));
+        // A clean detail keeps the requested label (no regression).
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(L::B_T, SignatureOutcomeDetail{}),
+                 QStringLiteral("B-T"));
+
+        // The warning: names the missing timestamp piece, says in plain
+        // language that no timestamp server was reachable, and attests the
+        // ATTAINED level.
+        const QString text = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), tsMissing, false, L::B_T);
+        QVERIFY2(text.contains(QStringLiteral("out.pdf")),
+                 "the B-T degradation warning still tells the user WHERE the file is");
+        QVERIFY2(text.contains(QStringLiteral("timestamp (B-T)")),
+                 "the warning must name the signature timestamp as the missing piece");
+        QVERIFY2(text.contains(QStringLiteral("No timestamp server was reachable")),
+                 "the plain-language reason must say no timestamp server was reachable");
+        QVERIFY2(text.contains(QStringLiteral("attained PAdES B-B")),
+                 qPrintable(QStringLiteral("the warning must attest the ATTAINED level B-B — got: %1")
+                                .arg(text)));
+
+        // Combined degradation (timestamp + DSS, requested B-LT): names BOTH
+        // pieces and still attests the B-B floor.
+        SignatureOutcomeDetail tsDss;
+        tsDss.timestampMissing = true;
+        tsDss.dssMissing = true;
+        const QString combo = gp::SecurityController::buildSigningOutcomeWarning(
+            SignOutcome::PartialLtvMissing, QStringLiteral("out.pdf"), tsDss, false, L::B_LT);
+        QVERIFY2(combo.contains(QStringLiteral("timestamp (B-T)")) &&
+                     combo.contains(QStringLiteral("DSS dictionary (B-LT)")),
+                 "a combined degradation names every missing piece");
+        QVERIFY2(combo.contains(QStringLiteral("attained PAdES B-B")),
+                 "a requested B-LT without its timestamp attests B-B");
+    }
+
+    // -----------------------------------------------------------------------
+    // R19 verify (2026-09-14): the MISSING end-to-end pin — the production
+    // chain Preferences surface → Save → persisted bytes → readSigningConfig.
+    // The pins above exercise the documented keys through QSettings on BOTH
+    // sides, and the engine pins in TestSignatureRealCrypto apply the config
+    // by hand; none of them drove the real dialog, so a silent drop of the
+    // two signing keys in PreferencesDialog::saveSettings would pass every
+    // other pin. The persisted state is additionally read back INDEPENDENTLY
+    // of QSettings (raw line parse of the INI bytes) before the production
+    // read path consumes the same file.
+    // -----------------------------------------------------------------------
+    void preferencesSavePersistsSigningKeysAndProductionReadPathSeesThem() {
+        // Redirect the QSettings the dialog constructs (default ctor) to a
+        // temp INI tree; isolated org/app — the developer's real settings,
+        // registry included, are untouched.
+        const QString org = QStringLiteral("GlyphPDFTests");
+        const QString app = QStringLiteral("TestSignatureBadges-R19");
+        const QString prevOrg = QCoreApplication::organizationName();
+        const QString prevApp = QCoreApplication::applicationName();
+        QCoreApplication::setOrganizationName(org);
+        QCoreApplication::setApplicationName(app);
+        QTemporaryDir tmp;
+        QVERIFY(tmp.isValid());
+        QSettings::setDefaultFormat(QSettings::IniFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, tmp.path());
+
+        gp::PreferencesDialog dialog;
+        auto* tsaEdit = dialog.findChild<QLineEdit*>(QStringLiteral("tsaUrlEdit"));
+        auto* levelCombo = dialog.findChild<QComboBox*>(QStringLiteral("padesLevelCombo"));
+        QVERIFY2(tsaEdit && levelCombo,
+                 "the Security tab must expose the TSA URL + PAdES level controls");
+        tsaEdit->setText(QStringLiteral(" https://ts.example.com "));
+        const int idx = levelCombo->findData(QStringLiteral("B-LT"));
+        QVERIFY2(idx >= 0, "the level combo must offer B-LT");
+        levelCombo->setCurrentIndex(idx);
+
+        auto* box = dialog.findChild<QDialogButtonBox*>();
+        QVERIFY2(box, "the dialog must carry a button box");
+        QPushButton* save = box->button(QDialogButtonBox::Save);
+        QVERIFY2(save, "the dialog must expose its Save button");
+
+        // The production Save path ends with a MODAL "Preferences Saved"
+        // message box (PreferencesDialog::saveSettings); offscreen, nothing
+        // ever dismisses it and a naive click() would block the slot until
+        // QtTest's 300 s per-function fatal timeout. Bounded modal driver
+        // (the TestFormStaleDisclosure pattern): a repeating timer closes
+        // whatever modal appears, letting saveSettings continue into
+        // accept() and return.
+        struct ModalAutoCloser : QObject {
+            QBasicTimer timer;
+            int closes = 0;
+            void start() { timer.start(10, this); }
+            void stop() { timer.stop(); }
+        protected:
+            void timerEvent(QTimerEvent* ev) override {
+                if (ev->timerId() != timer.timerId()) return;
+                if (QWidget* w = QApplication::activeModalWidget()) {
+                    w->close();
+                    ++closes;
+                }
+            }
+        } closer;
+        closer.start();
+        save->click(); // accepted() -> saveSettings() (modal dismissed above)
+        closer.stop();
+        QVERIFY2(closer.closes >= 1,
+                 "the production Save path must show its confirmation modal "
+                 "(the driver should have dismissed exactly that box)");
+
+        QSettings().sync(); // flush before reading the file bytes
+
+        const QString iniPath = tmp.path() + QStringLiteral("/%1/%2.ini").arg(org, app);
+        QVERIFY2(QFileInfo::exists(iniPath),
+                 qPrintable(QStringLiteral("the redirected settings file must exist: %1").arg(iniPath)));
+
+        // Independent read path — the persisted bytes parsed as plain text
+        // (no QSettings involved): the dialog really wrote BOTH keys. Qt INI
+        // layout note: a "signing/tsaUrl" key becomes a "[signing]" SECTION
+        // header with "tsaUrl=" under it — the flat "signing/tsaUrl=" line
+        // never appears in the file, so the parser must track sections.
+        QString persistedTsa, persistedLevel;
+        QFile ini(iniPath);
+        QVERIFY(ini.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString section;
+        while (!ini.atEnd()) {
+            const QString line = QString::fromUtf8(ini.readLine()).trimmed();
+            if (line.startsWith(QLatin1Char('[')) && line.endsWith(QLatin1Char(']'))) {
+                section = line.mid(1, line.size() - 2);
+                continue;
+            }
+            if (section != QLatin1String("signing"))
+                continue;
+            // INI string values may be quoted (QSettings escapes when needed).
+            const auto unquote = [](const QString& raw) {
+                return raw.size() >= 2 && raw.startsWith(QLatin1Char('"'))
+                           && raw.endsWith(QLatin1Char('"'))
+                           ? raw.mid(1, raw.size() - 2) : raw;
+            };
+            if (line.startsWith(QLatin1String("tsaUrl=")))
+                persistedTsa = unquote(line.mid(qstrlen("tsaUrl=")));
+            else if (line.startsWith(QLatin1String("padesLevel=")))
+                persistedLevel = unquote(line.mid(qstrlen("padesLevel=")));
+        }
+        ini.close();
+        QVERIFY2(persistedTsa == QStringLiteral("https://ts.example.com"),
+                 qPrintable(QStringLiteral("the trimmed TSA URL must be on disk, got '%1'")
+                                .arg(persistedTsa)));
+        QVERIFY2(persistedLevel == QStringLiteral("B-LT"),
+                 qPrintable(QStringLiteral("the level must be on disk verbatim, got '%1'")
+                                .arg(persistedLevel)));
+
+        // The production read path consumes the SAME persisted file.
+        QSettings persistedIni(iniPath, QSettings::IniFormat);
+        const auto cfg = gp::SecurityController::readSigningConfig(&persistedIni);
+        QCOMPARE(cfg.tsaUrl, QStringLiteral("https://ts.example.com"));
+        QCOMPARE(cfg.level, PAdESLevel::B_LT);
+
+        // Restore the process-global QSettings state (this is the LAST slot,
+        // but the restores keep the slot order-independent).
+        QSettings::setDefaultFormat(QSettings::NativeFormat);
+        QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, QString());
+        QCoreApplication::setOrganizationName(prevOrg);
+        QCoreApplication::setApplicationName(prevApp);
+    }
+
+};
+
+QTEST_MAIN(TestSignatureBadges)
+#include "TestSignatureBadges.moc"

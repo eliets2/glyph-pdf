@@ -111,8 +111,6 @@ PatternRedactor::extractCharsFromOpenDoc(void* docHandle, int pageIndex) {
         return result;
     }
 
-    const double pageHeight = static_cast<double>(FPDF_GetPageHeightF(page));
-
     FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
     if (!textPage) {
         FPDF_ClosePage(page);
@@ -135,19 +133,24 @@ PatternRedactor::extractCharsFromOpenDoc(void* docHandle, int pageIndex) {
             continue;
         }
 
-        // PDFium coordinate space: origin bottom-left.
-        // Qt PDF user-space: origin top-left.
-        // Conversion: qtY = pageHeight - pdf_top
-        //             qtH = pdf_top - pdf_bottom
-        const double qtX = pdf_left;
-        const double qtY = pageHeight - pdf_top;
-        const double qtW = pdf_right - pdf_left;
-        const double qtH = pdf_top - pdf_bottom;
+        // PGR-37 (D2 delta review 2026-09-23): the boxes are RAW PDF USER
+        // space — FPDFText_GetCharBox values taken verbatim, stored y-up
+        // (QRectF::y() = the LOWER edge). The former `pageHeight - pdf_top`
+        // flip produced a space that is viewer-space ONLY on /Rotate 0
+        // origin-0 pages; fed through PageSpace::viewerToUser (the SEP13 L8
+        // law at the excision boundary) it transposed marks on rotated pages
+        // and shifted them by the MediaBox origin — a silent redaction false
+        // success. Raw user space is the ONE space every consumer can share:
+        // PoDoFoBackend::applyRedactionsUserSpace consumes it verbatim, and
+        // the viewer placement (RedactMode) applies the one display flip it
+        // needs at ITS boundary.
+        const double w = pdf_right - pdf_left;
+        const double h = pdf_top - pdf_bottom;
 
         char32_t cp = static_cast<char32_t>(codepoint);
         result.append(CharInfo{
             QString::fromUcs4(&cp, 1),
-            QRectF(qtX, qtY, qtW, qtH)
+            QRectF(pdf_left, pdf_bottom, w, h)
         });
     }
 

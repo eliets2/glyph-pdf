@@ -1,0 +1,45 @@
+********* Start testing of TestOcrReviewLifecycle *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrReviewLifecycle::initTestCase()
+PASS   : TestOcrReviewLifecycle::freshPanelIsIdleWithRunEnabled()
+PASS   : TestOcrReviewLifecycle::runningDisablesControlsUntilCompletion()
+QWARN  : TestOcrReviewLifecycle::lifecycleMessageDisplayedLive() This plugin does not support propagateSizeHints()
+QWARN  : TestOcrReviewLifecycle::lifecycleMessageDisplayedLive() This plugin does not support propagateSizeHints()
+PASS   : TestOcrReviewLifecycle::lifecycleMessageDisplayedLive()
+PASS   : TestOcrReviewLifecycle::missingLanguageThenRetrySucceeds()
+PASS   : TestOcrReviewLifecycle::noDocumentBlocksDispatchWithRecovery()
+PASS   : TestOcrReviewLifecycle::ocrAcceptWriteBlockerPins()
+PASS   : TestOcrReviewLifecycle::retryablePanelKeepsRunEnabled()
+PASS   : TestOcrReviewLifecycle::emptyRecognitionCompletesWithoutReview()
+PASS   : TestOcrReviewLifecycle::workerErrorRecoversRun()
+PASS   : TestOcrReviewLifecycle::canceledJobRecoversRun()
+PASS   : TestOcrReviewLifecycle::classifyJobCompletionVerdicts()
+PASS   : TestOcrReviewLifecycle::staleCompletionDoesNotReenableForeignSave()
+PASS   : TestOcrReviewLifecycle::saveCancellationRetainsReviewAndRestoresControls()
+PASS   : TestOcrReviewLifecycle::saveErrorRetainsReviewForRetry()
+PASS   : TestOcrReviewLifecycle::saveSuccessReturnsToReviewReady()
+PASS   : TestOcrReviewLifecycle::wordInspectorAndCorrectionsAreLifecycleGated()
+PASS   : TestOcrReviewLifecycle::semanticDocumentDeliveryRestoresRunButton()
+PASS   : TestOcrReviewLifecycle::rejectReturnsToIdle()
+PASS   : TestOcrReviewLifecycle::wordCorrectionUpdatesRecordNotBox()
+PASS   : TestOcrReviewLifecycle::correctionFieldEditsSelectedWord()
+PASS   : TestOcrReviewLifecycle::deletedWordExcludedFromPayload()
+PASS   : TestOcrReviewLifecycle::reviewedPageIdentityDrivesPayload()
+PASS   : TestOcrReviewLifecycle::sourceChangeRejectsSession()
+PASS   : TestOcrReviewLifecycle::reopenedDocumentRejectsStaleSession()
+PASS   : TestOcrReviewLifecycle::documentGenerationComposesWithRevisionAtIdentityBoundaries()
+PASS   : TestOcrReviewLifecycle::documentMutationRevisionAdvancesAtMutationBoundaries()
+PASS   : TestOcrReviewLifecycle::staleReviewRecordsRejected()
+QDEBUG : TestOcrReviewLifecycle::exportCorrectedTextExtractsViaPdfium() MrcPdfA: wrote 2743 bytes to "C:/Users/User/AppData/Local/Temp/TestOcrReviewLifecycle-zSvdXf/corrected.pdf"
+QWARN  : TestOcrReviewLifecycle::exportCorrectedTextExtractsViaPdfium() MrcPdfA: veraPDF not available — skipping conformance gate
+PASS   : TestOcrReviewLifecycle::exportCorrectedTextExtractsViaPdfium()
+QDEBUG : TestOcrReviewLifecycle::exportUnicodeCorrectionExtractsViaPdfium() MrcPdfA: wrote 3877 bytes to "C:/Users/User/AppData/Local/Temp/TestOcrReviewLifecycle-vmJBNx/unicode.pdf"
+QWARN  : TestOcrReviewLifecycle::exportUnicodeCorrectionExtractsViaPdfium() MrcPdfA: veraPDF not available — skipping conformance gate
+PASS   : TestOcrReviewLifecycle::exportUnicodeCorrectionExtractsViaPdfium()
+PASS   : TestOcrReviewLifecycle::uncertainNavigationFollowsLifecycle()
+QDEBUG : TestOcrReviewLifecycle::twoPagesSimilarWordsKeptDistinct() MrcPdfA: wrote 4185 bytes to "C:/Users/User/AppData/Local/Temp/TestOcrReviewLifecycle-xEZfay/twopages.pdf"
+QWARN  : TestOcrReviewLifecycle::twoPagesSimilarWordsKeptDistinct() MrcPdfA: veraPDF not available — skipping conformance gate
+PASS   : TestOcrReviewLifecycle::twoPagesSimilarWordsKeptDistinct()
+PASS   : TestOcrReviewLifecycle::cleanupTestCase()
+Totals: 33 passed, 0 failed, 0 skipped, 0 blacklisted, 507ms
+********* Finished testing of TestOcrReviewLifecycle *********

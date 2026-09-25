@@ -9,6 +9,7 @@
 #include "core/OcrTypes.h"
 
 #include "core/AnnotationTypes.h"
+#include "core/MeasureCore.h"
 #include "core/ImageTypes.h"
 
 QT_BEGIN_NAMESPACE
@@ -47,6 +48,14 @@ public:
     // placement modes; consumed when the user clicks/drags on the page.
     void setPendingSignatureImage(const QImage &img);
 
+    // T2-6: the RESOLVED dynamic stamp text (placeholders already substituted
+    // by StampLibrary::resolveText at arm time). Rides the placement gesture
+    // exactly like the pending signature image and becomes the committed
+    // item's text — so the SAVED annotation carries the concrete author/date,
+    // never a live template. Consumed (cleared) after one placement.
+    void setPendingStampText(const QString &text);
+    QString pendingStampText() const { return m_pendingStampText; }
+
     void setImageOverlays(const QList<PdfImageInfo> &images);
     void setSelectedImageName(const QString &name);
     QString selectedImageName() const { return m_selectedImageName; }
@@ -54,6 +63,19 @@ public:
     // AR-7 D5: paint a diff/overlay image on top of the annotation layer.
     // Caller passes a null QImage to clear the overlay.
     void setOverlayImage(const QImage &img);
+
+    // ── T1 measurement toolset ──────────────────────────────────────────────
+    // Calibration + snap state injected by MeasureMode; consumed for the live
+    // readout and stamped onto every committed measurement item. An
+    // uncalibrated scale (ptScale()) is the default — measurements made
+    // without calibration truthfully report pt.
+    void setActiveMeasureScale(const gp::measure::Scale &scale);
+    gp::measure::Scale activeMeasureScale() const { return m_measureScale; }
+    void setSnapEnabled(bool on);
+    bool snapEnabled() const { return m_measureSnap; }
+    // True while a measurement draft is in progress (exposed for the panel).
+    bool isMeasuring() const { return !m_measureDraft.isEmpty(); }
+    void cancelMeasureDraft();   // Esc path
 
 signals:
     void annotationsChanged();
@@ -64,11 +86,20 @@ signals:
     void imageMoved(const QString &xobjectName, double dx, double dy);
     void imageResized(const QString &xobjectName, double newW, double newH);
 
+    // T1: live calibrated readout while dragging a measurement (already
+    // formatted, honest about calibration state); empty when no draft is live.
+    void measurePreviewChanged(const QString &text);
+    // T1: a measurement was committed to the item list (MeasureMode consumes
+    // this for the measurement list and the calibrate-by-drawing flow).
+    void measurementFinished();
+
 protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
     void mouseMoveEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     ToolMode m_currentMode;
@@ -91,4 +122,21 @@ private:
     QImage m_overlayImage;
     // §9.7 P0: pending signature image for the Type/Upload placement modes.
     QImage m_pendingSignatureImage;
+    // T2-6: pending resolved stamp text for the Stamp placement mode.
+    QString m_pendingStampText;
+
+    // ── T1 measurement draft state ──────────────────────────────────────────
+    gp::measure::Scale m_measureScale = gp::measure::ptScale();
+    bool m_measureSnap = false;
+    QList<QPointF> m_measureDraft;   // confirmed vertices (empty = not drawing)
+    QPointF m_measureCursor;
+    bool m_measureHover = false;
+    int m_measurePage = -1;
+    QString m_lastPreview;           // last emitted live readout (painted)
+
+    void handleMeasurePress(QPointF pos, QMouseEvent *event);
+    void handleMeasureMove(QPointF pos);
+    void commitMeasureDraft();
+    void emitMeasurePreview();
+    QList<QPointF> measureSnapCandidates() const;
 };

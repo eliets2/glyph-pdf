@@ -11,6 +11,9 @@
 #include <QDialogButtonBox>
 #include <QFontDatabase>
 #include <QLabel>
+#include <QListWidget>
+#include <QPushButton>
+#include <QFileDialog>
 
 #include <algorithm>
 #include <iterator>
@@ -104,6 +107,31 @@ BatesNumberingDialog::BatesNumberingDialog(QWidget* parent) : QDialog(parent) {
     rangeRow->addStretch(1);
     form->addRow(tr("Range:"), rangeRow);
 
+    // ── §9.9 P1: cross-document batch ────────────────────────────────────
+    // Real Bates usage is almost always multi-document: listing files here
+    // numbers them as one continuous sequence, each saved as
+    // <stem>_bated.pdf next to its input (inputs are left untouched).
+    _batchList = new QListWidget(this);
+    _batchList->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    _batchAddBtn = new QPushButton(tr("Add PDFs…"), this);
+    _batchRemoveBtn = new QPushButton(tr("Remove Selected"), this);
+    connect(_batchAddBtn, &QPushButton::clicked, this, &BatesNumberingDialog::addBatchFiles);
+    connect(_batchRemoveBtn, &QPushButton::clicked, this, &BatesNumberingDialog::removeSelectedBatchFiles);
+
+    auto* batchBtns = new QHBoxLayout;
+    batchBtns->addWidget(_batchAddBtn);
+    batchBtns->addWidget(_batchRemoveBtn);
+    batchBtns->addStretch(1);
+
+    auto* batchBox = new QVBoxLayout;
+    batchBox->addWidget(new QLabel(
+        tr("Batch across documents (optional): files listed here are numbered as one\n"
+           "continuous sequence, in order. Each is saved as <name>_bated.pdf next to the\n"
+           "original. Leave empty to stamp the open document in place."), this));
+    batchBox->addWidget(_batchList);
+    batchBox->addLayout(batchBtns);
+    form->addRow(tr("Batch:"), batchBox);
+
     QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -170,6 +198,37 @@ BatesNumberingOptions BatesNumberingDialog::options() const {
         opt.lastPage = 0;
     }
     return opt;
+}
+
+// ── §9.9 P1: cross-document batch ───────────────────────────────────────────
+
+void BatesNumberingDialog::setBatchFiles(const QStringList& files) {
+    _batchList->clear();
+    for (const QString& f : files) _batchList->addItem(f);
+}
+
+QStringList BatesNumberingDialog::batchFiles() const {
+    QStringList files;
+    files.reserve(_batchList->count());
+    for (int i = 0; i < _batchList->count(); ++i)
+        files << _batchList->item(i)->text();
+    return files;
+}
+
+void BatesNumberingDialog::addBatchFiles() {
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, tr("Select PDFs to number as one batch"), QString(),
+        tr("PDF Files (*.pdf)"));
+    for (const QString& f : files) {
+        // De-duplicate: the same file twice would consume each range twice.
+        if (_batchList->findItems(f, Qt::MatchExactly).isEmpty())
+            _batchList->addItem(f);
+    }
+}
+
+void BatesNumberingDialog::removeSelectedBatchFiles() {
+    const QList<QListWidgetItem*> selected = _batchList->selectedItems();
+    for (QListWidgetItem* item : selected) delete item;
 }
 
 } // namespace gp

@@ -28,6 +28,11 @@ signals:
     void autosaveStarted();
     void autosaveCompleted(const QDateTime &time);
     void autosaveFailed(const QString &reason);
+    // EC02 (TEAM-ENGINE-CODE-REVIEW-2026-09-07): a queued autosave whose
+    // captured document identity no longer matches at save/completion time.
+    // Nothing was (or will be) written to the captured path's recovery file,
+    // and no session was timestamped — the run was dropped as stale.
+    void autosaveStale(const QString &capturedPath);
 
 private slots:
     void onTick();

@@ -1,0 +1,41 @@
+********* Start testing of TestSep13LeadRedactionProof *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSep13LeadRedactionProof::initTestCase()
+QINFO  : TestSep13LeadRedactionProof::controlStandardPageAttributesText() control: status = 3 removed = QList("TopSecretAlpha bare secrets") passed = false
+PASS   : TestSep13LeadRedactionProof::controlStandardPageAttributesText()
+QINFO  : TestSep13LeadRedactionProof::offsetOriginPageMustNotFalsePass() "offset-source" page 0 runs: 2
+QINFO  : TestSep13LeadRedactionProof::offsetOriginPageMustNotFalsePass()   run ""TopSecretAlpha bare secrets"" rect=(100,900,154.968x12)
+QINFO  : TestSep13LeadRedactionProof::offsetOriginPageMustNotFalsePass()   run ""KeepThisVisible public info"" rect=(100,860,142.884x12)
+QINFO  : TestSep13LeadRedactionProof::offsetOriginPageMustNotFalsePass() offset: status = 3 removed = QList("TopSecretAlpha bare secrets") passed = false failures = QList("SURVIVOR [extracted-text] TopSecretAlpha bare secrets — redacted output: text layer of page 1")
+PASS   : TestSep13LeadRedactionProof::offsetOriginPageMustNotFalsePass()
+QINFO  : TestSep13LeadRedactionProof::rotatedPageMustNotFalsePass() "rotated-source" page 0 runs: 1
+QINFO  : TestSep13LeadRedactionProof::rotatedPageMustNotFalsePass()   run ""RotatedSecret line"" rect=(100,300,98.184x12)
+QINFO  : TestSep13LeadRedactionProof::rotatedPageMustNotFalsePass() rotated: status = 3 removed = QList("RotatedSecret line") passed = false
+PASS   : TestSep13LeadRedactionProof::rotatedPageMustNotFalsePass()
+QINFO  : TestSep13LeadRedactionProof::annotationOnlySecretMustNotFalsePass() annotation-only source runs (must be 0 to prove the attribution source is blind to annotations): 0
+QINFO  : TestSep13LeadRedactionProof::annotationOnlySecretMustNotFalsePass() annotation-only: status = 3 removed = QList("AnnotationSecret") passed = false failures = QList("SURVIVOR [raw-bytes] AnnotationSecret — redacted output: raw file bytes", "SURVIVOR [object-strings] AnnotationSecret — redacted output: string value in a direct object (object-stream resident)")
+PASS   : TestSep13LeadRedactionProof::annotationOnlySecretMustNotFalsePass()
+QINFO  : TestSep13LeadRedactionProof::mixedPageAnnotationSecretMustNotFalsePass() mixed-page content runs (annotation text must be absent): 1
+QINFO  : TestSep13LeadRedactionProof::mixedPageAnnotationSecretMustNotFalsePass() mixed: status = 3 removed = QList("AnnotationSecret") passed = false failures = QList("SURVIVOR [raw-bytes] AnnotationSecret — redacted output: raw file bytes", "SURVIVOR [object-strings] AnnotationSecret — redacted output: string value in a direct object (object-stream resident)")
+PASS   : TestSep13LeadRedactionProof::mixedPageAnnotationSecretMustNotFalsePass()
+QINFO  : TestSep13LeadRedactionProof::rotatedPageAnnotOnlySecretMustNotFalsePass() annot count = 1
+QINFO  : TestSep13LeadRedactionProof::rotatedPageAnnotOnlySecretMustNotFalsePass() annot 0 raw /Rect = (100,650,200x30)  GetRect() = (450,512,30x200)
+QINFO  : TestSep13LeadRedactionProof::rotatedPageAnnotOnlySecretMustNotFalsePass() rotated-annot-only: status = 3 removed = QList("AnnotSecretZebra") passed = false failures = QList("SURVIVOR [raw-bytes] AnnotSecretZebra — redacted output: raw file bytes", "SURVIVOR [object-strings] AnnotSecretZebra — redacted output: string value in a direct object (object-stream resident)")
+PASS   : TestSep13LeadRedactionProof::rotatedPageAnnotOnlySecretMustNotFalsePass()
+QINFO  : TestSep13LeadRedactionProof::offsetOnlyPageAnnotAttributionControl() offset-only-annot control: removed = QList("AnnotSecretZebra") passed = false
+PASS   : TestSep13LeadRedactionProof::offsetOnlyPageAnnotAttributionControl()
+Fontconfig error: Cannot load default config file: File not found
+QDEBUG : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-GEbeQb.pdf"
+QINFO  : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() redact outcome = 0 ""
+QINFO  : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret() saved-artifact annot count = 0
+PASS   : TestSep13LeadRedactionProof::realRedactionRemovesRotatedAnnotSecret()
+QDEBUG : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() PoDoFo Engine structurally saved document to: "C:/Users/User/AppData/Local/Temp/glyphpdf-candidates/glyphpdf-npkwja.pdf"
+QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() redact outcome: 0 ""
+QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() "redacted-dest" page 0 runs: 2
+QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage()   run ""KeepThisVisible public info"" rect=(100,860,142.884x12)
+QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage()   run ""LABEL"" rect=(229.105,895.187,21.56x7)
+QINFO  : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage() overlay label: "LABEL" baseline (PDF user space) = 895.187
+PASS   : TestSep13LeadRedactionProof::overlayLabelMustLandInsideMarkOnOffsetPage()
+PASS   : TestSep13LeadRedactionProof::cleanupTestCase()
+Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 239ms
+********* Finished testing of TestSep13LeadRedactionProof *********

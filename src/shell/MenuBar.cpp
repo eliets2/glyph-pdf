@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "MenuBar.h"
+#include "ToolRegistry.h"
+#include "modes/PagesMode.h"
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
 #include "core/UpdateChecker.h"
+#include "core/ToolId.h"
 #include <QAction>
 #include <QMenu>
 #include <QMessageBox>
@@ -63,6 +66,7 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "presentation", MenuDispatch::Registry },
         { "fullscreen",   MenuDispatch::Local    },
         { "darkMode",     MenuDispatch::Local    },
+        { "nightMode",    MenuDispatch::Registry },  // → ViewController (page inversion)
         { "rulers",       MenuDispatch::Disabled },  // view guides not shipped
         { "guides",       MenuDispatch::Disabled },
         { "grid",         MenuDispatch::Disabled },
@@ -77,6 +81,7 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "resize",          MenuDispatch::Registry },
         { "page-numbers",    MenuDispatch::Registry },
         { "headers-footers", MenuDispatch::Registry },  // alias → AddHeader
+        { "auto-bookmarks",  MenuDispatch::Registry },  // T2-9
 
         // ── Tools ──
         { "ocr",          MenuDispatch::Local    },
@@ -84,8 +89,10 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "compare",      MenuDispatch::Local    },
         { "compress",     MenuDispatch::Registry },
         { "watermark",    MenuDispatch::Registry },
-        { "measure-dist", MenuDispatch::Disabled },  // ribbon: "measure"/"distance"
-        { "measure-area", MenuDispatch::Disabled },  // ribbon: "area"
+        // R15 (T1 route): the Measure task panel owns distance/area — the
+        // entries were previously Disabled although the capability shipped.
+        { "distance",     MenuDispatch::Registry },  // → Measure task panel
+        { "area",         MenuDispatch::Registry },  // → Measure task panel
 
         // ── Comments ──
         { "highlight",       MenuDispatch::Registry },
@@ -95,7 +102,14 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "note",            MenuDispatch::Registry },
         { "textbox",         MenuDispatch::Registry },
         { "callout",         MenuDispatch::Registry },
-        { "custom-stamp",    MenuDispatch::Disabled },  // ribbon: "customStamp"
+        // T2-6: dynamic stamps + library (previously unconnected no-ops)
+        { "stamp-approved",     MenuDispatch::Registry },
+        { "stamp-draft",        MenuDispatch::Registry },
+        { "stamp-confidential", MenuDispatch::Registry },
+        { "stamp-received",     MenuDispatch::Registry },
+        { "stamp-reviewed",     MenuDispatch::Registry },
+        { "stamp-library",      MenuDispatch::Registry },
+        { "custom-stamp",    MenuDispatch::Registry },  // alias → stampLibrary (T2-6)
         { "pencil",          MenuDispatch::Registry },
         { "line",            MenuDispatch::Registry },
         { "arrow",           MenuDispatch::Registry },
@@ -163,7 +177,7 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     auto* mainWindow = qobject_cast<MainWindow*>(parent);
     if (!mainWindow) return;
 
-    auto addActionToMenu = [mainWindow](QMenu* menu, const QString& label, const QString& toolId,
+    auto addActionToMenu = [this, mainWindow](QMenu* menu, const QString& label, const QString& toolId,
                                         const QKeySequence& shortcut = QKeySequence(),
                                         bool checkable = false, bool checked = false) {
         auto* action = menu->addAction(label);
@@ -184,11 +198,21 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
             return action;
         }
 
+        // R15 (UI02): registry-dispatched items carry the canonical toolId so
+        // bindToolRegistry() can mirror the ONE enablement predicate onto them.
+        action->setObjectName(QStringLiteral("menu-") + toolId);
+        m_registryActions.append({toolId, action});
+
         connect(action, &QAction::triggered, mainWindow, [mainWindow, toolId, action]() {
             if (toolId == "find" || toolId == "find-replace") {
-                // The FindBar contains both search and replace controls, so
-                // "Find & Replace" opens the same bar as "Find".
-                mainWindow->toggleFindBar();
+                // T2-2: "Find & Replace" opens the DEDICATED replace dialog
+                // (live match count, scope, measured reflow warnings); the
+                // plain "Find" opens the quick FindBar. Both mutate through
+                // the same EditController pipeline.
+                if (toolId == "find-replace")
+                    mainWindow->showFindReplaceDialog();
+                else
+                    mainWindow->toggleFindBar();
             } else if (toolId == "exit") {
                 qApp->quit();
             } else if (toolId == "close") {
@@ -227,13 +251,14 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                        "<p>Version %1</p>"
                        "<p>A privacy-first PDF workstation for Windows. "
                        "No telemetry, no cloud, no subscription.</p>"
+                       "<p>%2</p>"
                        "<p>Built with C++17, Qt 6.11, PoDoFo 1.1, and PDFium.</p>"
                        "<p>&copy; 2026 Glyph. Licensed under the "
                        "<a href=\"https://www.apache.org/licenses/LICENSE-2.0\">Apache License 2.0</a>.</p>"
                        "<p>This product bundles open-source components under the "
                        "MIT, Apache-2.0, BSD, and LGPL licenses. Full notices are in "
                        "<b>LICENSE-3RD-PARTY.md</b>, installed alongside the application.</p>")
-                    .arg(UpdateChecker::currentVersion()));
+                    .arg(UpdateChecker::currentVersion(), PagesMode::localFirstClaim()));
             } else if (toolId == "shortcuts") {
                 ShortcutHelpDialog dlg(mainWindow);
                 dlg.exec();
@@ -309,6 +334,10 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(viewMenu, tr("&Full Screen"), "fullscreen", QKeySequence(Qt::Key_F11));
     viewMenu->addSeparator();
     addActionToMenu(viewMenu, tr("&Dark Mode"), "darkMode", QKeySequence(), true, true);
+    // Night Mode is per viewer (each document tab keeps its own), so a single
+    // global check mark could not stay truthful — the status bar reports the
+    // new state instead, like Eye Care on the ribbon.
+    addActionToMenu(viewMenu, tr("&Night Mode"), "nightMode");
     addActionToMenu(viewMenu, tr("&Rulers"), "rulers", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("&Guides"), "guides", QKeySequence(), true, false);
     addActionToMenu(viewMenu, tr("G&rid"), "grid", QKeySequence(), true, false);
@@ -329,6 +358,8 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     docMenu->addSeparator();
     addActionToMenu(docMenu, tr("Page &Numbers…"), "page-numbers");
     addActionToMenu(docMenu, tr("&Headers & Footers…"), "headers-footers");
+    // T2-9: auto-bookmarks from text styles (heading heuristics + TOC pages)
+    addActionToMenu(docMenu, tr("Auto-&Bookmarks…"), "auto-bookmarks");
 
     // ==========================================
     // 5. TOOLS MENU
@@ -341,8 +372,8 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(toolsMenu, tr("&Watermark…"), "watermark");
     addActionToMenu(toolsMenu, tr("Set E&xpiry Date…"), "expiry-date");
     toolsMenu->addSeparator();
-    addActionToMenu(toolsMenu, tr("Measure &Distance"), "measure-dist");
-    addActionToMenu(toolsMenu, tr("Measure &Area"), "measure-area");
+    addActionToMenu(toolsMenu, tr("Measure &Distance"), "distance");
+    addActionToMenu(toolsMenu, tr("Measure &Area"), "area");
 
     // ==========================================
     // 6. COMMENTS MENU
@@ -359,9 +390,20 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     commentsMenu->addSeparator();
 
     auto* stampsMenu = commentsMenu->addMenu(tr("&Stamps"));
-    stampsMenu->addAction(tr("Approved"));
-    stampsMenu->addAction(tr("Draft"));
-    stampsMenu->addAction(tr("Confidential"));
+    // T2-6: the three previously UNCONNECTED stamp actions (Approved/Draft/
+    // Confidential were plain menu no-ops — matrix row "customStamp") are
+    // now canonical registry commands of the real dynamic-stamp flow
+    // (placeholders resolved at apply time; the placed annotation carries the
+    // concrete text). Received/Reviewed complete the five built-ins the
+    // research row names; "Custom Stamp…" opens the library that manages the
+    // persisted custom stamps.
+    addActionToMenu(stampsMenu, tr("&Approved"), "stamp-approved");
+    addActionToMenu(stampsMenu, tr("&Draft"), "stamp-draft");
+    addActionToMenu(stampsMenu, tr("&Confidential"), "stamp-confidential");
+    addActionToMenu(stampsMenu, tr("Re&ceived"), "stamp-received");
+    addActionToMenu(stampsMenu, tr("Re&viewed"), "stamp-reviewed");
+    stampsMenu->addSeparator();
+    addActionToMenu(stampsMenu, tr("Stamp &Library…"), "stamp-library");
     stampsMenu->addSeparator();
     addActionToMenu(stampsMenu, tr("Custom &Stamp…"), "custom-stamp");
 
@@ -425,6 +467,26 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(helpMenu, tr("Check for &Updates…"), "updates");
     helpMenu->addSeparator();
     addActionToMenu(helpMenu, tr("&About Glyph PDF"), "about");
+}
+
+void MenuBar::bindToolRegistry(ToolRegistry* registry)
+{
+    if (!registry) return;
+    // R15 (UI02): mirror the canonical enablement onto every Registry item.
+    // The canonical QAction re-queries its controller (EditPolicy predicate)
+    // whenever the session state changes, so menu, ribbon and shortcut states
+    // are three views of ONE command identity, never divergent maps.
+    for (const auto& entry : m_registryActions) {
+        const QString& toolId = entry.first;
+        QAction* action = entry.second;
+        if (!action) continue;
+        const auto optId = toolIdFromString(toolId);
+        if (!optId.has_value()) continue;   // guarded by TestMenuBarIntegrity
+        QAction* canon = registry->actionFor(optId.value());
+        if (!canon) continue;
+        action->setEnabled(canon->isEnabled());
+        connect(canon, &QAction::enabledChanged, action, &QAction::setEnabled);
+    }
 }
 
 void MenuBar::refreshRecentFiles() {

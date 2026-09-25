@@ -138,7 +138,16 @@ private:
 
     // Viewport prefetch cancellation token
     QAtomicInt m_prefetchCancelToken{0};
-    QFuture<void> m_prefetchFuture;
+    // EC06: ALL in-flight prefetch futures, not just the newest. Superseding a
+    // prefetch must not orphan the previous worker while it can still be
+    // inside renderer->renderPage (each worker captures a raw IPdfRenderer*):
+    // drainPrefetches() — used by BOTH clear() and ~RenderCache — cancels and
+    // waits for every retained future, so a renderer can only be retired after
+    // all of its prefetch work has actually finished. Guarded by m_lock
+    // (workers never touch this list — they communicate only through the
+    // cancel token and the cache locks).
+    QList<QFuture<void>> m_inFlightPrefetches;
+    void drainPrefetches();
 
     // AR-6 D5: throttle the memory-pressure syscall. checkMemoryPressure() runs
     // on every getOrRender()/getOrRenderTile() — calling GlobalMemoryStatusEx

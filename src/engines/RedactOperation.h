@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: Apache-2.0
+#pragma once
+#include <QObject>
+#include <QString>
+#include <QStringList>
+#include <QMap>
+#include <QList>
+#include <QRectF>
+#include <atomic>
+#include <functional>
+#include <memory>
+#include "core/RedactionProof.h"
+
+class IPdfEditorEngine;
+
+namespace gp {
+
+// ── U05: ONE transactional redaction operation behind BOTH entry paths ──────
+//
+// RedactMode ("Apply All Redactions") and SecurityController (ToolId::ApplyRedact)
+// previously ran two divergent flows: the mode mutated the LIVE document and
+// saved to a fixed `_redacted.pdf`, while the controller saved IN PLACE over
+// the original and reported "Sanitized copy: …" without checking sanitize
+// success. Both routed through PdfEditorEngine::saveDocument, which is a direct
+// backend save (its linearize variant even removes the destination before
+// copying) — not a transaction.
+//
+// RedactOperation mirrors the landed R01 form-save transaction instead:
+//   Preflight  — load a DISPOSABLE private engine from sourcePath, re-check the
+//                ER-2 signed-file refusal and page ranges (defense in depth
+//                behind the UI guards and PdfEditorEngine.cpp:1383-1390 /
+//                1424-1431, which stay untouched).
+//   Redacting  — per page applyRedactions(page, rects); progress + cancel are
+//                honored BETWEEN pages only (a page's content-stream excision
+//                is atomic inside the engine; there is no mid-page cancellation).
+//   SavingCandidate — saveDocument(candidate) into a unique temp file — NEVER
+//                the destination (the engine's save is not transactional).
+//   Validating — reopen the candidate, require a readable PDF with an unchanged
+//                page count (FormManager.cpp:203-214 pattern).
+//   Committing — gp::SafeSave::commitFileToDestination: bounded copy into
+//                QSaveFile + checked commit(); on failure the destination is
+//                byte-identical. The source is NEVER written.
+//   Sanitizing — load the COMMITTED redacted file and sanitizeDocument() into
+//                the sanitized destination, so a sanitize failure can never
+//                corrupt the committed redacted artifact.
+//
+// Outcomes are explicit; partial failure is never masked by a success banner:
+//   Completed           — every requested step committed.
+//   PartialRedactedOnly — the redacted file IS committed; only sanitization
+//                         failed (retry via sanitizeCommittedFile()).
+//   Failed              — nothing written; the original is byte-identical.
+//   Canceled            — honored at stage/page boundaries BEFORE the commit;
+//                         once the redacted file is committed, cancellation is
+//                         no longer honored (the artifact exists and is
+//                         honestly reported instead).
+
+struct RedactRequest {
+    QString sourcePath;                          // original — NEVER written
+    QString destinationPath;                     // redacted output (committed atomically)
+    QMap<int, QList<QRectF>> redactionsByPage;   // 0-based page -> rects
+    bool sanitize = false;
+    QString sanitizedDestinationPath;            // required when sanitize
+    // §9.8 P1: optional reason/label drawn in white, centered, on every
+    // burn-in box (7pt, skipped where a box is too small — appearance
+    // auto-fit precedent). Empty = plain black boxes (current behavior).
+    // Burn-in paint only: excision semantics are untouched.
+    QString overlayText;
+    // T1-2 Redaction Proof Mode: after the output (and sanitized copy, when
+    // requested) is committed, run gp::RedactionProof::verify over the
+    // COMMITTED artifacts and export the proof pack next to the destination.
+    // The proof NEVER gates the commit (the artifacts exist either way) —
+    // a failed proof is reported loudly on the result, never swallowed.
+    bool produceProof = false;
+};
+
+enum class RedactStage  { Preflight, Redacting, SavingCandidate, Validating, Committing, Sanitizing, Done };
+enum class RedactOutcome { Completed, PartialRedactedOnly, Failed, Canceled };
+
+// User-presentable stage name (used for failedStage and logs).
+QString redactStageName(RedactStage stage);
+
+struct RedactResult {
+    RedactOutcome outcome = RedactOutcome::Failed;
+    QString destination;              // committed redacted file ("" if none)
+    QString sanitizedDestination;     // committed sanitized file ("" if none)
+    // D01: the REQUESTED sanitize destination, preserved on every outcome of a
+    // sanitize request — including PartialRedactedOnly, where
+    // `sanitizedDestination` stays empty (no sanitized copy exists). Retry
+    // sanitization must target this path, not the empty committed field.
+    QString intendedSanitizedDestination;
+    int pagesProcessed = 0;           // pages successfully redacted
+    int pagesTotal = 0;               // pages with marks (the Redacting scope)
+    QString failedStage;              // redactStageName of the failing stage
+    QString error;                    // user-presentable reason
+    // T1-2 Redaction Proof Mode — filled only when RedactRequest::produceProof
+    // was set AND an output was committed (Completed or PartialRedactedOnly).
+    // proofRan true + proofPassed false = the proof FAILED (survivors found or
+    // surfaces unswept): proofFailures names where; the pack files were still
+    // written so counsel sees exactly what was checked. Proof pack paths are
+    // derived from the destination (<dest>_redaction-proof.{json,txt}); they
+    // stay empty when no proof was requested or nothing was committed.
+    bool proofRan = false;
+    bool proofPassed = false;
+    QString proofSummary;             // one-line honest verdict for banners
+    QStringList proofFailures;        // located failure reasons (FAIL only)
+    QString proofJsonPath;
+    QString proofTextPath;
+};
+
+class RedactOperation : public QObject {
+    Q_OBJECT
+public:
+    // Deterministic test seam, mirroring FormManager::setSaveFaultForTesting.
+    enum class Fault { None = 0, Redact, CandidateSave, Validation, Commit, Sanitize };
+    static void setFaultForTesting(Fault fault);
+    static Fault faultForTesting();
+
+    // Disposable session: the operation NEVER uses the live viewer's engine
+    // (a failed or canceled run must not leave the live document half-redacted).
+    // It builds a private engine through this factory; the default creates a
+    // fresh PdfEditorEngine. Tests may inject a different factory.
+    using EngineFactory = std::function<std::shared_ptr<IPdfEditorEngine>()>;
+    static std::shared_ptr<IPdfEditorEngine> defaultEngineFactory();
+    void setEngineFactory(EngineFactory factory);
+
+    explicit RedactOperation(RedactRequest request, QObject* parent = nullptr);
+    ~RedactOperation() override;
+
+    // Test/progress seam: invoked on the worker thread at each page boundary
+    // with the number of pages applied so far. Tests use it to cancel() at an
+    // exact boundary; hosts may use it for fine-grained progress.
+    void setPageBoundaryHook(std::function<void(int pagesDone)> hook);
+
+    void start();    // run() on a worker QThread; the worker owns the
+                     // execution state (D02) and delivers results back to a
+                     // guarded live receiver through queued connections.
+    void cancel();   // cooperative — honored at stage/page boundaries only.
+    void run();      // synchronous execution of the whole state machine.
+                     // NCR-02: consumes the SAME one-shot gate as start() —
+                     // an operation executes exactly once through either
+                     // entry point, in any order — and holds a strong local
+                     // reference to the execution state for the duration of
+                     // the call, so a direct-connected slot that destroys the
+                     // operation cannot free the state mid-run.
+
+    // Partial-result recovery (the "Retry sanitize" action): sanitize an
+    // ALREADY-COMMITTED redacted file into `sanitizedDestination`. D05: the
+    // pass writes an operation-owned candidate, validates it, and commits it
+    // through SafeSave (checked QSaveFile commit) — a pre-existing sanitized
+    // destination survives every failure byte-identical and is only ever
+    // replaced atomically. Never touches the original source document.
+    static bool sanitizeCommittedFile(const QString& committedRedactedPath,
+                                      const QString& sanitizedDestination,
+                                      QString* err);
+
+signals:
+    void stageChanged(gp::RedactStage stage, int pagesDone, int pagesTotal);
+    void finished(const gp::RedactResult& result);
+
+private:
+    // D02: worker-durable execution state. The request, the atomic
+    // cancellation flag, the configuration seams (engine factory, page
+    // boundary hook), the overlap guard, and the guarded signal delivery all
+    // live in ONE shared_ptr-held object; start() hands its own shared_ptr to
+    // the worker thread. The worker therefore never dereferences the
+    // RedactOperation itself, and destroying this QObject (its UI parent can
+    // die at any moment) neither crashes nor cancels an in-flight run — the
+    // state simply outlives the QObject. Defined in RedactOperation.cpp,
+    // where the shared_ptr is created and destroyed.
+    struct ExecutionState;
+    std::shared_ptr<ExecutionState> m_exec;
+    static std::atomic<Fault> s_faultForTesting;
+};
+
+} // namespace gp
+
+Q_DECLARE_METATYPE(gp::RedactResult)
+Q_DECLARE_METATYPE(gp::RedactStage)

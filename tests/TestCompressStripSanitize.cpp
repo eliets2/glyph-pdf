@@ -65,7 +65,22 @@ void TestCompressStripSanitize::stripMetadataRemovesHiddenData() {
         QVERIFY2(!cat.HasKey("Names") || !cat.FindKey("Names")->GetDictionary().HasKey("JavaScript"),
                  "JavaScript name tree must be removed by stripMetadata");
         QVERIFY2(!cat.HasKey("Metadata"), "catalog XMP must be removed by stripMetadata");
-        QVERIFY2(!doc.GetTrailer().GetDictionary().HasKey("Info"), "/Info must be removed by stripMetadata");
+        // E-2 (soak 2026-09-20): /Info may keep an EMPTY container (same
+        // legal-empty contract as /Names above) because the document caches a
+        // PdfInfo wrapper over the Info object — removing the key would let
+        // Save()'s CollectGarbage() free it under the wrapper (the soak's
+        // AssertMutable AV). Zero user metadata must survive in it.
+        {
+            auto* outInfo = doc.GetTrailer().GetDictionary().FindKey("Info");
+            QVERIFY2(outInfo == nullptr || !outInfo->IsDictionary() ||
+                     (!outInfo->GetDictionary().HasKey("Title") &&
+                      !outInfo->GetDictionary().HasKey("Author") &&
+                      !outInfo->GetDictionary().HasKey("Subject") &&
+                      !outInfo->GetDictionary().HasKey("Keywords") &&
+                      !outInfo->GetDictionary().HasKey("Creator") &&
+                      !outInfo->GetDictionary().HasKey("Producer")),
+                     "user /Info metadata must be scrubbed by stripMetadata");
+        }
     } catch (const PoDoFo::PdfError& e) {
         QFAIL(qPrintable(QStringLiteral("failed to reload optimized pdf: %1")
                          .arg(QString::fromLatin1(e.what()))));

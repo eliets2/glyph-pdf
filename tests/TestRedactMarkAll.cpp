@@ -4,21 +4,34 @@
 // Mark Region activates the canvas drag-placement mode — the pills are no
 // longer decorative toggles.
 #include <QtTest/QtTest>
+#include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QCheckBox>
+#include <QLabel>
 #include <QComboBox>
 #include <QMessageBox>
 #include <QTimer>
 #include <QApplication>
 #include <QFile>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QRadioButton>
 #include <QTextStream>
+#include <QToolButton>
 #include <podofo/podofo.h>
 #include "modes/RedactMode.h"
-#include "core/AppContext.h"
+#include "modes/RedactApplyDialog.h"
+#include "engines/RedactOperation.h" // SEP13 M8 lifetime pin: child-count observation
 #include "engines/PdfEditorEngine.h"
+#include "engines/pdfium/PdfiumBackend.h"
+#include "core/AppContext.h"
 #include "ui/PdfViewerWidget.h"
+
+// Windows headers (transitively included via the pdfium/OpenSSL headers) define
+// `#define DrawText DrawTextW`, which would rewrite the PoDoFo painter calls below.
+#ifdef DrawText
+#undef DrawText
+#endif
 
 class TestRedactMarkAll : public QObject {
     Q_OBJECT
@@ -30,10 +43,41 @@ private slots:
     // Apply), and an unparseable range must mark nothing at all.
     void rangeMarksExactlyTheListedPages();
     void invalidRangeMarksNothing();
-    // §9.8 P0: the Apply flow's sanitize checkbox must run the full hidden-
-    // data scrub on the saved copy (and stay off honestly when unchecked).
+    // §9.8 P0 + U05: the Apply flow's sanitize checkbox must run the full
+    // hidden-data scrub on the SEPARATE sanitized copy (and stay off honestly
+    // when unchecked) — the redacted copy itself never silently gains it.
     void sanitizeCopyCheckboxProducesCleanOutput();
+    void redactPanelShowsLocalClaim();
     void sanitizeUncheckedKeepsMetadata();
+    // SEP13 M8 (static-LOW): the finished RedactOperation must be deleted —
+    // no accumulate-per-run leak of the mode-owned operation object.
+    void redactOperationIsDeletedAfterCompletion();
+    // §9.8 P1: the panel needs an honest Cancel/Exit affordance — the AR-8 D3
+    // plan removed the broken button instead of fixing the missing control.
+    // Cancel must emit exitRequested() (the mode-exit contract) and must NOT
+    // touch the placed marks (they live on the viewer and stay recoverable).
+    void cancelControlEmitsExitRequestedAndKeepsMarks();
+    // N07 (review 2026-09-07): exiting redaction must DISARM the marking tool
+    // (the shared viewer stays visible after the host snaps back to the
+    // standard canvas) while KEEPING the placed marks.
+    void exitRequestedDisarmsMarkingToolAndKeepsMarks();
+    // N04 (review 2026-09-07): the Security entry path builds its RedactRequest
+    // through the shared plan→request conversion seam — every dialog field,
+    // including the §9.8 P1 overlay label, must survive it.
+    void sharedPlanConversionCarriesEveryDialogField();
+    // N04: the real-caller chain — a label typed into the Apply dialog reaches
+    // the operation and is burned into the SAVED PDF (Redact-mode caller,
+    // which goes through the same shared conversion as Security).
+    void applyDialogOverlayTextIsBurnedIntoSavedPdf();
+    // §9.8 P1: Foxit-style word-list import — a .txt file becomes an escaped
+    // alternation pattern shown in the custom-regex edit for review, with a
+    // hard size cap and an honest error.
+    void wordListImportBuildsEscapedAlternation();
+    void wordListImportRefusesOversizedFile();
+    void importListButtonSitsNextToRegexEdit();
+    // D07 (review 2026-09-06): the shared default-ON sanitize policy
+    // regression check (N10: declared as a slot so Qt Test runs it).
+    void defaultSanitizePolicyIsSharedAndOn();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
                                      const QString& name, const QString& text);
@@ -239,6 +283,20 @@ QString createRiskyRedactablePdf(const QTemporaryDir& tmpDir, const QString& nam
             PoDoFo::PdfStandard14FontType::Helvetica);
         painter.TextState.SetFont(font, 12.0);
         painter.DrawText("Secret a@b.com", 50, 700);
+        // The keep text lives on a SEPARATE page: the backend excision does
+        // byte-surgery per content stream, and a same-stream neighbor line is
+        // corrupted by the splice (observed: TEXT -> XEXX even 150pt away —
+        // byte adjacency, not geometry). Engine defect tracked in the evidence
+        // ledger; per-page survival is the contract U05 can pin honestly.
+        painter.DrawText("PUBLIC_KEEP_TEXT", 50, 700);
+        doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+        auto& page2 = doc.GetPages().GetPageAt(1);
+        PoDoFo::PdfPainter painter2;
+        painter2.SetCanvas(page2);
+        painter2.TextState.SetFont(font, 12.0);
+        painter2.DrawText("PUBLIC_KEEP_TEXT", 50, 700);
+        painter2.FinishDrawing();
         painter.FinishDrawing();
 
         auto& cat = doc.GetCatalog().GetDictionary();
@@ -265,37 +323,60 @@ bool catalogHasKey(const QString& pdf, const char* key) {
         return true; // treat unloadable output as "not clean"
     }
 }
-
-bool contentContains(const QString& pdf, const QByteArray& needle, QString* err = nullptr) {
-    try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(pdf.toUtf8().constData());
-        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
-            auto* co = doc.GetPages().GetPageAt(i).GetContents();
-            if (!co) continue;
-            PoDoFo::charbuff buf;
-            co->CopyTo(buf);
-            if (QByteArray(buf.data(), static_cast<int>(buf.size())).contains(needle))
-                return true;
-        }
-        return false;
-    } catch (const std::exception& e) {
-        if (err) *err = QString::fromLatin1(e.what());
-        return true; // treat unloadable output as "not clean"
-    }
-}
 } // namespace
 
 namespace {
-// onApplyRedactions asks a modal Yes/No confirmation before burning marks in —
-// accept it from a queued callback so headless tests can drive the flow.
-void acceptApplyConfirmation() {
-    QTimer::singleShot(0, [] {
-        if (auto* box = qobject_cast<QMessageBox*>(QApplication::activeModalWidget())) {
-            if (auto* yes = box->button(QMessageBox::Yes)) { yes->click(); return; }
+// U05: onApplyRedactions opens the pre-mutation RedactApplyDialog (replacing the
+// old Yes/No confirm box) and then runs the transactional RedactOperation
+// asynchronously — a worker thread emits queued `finished`, and the shared
+// result presenter opens its own dialogs. A repeating timer accepts the dialog
+// with its plan defaults and dismisses presenter boxes while the test's
+// QTRY_* macros pump the event loop.
+class ApplyFlowDriver {
+public:
+    ApplyFlowDriver() {
+        QObject::connect(&m_timer, &QTimer::timeout, [this]() { pump(); });
+        m_timer.start(10);
+    }
+    // N04: when set, the driver types this label into the Apply dialog's
+    // overlay edit before accepting — the same field a real user fills.
+    void setOverlayText(const QString& text) { m_overlayText = text; }
+private:
+    void pump() {
+        QWidget* modal = QApplication::activeModalWidget();
+        if (!modal) return;
+        if (auto* dlg = qobject_cast<gp::RedactApplyDialog*>(modal)) {
+            if (!m_overlayText.isEmpty())
+                dlg->setOverlayText(m_overlayText);
+            // Accept with the plan defaults (destinations prefilled).
+            if (auto* ok = dlg->findChild<QPushButton*>(QStringLiteral("redactApplyOkButton"));
+                ok && ok->isEnabled()) {
+                ok->click();
+            }
+        } else if (auto* box = qobject_cast<QMessageBox*>(modal)) {
+            const auto buttons = box->findChildren<QPushButton*>();
+            if (!buttons.isEmpty()) buttons.first()->click(); // presenter result box
+            else modal->close();
         }
-        if (QWidget* m = QApplication::activeModalWidget()) m->close();
-    });
+    }
+    QTimer m_timer;
+    QString m_overlayText;
+};
+
+int redactMarkCount(const PdfViewerWidget& viewer) {
+    int count = 0;
+    for (const auto& a : viewer.annotations())
+        if (a.mode == ToolMode::Redact) ++count;
+    return count;
+}
+
+// Independent extractor (Pdfium) — engine-level content checks on these
+// fixtures are vacuous because PoDoFo writes glyph-encoded strings, never the
+// plain-ASCII needle.
+QString pdfiumText(const QString& pdf, int page) {
+    PdfiumBackend backend;
+    if (!backend.loadDocument(pdf)) return {};
+    return backend.extractText(page);
 }
 } // namespace
 
@@ -321,22 +402,40 @@ void TestRedactMarkAll::sanitizeCopyCheckboxProducesCleanOutput() {
     QVERIFY2(chk, "the Apply flow must expose the sanitize-copy checkbox");
     QVERIFY2(chk->isChecked(), "sanitize copy must default to ON");
 
-    // Place a mark over the secret and apply.
+    // Place a mark over the secret and apply. Mark rects use the viewer's
+    // top-down convention (the engine converts with pageHeight - y - height);
+    // the secret drawn at PDF (50,700) sits ~142 from the top.
     AnnotationItem mark;
     mark.mode = ToolMode::Redact;
     mark.pageIndex = 0;
-    mark.rect = QRectF(40, 690, 300, 30); // covers the drawn text at (50,700)
+    mark.rect = QRectF(40, 130, 300, 30); // covers the drawn text at (50,700)
     viewer.setAnnotations({mark});
-    acceptApplyConfirmation();
+    ApplyFlowDriver driver;
     QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
 
     const QString out = tmp.filePath("risky_apply_redacted.pdf");
-    QVERIFY2(QFileInfo::exists(out), "the redacted copy must be written");
-    QVERIFY2(!contentContains(out, "a@b.com"),
-             "the secret must be excised from the redacted copy");
-    QVERIFY2(!catalogHasKey(out, "OpenAction"),
+    const QString sanitizedOut = tmp.filePath("risky_apply_redacted_sanitized.pdf");
+    QTRY_VERIFY2(QFileInfo::exists(out), "the redacted copy must be committed");
+    // Marks are cleared only by the finished handler after the result presenter
+    // was dismissed — this is the async-completion sync point.
+    QTRY_VERIFY2(redactMarkCount(viewer) == 0, "marks must be cleared once the output is committed and kept");
+    QTRY_VERIFY2(QFileInfo::exists(sanitizedOut), "the sanitized copy must be committed");
+
+    // Independent extractor: the secret is excised from the redacted copy and
+    // the keep-line survives (proves extraction is not vacuously empty).
+    const QString redactedText = pdfiumText(out, 0);
+    QVERIFY2(!redactedText.contains(QStringLiteral("a@b.com")),
+             qPrintable(QStringLiteral("secret survived in the redacted copy: %1").arg(redactedText)));
+    const QString keepText = pdfiumText(out, 1);
+    QVERIFY2(keepText.contains(QStringLiteral("PUBLIC_KEEP_TEXT")),
+             qPrintable(QStringLiteral("public text lost (page 2): %1").arg(keepText)));
+
+    // U05 contract: sanitization now produces a SEPARATE artifact — the full
+    // hidden-data scrub applies to the sanitized copy (the redacted copy
+    // intentionally keeps metadata; only the sanitize pass strips it).
+    QVERIFY2(!catalogHasKey(sanitizedOut, "OpenAction"),
              "OpenAction JS must be scrubbed from the sanitized copy");
-    QVERIFY2(!catalogHasKey(out, "Metadata"),
+    QVERIFY2(!catalogHasKey(sanitizedOut, "Metadata"),
              "XMP metadata must be scrubbed from the sanitized copy");
 }
 
@@ -361,22 +460,343 @@ void TestRedactMarkAll::sanitizeUncheckedKeepsMetadata() {
     QVERIFY(chk);
     chk->setChecked(false); // honest opt-out: only content excision runs
 
+    // Mark rects use the viewer's top-down convention; the secret drawn at PDF
+    // (50,700) sits ~142 from the top.
     AnnotationItem mark;
     mark.mode = ToolMode::Redact;
     mark.pageIndex = 0;
-    mark.rect = QRectF(40, 690, 300, 30);
+    mark.rect = QRectF(40, 130, 300, 30);
     viewer.setAnnotations({mark});
-    acceptApplyConfirmation();
+    ApplyFlowDriver driver;
     QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
 
     const QString out = tmp.filePath("risky_apply2_redacted.pdf");
-    QVERIFY2(QFileInfo::exists(out), "the redacted copy must be written");
-    QVERIFY2(!contentContains(out, "a@b.com"),
-             "the secret must be excised even without sanitization");
+    const QString sanitizedOut = tmp.filePath("risky_apply2_redacted_sanitized.pdf");
+    QTRY_VERIFY2(QFileInfo::exists(out), "the redacted copy must be committed");
+    QTRY_VERIFY2(redactMarkCount(viewer) == 0, "marks must be cleared once the output is committed and kept");
+
+    // Independent extractor: the secret is excised, the keep-line survives.
+    const QString redactedText = pdfiumText(out, 0);
+    QVERIFY2(!redactedText.contains(QStringLiteral("a@b.com")),
+             qPrintable(QStringLiteral("secret survived in the redacted copy: %1").arg(redactedText)));
+    const QString keepText = pdfiumText(out, 1);
+    QVERIFY2(keepText.contains(QStringLiteral("PUBLIC_KEEP_TEXT")),
+             qPrintable(QStringLiteral("public text lost (page 2): %1").arg(keepText)));
+
+    // With the checkbox off no sanitized copy may appear, and the hidden data
+    // is intentionally retained in the redacted copy — this documents the
+    // honest difference between the two modes (U05: the sanitize pass writes
+    // a separate artifact; the redacted copy never silently gets it).
+    QVERIFY2(!QFileInfo::exists(sanitizedOut), "no sanitized copy may be written when the checkbox is off");
     QVERIFY2(catalogHasKey(out, "OpenAction"),
              "with the checkbox off, hidden data is intentionally retained — "
              "this documents the honest difference between the two modes");
 }
+
+// SEP13 M8 (static-LOW): RedactOperation LIFETIME. The Apply flow heap-
+// allocates the operation with the mode as parent and runs it asynchronously;
+// nothing ever deleted it, so every run leaked one QObject (accumulate-per-
+// run). The fix mirrors the sibling mode-owned worker idiom (ConvertController
+// et al.): deleteLater on the completion signal — D02 already guarantees the
+// durable execution state outlives the QObject, so deferred deletion after
+// the queued finished() can never free a running worker. The observation is
+// an object count: after completion the mode must have NO RedactOperation
+// children left — pre-fix the finished operation stays parented forever.
+void TestRedactMarkAll::redactOperationIsDeletedAfterCompletion() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createRiskyRedactablePdf(tmp, "m8_lifetime.pdf");
+    QVERIFY2(!pdf.isEmpty(), "risky fixture failed");
+
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(pdf));
+    AppContext ctx;
+    ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(&engine, [](IPdfEditorEngine*){});
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+    gp::RedactMode mode;
+    mode.setAppContext(&ctx);
+    mode.setViewer(&viewer);
+
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30); // covers the drawn text at (50,700)
+    viewer.setAnnotations({mark});
+    ApplyFlowDriver driver;
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
+
+    // Async-completion sync point (same as the sibling Apply-flow pins): the
+    // finished handler cleared the marks.
+    QTRY_VERIFY2(redactMarkCount(viewer) == 0,
+                 "the operation must complete (marks cleared after commit)");
+
+    // THE pin: the finished operation must be GONE — deleteLater on the
+    // completion signal drained it from the mode's children. Pre-fix this
+    // times out: the per-run operation object stays parented (a leak per run).
+    QTRY_VERIFY2(mode.findChildren<gp::RedactOperation*>().isEmpty(),
+                 "the finished RedactOperation must be deleted after completion — "
+                 "it must not accumulate per run");
+}
+
+void TestRedactMarkAll::redactPanelShowsLocalClaim() {
+    // §9.8 P0: the redaction surface must state the compliance differentiator.
+    gp::RedactMode mode;
+    auto* label = mode.findChild<QLabel*>(QStringLiteral("redactLocalClaimLabel"));
+    QVERIFY2(label, "RedactMode must display the local-first claim label");
+    QVERIFY2(label->text().contains(QStringLiteral("no upload"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("claim must state no-upload: %1").arg(label->text())));
+}
+
+// §9.8 P1: the Cancel/Exit control restored and honestly wired — clicking it
+// emits exitRequested() (relayed by ModeController to the host, which returns
+// to the standard canvas) and leaves the placed redaction marks on the viewer.
+void TestRedactMarkAll::cancelControlEmitsExitRequestedAndKeepsMarks() {
+    PdfViewerWidget viewer;
+    gp::RedactMode mode;
+    mode.setViewer(&viewer);
+
+    // Place a mark first: cancel must keep it recoverable on the viewer.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30);
+    viewer.setAnnotations({mark});
+
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("redactBtnCancel"));
+    QVERIFY2(btn, "RedactMode must expose a Cancel/Exit control (redactBtnCancel)");
+
+    QSignalSpy exitSpy(&mode, &gp::RedactMode::exitRequested);
+    btn->click();
+    QCOMPARE(exitSpy.count(), 1);
+
+    // The placed marks live on the viewer — cancel must not clear them.
+    QCOMPARE(redactMarkCount(viewer), 1);
+}
+
+// N07 (review 2026-09-07): the exit path must leave the SHARED viewer in the
+// neutral navigation state. After the host snaps back to the standard canvas
+// the same viewer widget is visible again — a still-armed ToolMode::Redact
+// turns an ordinary drag into a new (irreversible-on-Apply) mark. In HandTool
+// mode AnnotationLayer is transparent for mouse events, so drags pass through
+// and create nothing. Placed marks are KEPT: exit neither applies nor
+// discards them.
+void TestRedactMarkAll::exitRequestedDisarmsMarkingToolAndKeepsMarks() {
+    PdfViewerWidget viewer;
+    gp::RedactMode mode;
+    mode.setViewer(&viewer);
+
+    // Place a mark first: exit must keep it recoverable on the viewer.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30);
+    viewer.setAnnotations({mark});
+
+    // Arm the marking tool exactly the way the panel's Mark Region control does.
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onMarkRegion"));
+    QCOMPARE(viewer.toolMode(), ToolMode::Redact);
+
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("redactBtnCancel"));
+    QVERIFY2(btn, "RedactMode must expose a Cancel/Exit control (redactBtnCancel)");
+
+    QSignalSpy exitSpy(&mode, &gp::RedactMode::exitRequested);
+    btn->click();
+    QCOMPARE(exitSpy.count(), 1); // the exit contract still fires
+
+    // THE N07 CONTRACT: the marking tool is disarmed on exit ...
+    QVERIFY2(viewer.toolMode() != ToolMode::Redact,
+             qPrintable(QStringLiteral("the redaction marking tool must not stay "
+                                      "armed after exit (got tool mode %1)")
+                            .arg(int(viewer.toolMode()))));
+    QCOMPARE(viewer.toolMode(), ToolMode::HandTool);
+    // ... and the placed marks are kept.
+    QCOMPARE(redactMarkCount(viewer), 1);
+}
+
+// N04 (review 2026-09-07): ONE shared plan→request conversion serves BOTH
+// entry paths (RedactMode and SecurityController::applyRedactions). Every
+// dialog field must survive it — the §9.8 P1 overlay label was exactly the
+// field that silently disappeared on the Security path. (The controller
+// method itself opens a modal dialog plus a progress dialog on the main
+// window and is not headlessly drivable; the conversion seam both callers
+// go through is what is tested here.)
+void TestRedactMarkAll::sharedPlanConversionCarriesEveryDialogField() {
+    gp::RedactApplyPlan plan;
+    plan.sourcePath = QStringLiteral("source.pdf");
+    plan.destinationPath = QStringLiteral("redacted.pdf");
+    plan.sanitizedDestinationPath = QStringLiteral("redacted_sanitized.pdf");
+    plan.sanitize = true;
+    plan.overlayText = QStringLiteral("REASON-CODE-7");
+
+    QMap<int, QList<QRectF>> marks;
+    marks[0].append(QRectF(1, 2, 3, 4));
+    marks[2].append(QRectF(5, 6, 7, 8));
+    marks[2].append(QRectF(9, 10, 11, 12));
+
+    const gp::RedactRequest request = gp::redactRequestFromPlan(plan, marks);
+    QCOMPARE(request.sourcePath, QStringLiteral("source.pdf"));
+    QCOMPARE(request.destinationPath, QStringLiteral("redacted.pdf"));
+    QCOMPARE(request.sanitizedDestinationPath, QStringLiteral("redacted_sanitized.pdf"));
+    QVERIFY(request.sanitize);
+    QCOMPARE(request.redactionsByPage.size(), 2);
+    QCOMPARE(request.redactionsByPage.value(0), QList<QRectF>{ QRectF(1, 2, 3, 4) });
+    QCOMPARE(request.redactionsByPage.value(2),
+             (QList<QRectF>{ QRectF(5, 6, 7, 8), QRectF(9, 10, 11, 12) }));
+    // THE N04 FIELD: the overlay label must reach the operation.
+    QCOMPARE(request.overlayText, QStringLiteral("REASON-CODE-7"));
+
+    // Empty labels remain optional (review acceptance) — no invented default.
+    gp::RedactApplyPlan quiet;
+    quiet.overlayText.clear();
+    QVERIFY(gp::redactRequestFromPlan(quiet, {}).overlayText.isEmpty());
+}
+
+// N04: the real-caller chain — the label a user types into the Apply dialog
+// must reach the operation and be burned into the SAVED PDF (white, centered
+// on every burn-in box). The Redact-mode caller goes through the same shared
+// conversion as the Security caller, so this guards the seam end to end.
+void TestRedactMarkAll::applyDialogOverlayTextIsBurnedIntoSavedPdf() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createRiskyRedactablePdf(tmp, "overlay_apply.pdf");
+    QVERIFY2(!pdf.isEmpty(), "fixture failed");
+
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(pdf));
+    AppContext ctx;
+    ctx.pdfEditor = std::shared_ptr<IPdfEditorEngine>(&engine, [](IPdfEditorEngine*){});
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+    gp::RedactMode mode;
+    mode.setAppContext(&ctx);
+    mode.setViewer(&viewer);
+
+    // Mark rects use the viewer's top-down convention; the secret drawn at PDF
+    // (50,700) sits ~142 from the top.
+    AnnotationItem mark;
+    mark.mode = ToolMode::Redact;
+    mark.pageIndex = 0;
+    mark.rect = QRectF(40, 130, 300, 30);
+    viewer.setAnnotations({mark});
+
+    ApplyFlowDriver driver;
+    driver.setOverlayText(QStringLiteral("REDACTED-LBL"));
+    QVERIFY(QMetaObject::invokeMethod(&mode, "onApplyRedactions"));
+
+    const QString out = tmp.filePath("overlay_apply_redacted.pdf");
+    QTRY_VERIFY2(QFileInfo::exists(out), "the redacted copy must be committed");
+    // Async-completion sync point: marks cleared after the presenter was dismissed.
+    QTRY_VERIFY2(redactMarkCount(viewer) == 0, "marks must be cleared once the output is committed and kept");
+
+    const QString page0 = pdfiumText(out, 0);
+    QVERIFY2(page0.contains(QStringLiteral("REDACTED-LBL")),
+             qPrintable(QStringLiteral("the overlay label chosen in the dialog must be "
+                                      "burned into the saved PDF; extracted: %1").arg(page0)));
+}
+
+// §9.8 P1: word-list import — the pure seams.
+void TestRedactMarkAll::wordListImportBuildsEscapedAlternation() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.filePath("terms.txt");
+    {
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Text), "list file must be writable");
+        // Blank lines are skipped; regex metacharacters must arrive ESCAPED.
+        f.write("Alice Wonder\nBob+Smith\n\n   \nCarol(QA)\nBob+Smith\n");
+    }
+
+    QString err;
+    const QStringList terms = gp::RedactMode::readWordList(path, 256 * 1024, &err);
+    QVERIFY2(err.isEmpty(), qPrintable(err));
+    QCOMPARE(terms.size(), 3);
+    QCOMPARE(terms.at(0), QStringLiteral("Alice Wonder"));
+    QCOMPARE(terms.at(1), QStringLiteral("Bob+Smith"));
+    QCOMPARE(terms.at(2), QStringLiteral("Carol(QA)"));
+
+    const QString pattern = gp::RedactMode::wordListToPattern(terms);
+    // QRegularExpression::escape escapes every non-word character — including
+    // the space — so the branch is "Alice\ Wonder".
+    QCOMPARE(pattern, QStringLiteral("Alice\\ Wonder|Bob\\+Smith|Carol\\(QA\\)"));
+
+    // The combined pattern must match the literal terms — including the ones
+    // whose metacharacters would otherwise act as regex syntax — and must not
+    // treat '+' as a quantifier.
+    QRegularExpression rx(pattern);
+    QVERIFY2(rx.isValid(), qPrintable(rx.errorString()));
+    QVERIFY(rx.match(QStringLiteral("Bob+Smith signed")).hasMatch());
+    QVERIFY(rx.match(QStringLiteral("contact Carol(QA) now")).hasMatch());
+    QVERIFY(!rx.match(QStringLiteral("BobSmith")).hasMatch());
+    QVERIFY(!rx.match(QStringLiteral("BobxACSmith")).hasMatch());
+}
+
+void TestRedactMarkAll::wordListImportRefusesOversizedFile() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString path = tmp.filePath("huge.txt");
+    {
+        QFile f(path);
+        QVERIFY2(f.open(QIODevice::WriteOnly | QIODevice::Text), "list file must be writable");
+        f.write(QByteArray(300 * 1024, 'x'));
+    }
+    QString err;
+    const QStringList terms = gp::RedactMode::readWordList(path, 256 * 1024, &err);
+    QVERIFY2(terms.isEmpty(), "an oversized list must yield no terms");
+    QVERIFY2(err.contains(QStringLiteral("large")), qPrintable(QStringLiteral("honest error expected: %1").arg(err)));
+
+    // A missing file is an honest error too — never a silent empty pattern.
+    QString missingErr;
+    QVERIFY(gp::RedactMode::readWordList(tmp.filePath("nope.txt"), 256 * 1024, &missingErr).isEmpty());
+    QVERIFY2(!missingErr.isEmpty(), "a missing file must report an error");
+}
+
+void TestRedactMarkAll::importListButtonSitsNextToRegexEdit() {
+    gp::RedactMode mode;
+    auto* btn = mode.findChild<QToolButton*>(QStringLiteral("redactBtnImportList"));
+    QVERIFY2(btn, "RedactMode must expose the word-list import control (redactBtnImportList)");
+
+    // The control appears together with the custom-regex edit it feeds.
+    QVERIFY2(btn->isHidden(), "import must be hidden until Custom regex is selected");
+
+    auto* combo = mode.findChild<QComboBox*>();
+    QVERIFY(combo);
+    combo->setCurrentIndex(combo->count() - 1); // "Custom regex …"
+
+    QVERIFY2(!btn->isHidden(), "import must be visible once Custom regex is selected");
+
+    // The import path lands the combined pattern in the regex edit for review
+    // (activateCustomRegex is the same seam the import handler uses).
+    mode.activateCustomRegex(QStringLiteral("Alice\\ Wonder|Bob\\+Smith"));
+    QLineEdit* regexEdit = nullptr;
+    const auto edits = mode.findChildren<QLineEdit*>();
+    for (QLineEdit* e : edits)
+        if (e->placeholderText().contains(QStringLiteral("regular expression")))
+            regexEdit = e;
+    QVERIFY2(regexEdit, "the custom-regex edit must exist");
+    QCOMPARE(regexEdit->text(), QStringLiteral("Alice\\ Wonder|Bob\\+Smith"));
+}
+
+    // ── D07 (review 2026-09-06): one shared default-ON sanitize policy ──────
+void TestRedactMarkAll::defaultSanitizePolicyIsSharedAndOn() {
+        // The shared initial policy constant must satisfy the default-ON
+        // contract, and the dialog must seed its checkbox from a caller-supplied
+        // plan carrying it (the Security entry path builds exactly this plan).
+        QVERIFY2(kDefaultSanitizeOn,
+                 "the shared sanitize policy must default ON for both entry paths");
+        gp::RedactApplyPlan plan;
+        plan.sourcePath = QStringLiteral("src.pdf");
+        plan.destinationPath = QStringLiteral("out.pdf");
+        plan.sanitizedDestinationPath = QStringLiteral("out_sanitized.pdf");
+        plan.sanitize = kDefaultSanitizeOn;
+        gp::RedactApplyDialog dlg(plan);
+        auto* chk = dlg.findChild<QCheckBox*>(QStringLiteral("redactApplySanitizeCheck"));
+        QVERIFY2(chk, "the dialog must expose the sanitize checkbox");
+        QVERIFY2(chk->isChecked(),
+                 "a caller-supplied default-ON plan must seed the checkbox ON");
+    }
 
 QTEST_MAIN(TestRedactMarkAll)
 #include "TestRedactMarkAll.moc"

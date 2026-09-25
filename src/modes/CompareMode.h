@@ -9,6 +9,7 @@ class CompareWidget;
 class QTreeWidget;
 class QLabel;
 class QToolButton;
+struct CompareChangeFilter;   // U04: defined in ui/CompareWidget.h
 
 namespace gp {
 
@@ -25,15 +26,49 @@ public:
     static bool pathsAreComparable(const QString& a, const QString& b, QString* why = nullptr);
 
     // ── §9.10: change-type filter for the CHANGES tree ──────────────────────────
-    // Pure seam: how many tree rows (per-page change rows + page-move rows) the
-    // view would show with the given toggles. Display-layer only — never
-    // mutates the diff result.
+    // Pure seam: how many tree rows (per-page change rows + structural page
+    // change rows) the view would show with the given toggles. Display-layer
+    // only — never mutates the diff result.
+    // R11: showPageAddRemove gates pages added to / removed from the documents;
+    // whole-page reorders stay behind showPageMove.
     static int rowsVisibleForFilters(const DiffResult& result, bool showText,
-                                     bool showMove, bool showPixel, bool showPageMove);
+                                     bool showMove, bool showPixel, bool showPageMove,
+                                     bool showPageAddRemove = true);
     // Populate the CHANGES tree from a diff result and apply the current filter
     // toggles. Split out of onDiffFinished so tests can drive it without the
     // async watcher (no modal dialogs, no real files needed).
     void showDiffResult(const DiffResult& result);
+
+    // R11: report builders exposed read-only so tests can assert structural
+    // changes name the correct page and side without driving the save dialog.
+    // U04: filter-honoring overloads — the report covers exactly the scope
+    // and filter state the UI describes (the no-arg forms keep producing the
+    // full all-on report).
+    QString buildHtmlReport() const;
+    QString buildTextReport() const;
+    QString buildHtmlReport(const CompareChangeFilter& filter) const;
+    QString buildTextReport(const CompareChangeFilter& filter) const;
+
+    // §9.10/R11: data roles tagging each CHANGES row with the filter gate it
+    // obeys, plus (for structural rows) its index in the one shared change
+    // sequence. Shared with tests so the seam stays honest.
+    static constexpr int kHasTextRole         = static_cast<int>(Qt::UserRole) + 1;
+    static constexpr int kHasMoveRole         = static_cast<int>(Qt::UserRole) + 2;
+    static constexpr int kHasPixelRole        = static_cast<int>(Qt::UserRole) + 3;
+    static constexpr int kIsPageMoveRole      = static_cast<int>(Qt::UserRole) + 4;
+    static constexpr int kIsPageAddRemoveRole = static_cast<int>(Qt::UserRole) + 5;
+    static constexpr int kAnchorIndexRole     = static_cast<int>(Qt::UserRole) + 6;
+    // U04: every row's raw position in the canonical data (structural rows:
+    // index into DiffResult::pageChanges; page rows: index into
+    // DiffResult::pages) so the filtered anchor index can be recomputed
+    // whenever the filter changes.
+    static constexpr int kPageChangeIndexRole = static_cast<int>(Qt::UserRole) + 7;
+    static constexpr int kPageDiffIndexRole   = static_cast<int>(Qt::UserRole) + 8;
+
+private:
+    // U04: build the CompareChangeFilter from the current toggle states and
+    // funnel it into the CompareWidget (the one shared filtered sequence).
+    CompareChangeFilter currentFilter() const;
 
 private slots:
     void onDiffFinished();
@@ -41,9 +76,6 @@ private slots:
     void applyChangeTypeFilters();
 
 private:
-    QString buildHtmlReport() const;
-    QString buildTextReport() const;
-
     CompareWidget* m_compareWidget;
     QTreeWidget* m_tree;
     QLabel* m_statusLabel;
@@ -55,6 +87,9 @@ private:
     QToolButton* m_filterMove     = nullptr;
     QToolButton* m_filterPixel    = nullptr;
     QToolButton* m_filterPageMove = nullptr;
+    QToolButton* m_filterPageAddRemove = nullptr;  // R11: pages added/removed
+    QToolButton* m_linkScrollBtn = nullptr;  // U04: linked scrolling toggle
+    QToolButton* m_swapBtn       = nullptr;  // U04: swap original/revised sides
     QFutureWatcher<DiffResult> m_watcher;
     DiffResult m_lastResult;
     QString m_file1;

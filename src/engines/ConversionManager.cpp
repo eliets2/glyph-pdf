@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/ConversionManager.h"
+#include "engines/SafeSave.h"
 #include <memory>
 #include <podofo/podofo.h>
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
+#include <QRegularExpression>
 #include <cmath>
 #include <QDebug>
 #include <QFile>
+#include <QHash>
+#include <QMap>
 #include <QTextStream>
 #include "core/TempFileManager.h"
 
@@ -38,7 +42,21 @@
 class ConversionManager::Private {
 public:
     PoDoFo::PdfMemDocument *document = nullptr;
-    QList<ConversionManager::TextElement> extractTextFromPage(int pageIndex, PoDoFo::PdfMemDocument &doc);
+    // R09 (F07): extraction goes through PDFium's decoded text path (via the
+    // backend boundary) instead of interpreting Tj/TJ bytes directly —
+    // subset-font glyph codes must never leak into Word/Excel/CSV/Text output.
+    QList<ConversionManager::TextElement> extractTextFromPage(PdfiumBackend &backend, int pageIndex);
+    // Deterministic ordering: cluster runs into visual lines, order lines
+    // top-to-bottom with a strict-weak-ordering-safe sort. Never re-sorts runs
+    // inside a line (keeps logical order for RTL/bidi content).
+    static QList<QList<ConversionManager::TextElement>> clusterIntoRows(
+        const QList<ConversionManager::TextElement> &elements);
+    // V03: derive spreadsheet COLUMNS from the retained geometry — runs split
+    // at horizontal gaps/font boundaries (backend) are mapped to consistent
+    // 0-based column indices across ALL rows, so a 2x2 table exports a real
+    // B column and an empty interior cell keeps its column. Line grouping
+    // (clusterIntoRows) and column inference stay separate steps.
+    static void deriveColumns(QList<QList<ConversionManager::TextElement>> &rows);
 };
 
 ConversionManager::ConversionManager(QObject *parent)
@@ -48,22 +66,17 @@ ConversionManager::ConversionManager(QObject *parent)
 
 ConversionManager::~ConversionManager() = default;
 
+// R10 (F08): truthful capability. Both writers exist unconditionally (vendored
+// lib when compiled in, in-house OOXML otherwise), so Word/Excel export is
+// always genuinely available — see the header contract and ExportEngine.
 bool ConversionManager::hasNativeWordExport()
 {
-#ifdef HAS_DUCKX
     return true;
-#else
-    return false;
-#endif
 }
 
 bool ConversionManager::hasNativeExcelExport()
 {
-#ifdef HAS_OPENXLSX
     return true;
-#else
-    return false;
-#endif
 }
 
 bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputPath, TargetFormat format, const QVariantMap &options)
@@ -89,42 +102,27 @@ bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputP
     }
 
     try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(pdfPath.toUtf8().constData());
+        // R09 (F07): a per-operation backend — the document/page/text handles
+        // live inside this call and are never shared with the live viewer or
+        // other threads. The load also validates the input BEFORE any output
+        // file is opened or truncated (R10).
+        PdfiumBackend backend;
+        if (!backend.loadDocument(pdfPath)) {
+            qWarning() << "Conversion: PDFium failed to load document:" << pdfPath;
+            return false;
+        }
 
         QList<QList<TextElement>> allRows;
 
-        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
-            QList<TextElement> pageElements = d->extractTextFromPage(i, doc);
-            
-            // Text Flow Heuristic: Group into rows
-            // PDF coordinates: Y increases upwards. We want top-to-bottom.
-            std::sort(pageElements.begin(), pageElements.end(), [](const TextElement &a, const TextElement &b) {
-                // If Y is close enough, they are on the same line. Sort by X.
-                if (std::abs(a.rect.y() - b.rect.y()) < (std::min(a.fontSize, b.fontSize) * 0.5)) {
-                    return a.rect.x() < b.rect.x();
-                }
-                // Otherwise, higher Y (top of page) comes first
-                return a.rect.y() > b.rect.y();
-            });
-
-            QList<TextElement> currentRow;
-            for (const auto &el : pageElements) {
-                if (currentRow.isEmpty()) {
-                    currentRow.append(el);
-                } else {
-                    double yDiff = std::abs(currentRow.last().rect.y() - el.rect.y());
-                    if (yDiff < el.fontSize * 0.8) {
-                        currentRow.append(el);
-                    } else {
-                        allRows.append(currentRow);
-                        currentRow.clear();
-                        currentRow.append(el);
-                    }
-                }
-            }
-            if (!currentRow.isEmpty()) allRows.append(currentRow);
+        for (int i = 0; i < backend.pageCount(); ++i) {
+            QList<TextElement> pageElements = d->extractTextFromPage(backend, i);
+            allRows.append(Private::clusterIntoRows(pageElements));
         }
+
+        // V03: with runs split at cell boundaries by the backend, derive the
+        // spreadsheet columns from the retained geometry (document-wide, so
+        // rows stay consistent with each other) before the writers run.
+        Private::deriveColumns(allRows);
 
         if (format == TargetFormat::Word) {
             return exportToWord(outputPath, allRows);
@@ -148,69 +146,163 @@ bool ConversionManager::convertTo(const QString &pdfPath, const QString &outputP
     }
 }
 
-QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFromPage(int pageIndex, PoDoFo::PdfMemDocument &doc)
+// R09 (F07): decoded text + baseline geometry straight from the backend's
+// page-text-with-boxes method. Runs arrive in PDFium char order (content
+// stream / logical order) with user-space rects normalized once by the
+// backend; this mapping does no reordering of its own.
+QList<ConversionManager::TextElement> ConversionManager::Private::extractTextFromPage(PdfiumBackend &backend, int pageIndex)
 {
     QList<TextElement> elements;
-    try {
-        PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
-        PoDoFo::PdfContentStreamReader reader(page);
-        
-        double currentX = 0, currentY = 0;
-        double currentFontSize = 10.0;
-        QString currentFontName = "Helvetica";
-        
-        PoDoFo::PdfContent content;
-        while (reader.TryReadNext(content)) {
-            if (content.GetType() == PoDoFo::PdfContentType::Operator) {
-                std::string_view kw = content.GetKeyword();
-                const auto& stack = content.GetStack();
-                
-                if (kw == "Tm" && stack.size() >= 6) {
-                    // PdfVariantStack is LIFO: for 'a b c d e f Tm', e=X and
-                    // f=Y sit at stack[1] / stack[0].
-                    if (stack[1].IsNumberOrReal()) currentX = stack[1].GetReal();
-                    if (stack[0].IsNumberOrReal()) currentY = stack[0].GetReal();
-                } else if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
-                    // 'tx ty Td': ty pushed last → stack[0]; tx → stack[1].
-                    if (stack[1].IsNumberOrReal()) currentX += stack[1].GetReal();
-                    if (stack[0].IsNumberOrReal()) currentY += stack[0].GetReal();
-                } else if (kw == "Tf" && stack.size() >= 2) {
-                    // 'name size Tf': LIFO → size on top (stack[0]), name below.
-                    if (stack[1].IsName()) currentFontName = QString::fromStdString(std::string(stack[1].GetName().GetString()));
-                    if (stack[0].IsNumberOrReal()) currentFontSize = stack[0].GetReal();
-                } else if (kw == "Tj" && stack.size() >= 1) {
-                    if (stack[0].IsString()) {
-                        TextElement el;
-                        el.text = QString::fromStdString(std::string(stack[0].GetString().GetString()));
-                        el.rect = QRectF(currentX, currentY, el.text.length() * currentFontSize * 0.6, currentFontSize);
-                        el.fontSize = currentFontSize;
-                        el.fontName = currentFontName;
-                        elements.append(el);
-                    }
-                } else if (kw == "TJ" && stack.size() >= 1) {
-                    if (stack[0].IsArray()) {
-                        QString fullText;
-                        for (const auto& item : stack[0].GetArray()) {
-                            if (item.IsString()) {
-                                fullText += QString::fromStdString(std::string(item.GetString().GetString()));
-                            }
-                        }
-                        TextElement el;
-                        el.text = fullText;
-                        el.rect = QRectF(currentX, currentY, el.text.length() * currentFontSize * 0.6, currentFontSize);
-                        el.fontSize = currentFontSize;
-                        el.fontName = currentFontName;
-                        elements.append(el);
+    const QList<PdfiumBackend::TextRun> runs = backend.extractPageTextRuns(pageIndex);
+    elements.reserve(runs.size());
+    for (const PdfiumBackend::TextRun &run : runs) {
+        if (run.text.isEmpty()) continue; // empty-element skipping (452bfa2 behavior kept)
+        TextElement el;
+        el.text = run.text;
+        el.rect = run.rect;
+        el.fontSize = run.fontSize;
+        el.fontName = run.fontName;
+        elements.append(el);
+    }
+    return elements;
+}
+
+// R09: deterministic ordering pipeline, replacing the previous
+// "close enough in Y" comparator INSIDE std::sort — a pairwise,
+// non-transitive predicate that violates the strict-weak-ordering contract
+// (real UB / crash risk). Now:
+//   1. runs arrive from the backend in extracted (logical) order;
+//   2. cluster them into visual lines: a run joins the first line whose
+//      baseline is within the documented tolerance (half the larger font
+//      size, 1pt floor) of the run's baseline; otherwise it starts a new line;
+//   3. order LINES top-to-bottom with std::stable_sort on the pure numeric
+//      line baseline (descending Y) — exact numeric keys, valid strict weak
+//      ordering, and stable order breaks any exact tie deterministically;
+//   4. runs within a line KEEP extracted order — never re-sorted by X, which
+//      preserves the Unicode logical order PDFium already computed for
+//      RTL/bidi/mixed-direction content (x-order alone is insufficient there).
+QList<QList<ConversionManager::TextElement>> ConversionManager::Private::clusterIntoRows(
+    const QList<ConversionManager::TextElement> &elements)
+{
+    struct LineGroup {
+        double baselineY;
+        double maxFont;
+        QList<TextElement> els;
+    };
+    QList<LineGroup> groups;
+    for (const TextElement &el : elements) {
+        bool placed = false;
+        for (LineGroup &g : groups) {
+            // SEP13 M7: the join tolerance is bounded by the SMALLER of the
+            // two font sizes. Under the previous half-of-the-LARGER-font rule
+            // a small line up to half a big glyph below a heading was swallowed
+            // into the heading's row (an 8pt line 10pt below a 24pt line
+            // merged, destroying the small line's independence). Same-line
+            // elements share their baseline within sub-point jitter, so this
+            // stays far above what same-line clustering needs.
+            const double tol = qMax(1.0, 0.5 * qMin(el.fontSize, g.maxFont));
+            if (std::fabs(el.rect.y() - g.baselineY) <= tol) {
+                g.els.append(el);
+                g.maxFont = qMax(g.maxFont, el.fontSize);
+                placed = true;
+                break;
+            }
+        }
+        if (!placed) {
+            groups.append({el.rect.y(), el.fontSize, {el}});
+        }
+    }
+    // Lines only, well separated by construction: exact numeric keys are a
+    // valid strict weak ordering. stable_sort = deterministic tie order.
+    std::stable_sort(groups.begin(), groups.end(),
+                     [](const LineGroup &a, const LineGroup &b) {
+                         return a.baselineY > b.baselineY;
+                     });
+    QList<QList<TextElement>> rows;
+    rows.reserve(groups.size());
+    for (const LineGroup &g : groups)
+        rows.append(g.els);
+    return rows;
+}
+
+// V03: column inference over the line-clustered rows. Column anchors are
+// clustered element x-starts collected across ALL rows (document-wide, so a
+// row is never interpreted in isolation); each element is assigned the index
+// of its nearest anchor within a documented tolerance of half the element's
+// font size (3pt floor — absorbs centered-header drift and rounding, while
+// distinct cells are separated by far more since the backend only splits runs
+// at multi-em gaps). Anchors are then re-ranked left-to-right so column order
+// matches visual order. Elements keep their extracted order; the writers use
+// `column` to place cells and to preserve empty interior cells.
+//
+// SEP13 lead 13 (ragged / right-aligned columns): an element whose x-start
+// matches no anchor within the tolerance used to become a NEW anchor, splitting
+// one visual column in two ("Total" ends a label row at x≈287; the value "5"
+// right-aligned under it starts at 295 — same column, but 35pt from the
+// label's x-start). Each anchor therefore also tracks the RIGHT extent of the
+// elements assigned to it; an element that matches no anchor but STARTS just
+// past a column's current extent (within one em of its own font — the backend
+// itself only splits runs at multi-em gaps, so a sub-em offset cannot be a
+// distinct cell) continues that column instead of founding a spurious one.
+// A start inside or at the extent still creates a new anchor: overlapping
+// column bands stay as unambiguous as before.
+void ConversionManager::Private::deriveColumns(QList<QList<TextElement>> &rows)
+{
+    QList<double> anchors;
+    QList<double> extents;   // rightmost edge reached by each column so far
+    QList<QList<int>> rowAnchor(rows.size());
+    for (int r = 0; r < rows.size(); ++r) {
+        rowAnchor[r].reserve(rows[r].size());
+        for (const TextElement &el : rows[r]) {
+            if (el.text.isEmpty()) { rowAnchor[r].append(-1); continue; }
+            const double tol = qMax(3.0, 0.5 * el.fontSize);
+            int best = -1;
+            double bestDist = 0.0;
+            for (int a = 0; a < anchors.size(); ++a) {
+                const double dist = std::fabs(el.rect.x() - anchors[a]);
+                if (dist <= tol && (best < 0 || dist < bestDist)) {
+                    best = a;
+                    bestDist = dist;
+                }
+            }
+            if (best < 0) {
+                // Ragged-continuation check (SEP13 lead 13): strictly past a
+                // column's extent and within one em of it → same column.
+                double bestGap = 0.0;
+                for (int a = 0; a < anchors.size(); ++a) {
+                    const double gap = el.rect.x() - extents.at(a);
+                    if (gap > 0.0 && gap <= el.fontSize
+                        && (best < 0 || gap < bestGap)) {
+                        best = a;
+                        bestGap = gap;
                     }
                 }
             }
+            if (best < 0) {
+                anchors.append(el.rect.x());
+                extents.append(el.rect.right());
+                best = anchors.size() - 1;
+            } else {
+                extents[best] = qMax(extents.at(best), el.rect.right());
+            }
+            rowAnchor[r].append(best);
         }
-    } catch (const std::exception& e) {
-        qWarning() << __func__ << "swallowed exception:" << e.what();
-    } catch (...) {
-        qWarning() << __func__ << "swallowed unknown exception";
     }
-    return elements;
+
+    // Rank anchors left-to-right (stable for exactly-equal x starts).
+    QList<int> byX(anchors.size());
+    for (int i = 0; i < byX.size(); ++i) byX[i] = i;
+    std::stable_sort(byX.begin(), byX.end(),
+                     [&anchors](int a, int b) { return anchors[a] < anchors[b]; });
+    QList<int> rank(anchors.size());
+    for (int r2 = 0; r2 < byX.size(); ++r2) rank[byX[r2]] = r2;
+
+    for (int r = 0; r < rows.size(); ++r) {
+        for (int c = 0; c < rows[r].size(); ++c) {
+            if (rowAnchor[r][c] < 0) continue;
+            rows[r][c].column = rank[rowAnchor[r][c]];
+        }
+    }
 }
 
 bool ConversionManager::exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows)
@@ -232,22 +324,9 @@ bool ConversionManager::exportToWord(const QString &outputPath, const QList<QLis
     doc.save();
     return QFileInfo(outputPath).size() > 0;
 #else
-    // Fallback: Generate HTML-based DOC (Word can open it)
-    m_lastWordEngine = ExportEngine::Fallback;
-    QFile file(outputPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    QTextStream out(&file);
-    out << "<html><body>";
-    for (const auto &row : rows) {
-        out << "<p>";
-        for (const auto &el : row) {
-            out << el.text.toHtmlEscaped() << " ";
-        }
-        out << "</p>";
-    }
-    out << "</body></html>";
-    file.close();
-    return QFileInfo(outputPath).size() > 0;
+    // §9.5 P0: no duckx in this build — produce REAL OOXML in-house instead of
+    // the old mislabeled HTML-as-.docx fallback (audit §9.5, research Lane C).
+    return exportToWordInHouse(outputPath, rows);
 #endif
 }
 
@@ -258,42 +337,60 @@ bool ConversionManager::exportToExcel(const QString &outputPath, const QList<QLi
     OpenXLSX::XLDocument doc;
     doc.create(outputPath.toStdString());
     auto wks = doc.workbook().worksheet("Sheet1");
-    
+
     int rowIdx = 1;
     for (const auto &row : rows) {
-        int colIdx = 1;
-        for (const auto &el : row) {
-            wks.cell(OpenXLSX::XLCellReference(rowIdx, colIdx)).value() = el.text.toStdString();
-            colIdx++;
+        // V03: write each element at its geometry-derived column (1-based).
+        QList<TextElement> sorted = row;
+        std::stable_sort(sorted.begin(), sorted.end(),
+                         [](const TextElement &a, const TextElement &b) {
+                             return a.column < b.column;
+                         });
+        for (const auto &el : sorted) {
+            if (el.text.isEmpty()) continue;
+            wks.cell(OpenXLSX::XLCellReference(rowIdx, el.column + 1)).value() = el.text.toStdString();
         }
         rowIdx++;
     }
     doc.save();
     return QFileInfo(outputPath).size() > 0;
 #else
-    // Fallback: Generate CSV
-    m_lastExcelEngine = ExportEngine::Fallback;
-    QFile file(outputPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
-    QTextStream out(&file);
-    for (const auto &row : rows) {
-        QStringList line;
-        for (const auto &el : row) {
-            QString escaped = el.text;
-            escaped.replace("\"", "\"\"");
-            line << "\"" + escaped + "\"";
-        }
-        out << line.join(",") << "\n";
-    }
-    out.flush();
-    // AR-5 D2 (corrected): success = the write completed without an IO error. A text-less
-    // PDF (e.g. the smoke-test blank page) legitimately yields an empty CSV — emptiness is
-    // NOT a conversion failure, whereas a disk/permission error is. Check status, not size.
-    const bool writeOk = out.status() == QTextStream::Ok && file.error() == QFileDevice::NoError;
-    file.close();
-    return writeOk && QFileInfo::exists(outputPath);
+    // §9.5 P0: no OpenXLSX in this build — produce REAL OOXML in-house instead
+    // of the old CSV-under-.xlsx fallback (audit §9.5, research Lane C).
+    // (Plain CSV stays available as its own honestly-labeled TargetFormat::Csv.)
+    return exportToExcelInHouse(outputPath, rows);
 #endif
 }
+
+namespace {
+
+// SEP13 lead 2: a PDF font name is attacker-controlled input (every byte that
+// is neither a delimiter nor whitespace is legal inside a PDF name, including
+// ';' ':' ''' '"'). exportToHtml interpolates it into
+// style="...font-family: '%4';" — CSS-string-inside-HTML-attribute context.
+// Escape the CSS metacharacters with backslashes (an unescaped ';' still
+// terminates the CSS declaration and a quote breaks the CSS string), while
+// toHtmlEscaped() at the writer keeps the HTML attribute quoting unbreakable.
+QString cssEscapeFontName(const QString &name)
+{
+    QString esc;
+    esc.reserve(name.size() + 8);
+    for (const QChar ch : name) {
+        switch (ch.unicode()) {
+        case u'\\': esc += QStringLiteral("\\\\"); break;
+        case u';':  esc += QStringLiteral("\\;");  break;
+        case u':':  esc += QStringLiteral("\\:");  break;
+        case u'\'': esc += QStringLiteral("\\'");  break;
+        case u'"':  esc += QStringLiteral("\\\""); break;
+        case u'\n':
+        case u'\r': esc += u' '; break; // a font name never spans lines
+        default:    esc += ch;  break;
+        }
+    }
+    return esc;
+}
+
+} // namespace
 
 bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outputPath) {
     // PDFium text extraction + positional CSS layout
@@ -318,18 +415,20 @@ bool ConversionManager::exportToHtml(const QString &pdfPath, const QString &outp
         QSizeF size = backend.pageSize(i);
         out << QString("<div class=\"page\" style=\"width: %1pt; height: %2pt;\">\n").arg(size.width()).arg(size.height());
 
-        try {
-            PoDoFo::PdfMemDocument doc;
-            doc.Load(pdfPath.toUtf8().constData());
-            QList<TextElement> elements = d->extractTextFromPage(i, doc);
-            for (const auto &el : elements) {
-                // PDF coordinates: Y is from bottom. HTML Y is from top.
-                double htmlY = size.height() - el.rect.y() - el.fontSize;
-                out << QString("<div class=\"text\" style=\"left: %1pt; top: %2pt; font-size: %3pt; font-family: '%4';\">%5</div>\n")
-                           .arg(el.rect.x()).arg(htmlY).arg(el.fontSize).arg(el.fontName).arg(el.text.toHtmlEscaped());
-            }
-        } catch(...) {}
-        
+        // R09 (F07): decoded text with real glyph geometry from the same
+        // backend instance (no second, raw-byte extraction pass).
+        const QList<TextElement> elements = d->extractTextFromPage(backend, i);
+        for (const auto &el : elements) {
+            // PDF coordinates: Y is from bottom. HTML Y is from top.
+            // el.rect.y() is the run's baseline origin; the font size lifts
+            // the box to its top, matching the pre-R09 anchor contract.
+            double htmlY = size.height() - el.rect.y() - el.fontSize;
+            out << QString("<div class=\"text\" style=\"left: %1pt; top: %2pt; font-size: %3pt; font-family: '%4';\">%5</div>\n")
+                       .arg(el.rect.x()).arg(htmlY).arg(el.fontSize)
+                       .arg(cssEscapeFontName(el.fontName).toHtmlEscaped())
+                       .arg(el.text.toHtmlEscaped());
+        }
+
         out << "</div>\n";
     }
     out << "</body></html>\n";
@@ -348,7 +447,16 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
     int page = options.value("page", 0).toInt(); // 0 means all, but output path needs formatting
     QString format = options.value("format", "PNG").toString(); // PNG, JPEG, TIFF
 
-    if (options.contains("page") && page >= 0 && page < backend.pageCount()) {
+    if (options.contains("page")) {
+        if (page < 0 || page >= backend.pageCount()) {
+            // sweep-legacy 5(e): an EXPLICIT but out-of-range "page" option
+            // must refuse — the old fall-through rendered ALL pages and
+            // reported success, a misleading contract for API/batch callers.
+            qWarning() << "exportToImage: page option" << page
+                       << "is out of range (0.." << backend.pageCount() - 1
+                       << ") — refusing (no output written).";
+            return false;
+        }
         QImage img = backend.renderPage(page, dpi);
         bool saved = img.save(outputPath, format.toUtf8().constData());
         return saved && QFileInfo(outputPath).size() > 0;
@@ -367,18 +475,54 @@ bool ConversionManager::exportToImage(const QString &pdfPath, const QString &out
     }
 }
 
+// PGR-16: a cell whose first character is '=', '+', '-' or '@' (or TAB/CR)
+// evaluates as a formula or DDE payload when the CSV is opened in a
+// spreadsheet — PDF text is attacker-controlled, so every exported cell is
+// treated as hostile input. Prefixing an apostrophe forces text
+// interpretation (OWASP CSV-injection guidance). Applied at the emission
+// boundary so every cell leaving exportToCsv is covered.
+QString ConversionManager::csvFormulaSafeCell(const QString &cell) {
+    static const QString kFormulaLead = QStringLiteral("=+-@\t\r");
+    if (cell.isEmpty() || !kFormulaLead.contains(cell.at(0))) return cell;
+    // M3 (PR-review §4): a PLAIN number is not a formula. "-2", "+3.14" and
+    // "-2,5" (European decimal) are legitimate extracted values — the
+    // apostrophe turned every signed or decimal number column into
+    // spreadsheet TEXT. The exemption stays narrow: one optional sign,
+    // digits, one optional decimal group — the PGR-16 fixture "-2+3+cmd"
+    // still escapes, and a bare sign or a second operator is not a number.
+    static const QRegularExpression kPlainNumber(
+        QStringLiteral("^[+-]?\\d+([.,]\\d+)?$"));
+    if (kPlainNumber.match(cell).hasMatch()) return cell;
+    return QLatin1Char('\'') + cell;
+}
+
 bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList<TextElement>> &rows) {
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
     QTextStream out(&file);
     for (const auto &row : rows) {
-        QStringList line;
+        // V03: emit cells in geometry-derived COLUMN order and fill interior
+        // gaps with empty quoted cells, so an empty interior cell keeps its
+        // column ("A","","C") instead of shifting later cells left.
+        QHash<int, QString> cells;
+        int maxCol = -1;
         for (const auto &el : row) {
+            if (el.text.isEmpty()) continue;
             QString escaped = el.text;
             escaped.replace("\"", "\"\"");
-            line << "\"" + escaped + "\"";
+            // Two runs anchored to the same column in one row (e.g. adjacent
+            // font runs) rejoin into one cell in extracted order.
+            if (cells.contains(el.column))
+                cells[el.column] += QLatin1Char(' ') + escaped;
+            else
+                cells.insert(el.column, escaped);
+            maxCol = qMax(maxCol, el.column);
         }
-        out << line.join(",") << "\n";
+        QStringList line;
+        for (int col = 0; col <= maxCol; ++col)
+            line << "\"" + csvFormulaSafeCell(cells.value(col)) + "\"";
+        if (!line.isEmpty())
+            out << line.join(",") << "\n";
     }
     file.close();
     return QFileInfo(outputPath).size() > 0;
@@ -500,19 +644,47 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
 
-    // LibreOffice writes <basename>.pdf into outDir; rename to caller's outputPath if different.
+    // LibreOffice writes <basename>.pdf into outDir. sweep-legacy: validate the
+    // converter's product BEFORE touching the caller's destination, then commit
+    // it through the SafeSave atomic replace. The previous tail removed the
+    // destination FIRST and renamed second — a failed rename after the remove
+    // (converter exit-0-but-no-output, an open handle on the source, a
+    // cross-volume move) DESTROYED the previous output while reporting failure:
+    // the exact destructive class WP-R04 (A03) fixed for the encrypted-package
+    // flow. commitFileToDestination never removes or truncates the destination
+    // before the atomic commit; a failed run leaves it byte-identical.
     const QString expectedOut = QDir(outDir).filePath(inInfo.completeBaseName() + ".pdf");
-    if (QFileInfo(expectedOut).canonicalFilePath() != QFileInfo(outputPath).canonicalFilePath()) {
-        QFile::remove(outputPath);
-        if (!QFile::rename(expectedOut, outputPath)) {
-            qWarning() << "convertOfficeToPdf: could not rename" << expectedOut << "to" << outputPath;
+    const bool samePath = QFileInfo(expectedOut).canonicalFilePath()
+                          == QFileInfo(outputPath).canonicalFilePath();
+    if (!samePath) {
+        QFile candidate(expectedOut);
+        if (!candidate.open(QIODevice::ReadOnly)) {
+            qWarning() << "convertOfficeToPdf: converter produced no readable output:"
+                       << expectedOut;
             return false;
         }
-    }
+        const QByteArray head = candidate.read(5);
+        candidate.close();
+        if (head != "%PDF-") {
+            qWarning() << "convertOfficeToPdf: converter output is not a PDF:" << expectedOut;
+            QFile::remove(expectedOut);   // our candidate: cleaned up
+            return false;
+        }
 
-    if (!QFileInfo(outputPath).exists() || QFileInfo(outputPath).size() == 0) {
-        qWarning() << "convertOfficeToPdf: output PDF is empty or missing:" << outputPath;
-        return false;
+        QString commitErr;
+        if (!gp::SafeSave::commitFileToDestination(expectedOut, outputPath, &commitErr)) {
+            qWarning() << "convertOfficeToPdf: committing converted PDF failed:"
+                       << commitErr;
+            QFile::remove(expectedOut);   // the candidate is ours: removed on EVERY outcome
+            return false;
+        }
+        QFile::remove(expectedOut);       // consumed by the commit — no stray copy
+    } else {
+        // In-place: soffice already wrote the caller's exact path; validate it.
+        if (!QFileInfo(outputPath).exists() || QFileInfo(outputPath).size() == 0) {
+            qWarning() << "convertOfficeToPdf: output PDF is empty or missing:" << outputPath;
+            return false;
+        }
     }
     return true;
 }
@@ -522,33 +694,26 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
 
 bool ConversionManager::exportToText(const QString &pdfPath, const QString &outputPath) {
     try {
-        PoDoFo::PdfMemDocument doc;
-        doc.Load(pdfPath.toUtf8().constData());
-        
+        // R09 (F07): PDFium-decoded text via a per-operation backend; the
+        // document is validated BEFORE the output file is opened (R10).
+        PdfiumBackend backend;
+        if (!backend.loadDocument(pdfPath)) return false;
+
         QFile file(outputPath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;
         QTextStream out(&file);
 
-        for (unsigned i = 0; i < doc.GetPages().GetCount(); ++i) {
-            QList<TextElement> elements = d->extractTextFromPage(i, doc);
-            std::sort(elements.begin(), elements.end(), [](const TextElement &a, const TextElement &b) {
-                if (std::abs(a.rect.y() - b.rect.y()) < (std::min(a.fontSize, b.fontSize) * 0.5)) {
-                    return a.rect.x() < b.rect.x();
+        for (int i = 0; i < backend.pageCount(); ++i) {
+            QList<TextElement> elements = d->extractTextFromPage(backend, i);
+            const QList<QList<TextElement>> rows = Private::clusterIntoRows(elements);
+            for (const QList<TextElement> &row : rows) {
+                QStringList parts;
+                for (const auto &el : row) {
+                    if (!el.text.isEmpty()) parts << el.text;
                 }
-                return a.rect.y() > b.rect.y();
-            });
-
-            double lastY = -1;
-            for (const auto &el : elements) {
-                if (lastY != -1 && std::abs(lastY - el.rect.y()) > el.fontSize * 0.8) {
-                    out << "\n";
-                } else if (lastY != -1) {
-                    out << " ";
-                }
-                out << el.text;
-                lastY = el.rect.y();
+                if (!parts.isEmpty()) out << parts.join(QLatin1Char(' ')) << "\n";
             }
-            out << "\n\n";
+            out << "\n";
         }
         file.close();
         return QFileInfo(outputPath).size() > 0;
@@ -577,17 +742,280 @@ static void addZipFile(zip_t* za, const char* name, const QByteArray& data) {
     }
 }
 
+// ── §9.5 P0: in-house OOXML writers (Word/.docx, Excel/.xlsx) ───────────────
+// Same plumbing as the PPTX writer above: libzip for the package, QXmlStreamWriter
+// for the parts, canonical http://schemas.openxmlformats.org/... URIs. They exist
+// so a build without the optional duckx/OpenXLSX libs still ships real OOXML
+// under the .docx/.xlsx extensions instead of mislabeled HTML/CSV bytes.
+// Corruption checklist (each item pinned by tests/TestExportPathBadge.cpp):
+//   1. [Content_Types].xml: Default for rels+xml, Override per written part.
+//   2. XML-escape all text (QXmlStreamWriter) + strip C0 control chars
+//      (invalid in XML 1.0) except the legal whitespace \t \n \r.
+//   3. Relationship rIds present and monotonic; every r:id resolves — no dangles.
+//   4. xlsx rows/cells carry present, monotonic A1-style r="..." references.
+//   5. w:t carries xml:space="preserve" (leading/trailing spaces survive).
+//   6. zip entry names with forward slashes, no duplicates (libzip + literal names).
+
+// XML 1.0 forbids most C0 control characters anywhere in a document. Strip every
+// C0 control except the three legal whitespace chars (\t \n \r); also drop DEL.
+// QXmlStreamWriter would otherwise happily embed raw control bytes, and Word /
+// Excel would then demand a repair.
+static QString sanitizeTextForXml(const QString &raw)
+{
+    QString out;
+    out.reserve(raw.size());
+    for (const QChar &ch : raw) {
+        const char16_t c = ch.unicode();
+        if (c == 0x09 || c == 0x0A || c == 0x0D) { out += ch; continue; } // legal XML whitespace
+        if (c < 0x20)  continue; // other C0 controls: invalid in XML 1.0
+        if (c == 0x7F) continue; // DEL: never meaningful in extracted PDF text
+        out += ch;
+    }
+    return out;
+}
+
+// 1-based column index -> spreadsheet column name: 1..26 -> A..Z, 27 -> AA, ...
+static QString xlsxColumnName(int col)
+{
+    QString name;
+    while (col > 0) {
+        const int rem = (col - 1) % 26;
+        name.prepend(QChar(u'A' + rem));
+        col = (col - 1) / 26;
+    }
+    return name;
+}
+
+// Minimal WordprocessingML package: [Content_Types].xml + _rels/.rels +
+// word/document.xml. styles.xml / settings.xml / numbering are optional per the
+// Open XML spec (MS Learn "Structure of a WordprocessingML document") and are
+// intentionally skipped — Word opens the result without a repair prompt.
+bool ConversionManager::exportToWordInHouse(const QString &outputPath, const QList<QList<TextElement>> &rows)
+{
+    m_lastWordEngine = ExportEngine::InHouseOoxml;
+
+    int errorp = 0;
+    zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
+    if (!za) return false;
+
+    // 1. [Content_Types].xml — Defaults (rels, xml) + Override for the document part.
+    QByteArray contentTypes;
+    {
+        QXmlStreamWriter xml(&contentTypes);
+        xml.writeStartDocument();
+        xml.writeStartElement("Types");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "rels"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "xml"); xml.writeAttribute("ContentType", "application/xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/word/document.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "[Content_Types].xml", contentTypes);
+
+    // 2. _rels/.rels — the officeDocument relationship pointing at word/document.xml.
+    QByteArray rootRels;
+    {
+        QXmlStreamWriter xml(&rootRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship");
+        xml.writeAttribute("Id", "rId1");
+        xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument");
+        xml.writeAttribute("Target", "word/document.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "_rels/.rels", rootRels);
+
+    // 3. word/document.xml — one w:p paragraph per extracted row (same content
+    //    contract the HTML fallback had: row elements joined with a space).
+    QByteArray documentXml;
+    {
+        QXmlStreamWriter xml(&documentXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("w:document");
+        xml.writeAttribute("xmlns:w", "http://schemas.openxmlformats.org/wordprocessingml/2006/main");
+        xml.writeStartElement("w:body");
+        for (const auto &row : rows) {
+            QStringList parts;
+            for (const auto &el : row) {
+                const QString text = sanitizeTextForXml(el.text);
+                if (!text.isEmpty()) parts << text;
+            }
+            xml.writeStartElement("w:p");
+            xml.writeStartElement("w:r");
+            xml.writeStartElement("w:t");
+            xml.writeAttribute("xml:space", "preserve");
+            xml.writeCharacters(parts.join(QLatin1Char(' ')));
+            xml.writeEndElement(); // w:t
+            xml.writeEndElement(); // w:r
+            xml.writeEndElement(); // w:p
+        }
+        xml.writeEndElement(); // w:body
+        xml.writeEndElement(); // w:document
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "word/document.xml", documentXml);
+
+    if (zip_close(za) != 0) return false;
+    return QFileInfo(outputPath).size() > 0;
+}
+
+// Minimal SpreadsheetML package: [Content_Types].xml + _rels/.rels +
+// xl/workbook.xml + xl/_rels/workbook.xml.rels + xl/worksheets/sheet1.xml.
+// Strings are written as t="inlineStr" cells (<is><t>) — a first-class cell
+// type per ECMA-376 — which eliminates sharedStrings.xml entirely (and with it
+// the classic count/uniqueCount corruption pitfall).
+bool ConversionManager::exportToExcelInHouse(const QString &outputPath, const QList<QList<TextElement>> &rows)
+{
+    m_lastExcelEngine = ExportEngine::InHouseOoxml;
+
+    int errorp = 0;
+    zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
+    if (!za) return false;
+
+    // 1. [Content_Types].xml — Defaults (rels, xml) + Overrides (workbook, sheet).
+    QByteArray contentTypes;
+    {
+        QXmlStreamWriter xml(&contentTypes);
+        xml.writeStartDocument();
+        xml.writeStartElement("Types");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/content-types");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "rels"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-package.relationships+xml");
+        xml.writeEmptyElement("Default"); xml.writeAttribute("Extension", "xml"); xml.writeAttribute("ContentType", "application/xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/xl/workbook.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml");
+        xml.writeEmptyElement("Override"); xml.writeAttribute("PartName", "/xl/worksheets/sheet1.xml"); xml.writeAttribute("ContentType", "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "[Content_Types].xml", contentTypes);
+
+    // 2. _rels/.rels — the officeDocument relationship pointing at xl/workbook.xml.
+    QByteArray rootRels;
+    {
+        QXmlStreamWriter xml(&rootRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship");
+        xml.writeAttribute("Id", "rId1");
+        xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument");
+        xml.writeAttribute("Target", "xl/workbook.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "_rels/.rels", rootRels);
+
+    // 3. xl/workbook.xml — one sheet, r:id="rId1" (resolved by the part below).
+    QByteArray workbookXml;
+    {
+        QXmlStreamWriter xml(&workbookXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("workbook");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+        xml.writeAttribute("xmlns:r", "http://schemas.openxmlformats.org/officeDocument/2006/relationships");
+        xml.writeStartElement("sheets");
+        xml.writeEmptyElement("sheet");
+        xml.writeAttribute("name", "Sheet1");
+        xml.writeAttribute("sheetId", "1");
+        xml.writeAttribute("r:id", "rId1");
+        xml.writeEndElement(); // sheets
+        xml.writeEndElement(); // workbook
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "xl/workbook.xml", workbookXml);
+
+    // 4. xl/_rels/workbook.xml.rels — rId1 -> worksheets/sheet1.xml.
+    QByteArray workbookRels;
+    {
+        QXmlStreamWriter xml(&workbookRels);
+        xml.writeStartDocument();
+        xml.writeStartElement("Relationships");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/package/2006/relationships");
+        xml.writeEmptyElement("Relationship");
+        xml.writeAttribute("Id", "rId1");
+        xml.writeAttribute("Type", "http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet");
+        xml.writeAttribute("Target", "worksheets/sheet1.xml");
+        xml.writeEndElement();
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "xl/_rels/workbook.xml.rels", workbookRels);
+
+    // 5. xl/worksheets/sheet1.xml — rows/cells in list order, so the r="A1"
+    //    references are present and monotonically increasing by construction.
+    QByteArray sheetXml;
+    {
+        QXmlStreamWriter xml(&sheetXml);
+        xml.writeStartDocument();
+        xml.writeStartElement("worksheet");
+        xml.writeAttribute("xmlns", "http://schemas.openxmlformats.org/spreadsheetml/2006/main");
+        xml.writeStartElement("sheetData");
+        int rowIdx = 0;
+        for (const auto &row : rows) {
+            ++rowIdx;
+            xml.writeStartElement("row");
+            xml.writeAttribute("r", QString::number(rowIdx));
+            // §9.5: extraction emits positionally-grouped elements, many of
+            // them empty — writing them would pad the sheet with hundreds of
+            // blank inlineStr cells (and push the first real cell off A1).
+            // Empty elements are skipped; column letters stay monotonic.
+            // V03: the column letter is the element's geometry-derived
+            // column (not the running non-empty index), so a real B column
+            // survives and an empty interior cell shifts nothing.
+            //
+            // SEP13:3: geometry-derived columns can COLLIDE — two runs on one
+            // baseline whose x-anchors resolve to the same column (faux-bold
+            // double draws, shadow text, near-overlapping runs). The original
+            // loop wrote one <c r="B2"> PER RUN, so a collided row emitted
+            // duplicate cell references in one <row> — invalid OOXML that
+            // Excel flags as corrupt and "repairs". Policy (PINNED, aligned
+            // with the OpenXLSX path in exportToExcel, where the later
+            // assignment to the same cell coordinate overwrites the earlier
+            // one): LAST-WRITE-WINS in the column-stable (extracted) order.
+            // Emitting through the QMap also restores the strictly increasing
+            // r-order the part header promises, even when the extraction
+            // delivered the row's runs out of column order.
+            QList<TextElement> sorted = row;
+            std::stable_sort(sorted.begin(), sorted.end(),
+                             [](const TextElement &a, const TextElement &b) {
+                                 return a.column < b.column;
+                             });
+            QMap<int, QString> cellByColumn;   // 1-based column -> text
+            for (const auto &el : sorted) {
+                const QString text = sanitizeTextForXml(el.text);
+                if (text.isEmpty()) continue;
+                cellByColumn.insert(el.column + 1, text);
+            }
+            for (auto it = cellByColumn.constBegin();
+                 it != cellByColumn.constEnd(); ++it) {
+                xml.writeStartElement("c");
+                xml.writeAttribute("r", xlsxColumnName(it.key()) + QString::number(rowIdx));
+                xml.writeAttribute("t", "inlineStr");
+                xml.writeStartElement("is");
+                xml.writeStartElement("t");
+                xml.writeAttribute("xml:space", "preserve");
+                xml.writeCharacters(it.value());
+                xml.writeEndElement(); // t
+                xml.writeEndElement(); // is
+                xml.writeEndElement(); // c
+            }
+            xml.writeEndElement(); // row
+        }
+        xml.writeEndElement(); // sheetData
+        xml.writeEndElement(); // worksheet
+        xml.writeEndDocument();
+    }
+    addZipFile(za, "xl/worksheets/sheet1.xml", sheetXml);
+
+    if (zip_close(za) != 0) return false;
+    return QFileInfo(outputPath).size() > 0;
+}
+
 bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString &outputPath, const QVariantMap &options) {
     PdfiumBackend backend;
     if (!backend.loadDocument(pdfPath)) return false;
-
-    // Also load via PoDoFo for text extraction
-    PoDoFo::PdfMemDocument doc;
-    try {
-        doc.Load(pdfPath.toUtf8().constData());
-    } catch (...) {
-        return false;
-    }
 
     int errorp = 0;
     zip_t *za = zip_open(outputPath.toUtf8().constData(), ZIP_CREATE | ZIP_TRUNCATE, &errorp);
@@ -763,12 +1191,9 @@ bool ConversionManager::exportToPowerPoint(const QString &pdfPath, const QString
         addZipFile(za, QString("ppt/media/image%1.jpeg").arg(i+1).toUtf8().constData(), imgData);
 
         // Extract text elements from this page
-        QList<TextElement> textElements;
-        try {
-            textElements = d->extractTextFromPage(i, doc);
-        } catch (...) {
-            // If text extraction fails, we still have the image
-        }
+        // R09 (F07): decoded Unicode + real glyph geometry from the backend's
+        // page-text-with-boxes method (was: raw Tj/TJ byte interpretation).
+        QList<TextElement> textElements = d->extractTextFromPage(backend, i);
 
         // Build the slide XML
         QByteArray slideXml;

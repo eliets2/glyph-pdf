@@ -18,13 +18,18 @@
 
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
+#include <QSettings>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QImage>
 
 #include "engines/SignatureManager.h"
+#include "engines/SafeSave.h"
 #include "engines/podofo/PoDoFoBackend.h"
+#include "shell/controllers/SecurityController.h" // R19: the settings seam (readSigningConfig/attainedLevelLabel)
 #include <podofo/podofo.h>
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
@@ -54,7 +59,7 @@ static const QString kP12Pass    = QStringLiteral("test");
     do { \
         if (!QFileInfo::exists(kP12Path) || !QFileInfo::exists(kInputPdf) || !QFileInfo::exists(kCaPath)) { \
             QSKIP("Signing fixtures missing — skipping real-crypto test. " \
-                  "Run cmake -P tests/fixtures/signing/generate_fixtures.cmake to create them."); \
+                  "Run tests/fixtures/signing/generate.bat to create them."); \
         } \
     } while(0)
 
@@ -86,6 +91,14 @@ private:
         return dst;
     }
 
+    // Leftover SafeSave candidates in the dedicated temp dir (must not grow).
+    // Delta-based like TestFormSafety/TestEngineSave so cross-process debris
+    // from killed runs cannot fail the assertion.
+    static int leftoverCandidates() {
+        return QDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"))
+            .entryList(QStringList() << QStringLiteral("glyphpdf-*.pdf"), QDir::Files).size();
+    }
+
 private slots:
 
     // -----------------------------------------------------------------------
@@ -105,6 +118,11 @@ private slots:
         bool ok = (mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "TestReason", "TestLocation") == SignOutcome::Success);
         QVERIFY2(ok, "B_T signDocument should succeed with valid P12");
         QVERIFY2(QFileInfo::exists(output), "Output PDF must exist after signing");
+
+        // §9.7 P1: a fully-successful sign must carry NO missing-piece detail.
+        const SignatureOutcomeDetail okDetail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(!okDetail.dssMissing && !okDetail.docTimestampMissing,
+                 "a successful B_T sign must report no missing long-term-validation pieces");
 
         // Validate using the test CA store
         X509_STORE *store = buildTestStore();
@@ -177,6 +195,11 @@ private slots:
         QVERIFY(!results.isEmpty());
         QVERIFY2(results.first().hasDss, "B_LT: DSS dictionary must be present");
 
+        // §9.7 P1: the DSS built fine — the outcome detail must NOT flag it.
+        const SignatureOutcomeDetail bltDetail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(!bltDetail.dssMissing, "B_LT success must not flag dssMissing");
+        QVERIFY2(!bltDetail.docTimestampMissing, "B_LT success must not flag docTimestampMissing");
+
         // Verify VRI key appears in the PDF (as /VRI /<SHA1HEX> dict)
         QByteArray vriEntry = "/" + expectedVriKey;
         QVERIFY2(pdfData.contains(vriEntry),
@@ -212,6 +235,14 @@ private slots:
         // the outcome must be PartialLtvMissing (not Failed) so the UI can warn
         // instead of telling the user signing failed and making them discard it.
         QCOMPARE(outcome, SignOutcome::PartialLtvMissing);
+
+        // §9.7 P1: the outcome must carry EXACT degradation detail — the doc
+        // timestamp is missing, the DSS is not.
+        const SignatureOutcomeDetail bltaDetail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(bltaDetail.docTimestampMissing,
+                 "B_LTA without TSA: docTimestampMissing must be flagged");
+        QVERIFY2(!bltaDetail.dssMissing,
+                 "B_LTA without TSA: the DSS itself must NOT be flagged missing");
 
         // E-06: an empty TSA token must NOT have been written as a 4-null-byte
         // /DocTimeStamp. The signed file must still load + validate cleanly (i.e.
@@ -926,6 +957,513 @@ private slots:
             mgr.setTrustStoreForTest(nullptr);
             Q_UNUSED(ok);
         }
+    }
+    // -----------------------------------------------------------------------
+    // N06 (gateD 2026-09-09): the real PartialLtvMissing RETRY contract —
+    // a retry re-runs the exact same captured request against real signing
+    // machinery: same immutable source, same appearance image, valid signed
+    // result. B_LTA with no TSA url is the REAL degradation path (the doc
+    // timestamp genuinely fails), so outcome is PartialLtvMissing — the
+    // exact state whose "Retry Signing" modal drives this contract.
+    // -----------------------------------------------------------------------
+    static QByteArray fileSha(const QString &path) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return QByteArray();
+        return QCryptographicHash::hash(f.readAll(), QCryptographicHash::Sha256);
+    }
+
+    void testPartialLtvRetryIsTheSameRequest()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString source = m_tmpDir.filePath("retry_source.pdf");
+        QVERIFY(QFile::copy(kInputPdf, source));
+        const QByteArray sourceBefore = fileSha(source);
+        QVERIFY(!sourceBefore.isEmpty());
+        QString out = m_tmpDir.filePath("retry_out.pdf");
+
+        QImage appearance(48, 24, QImage::Format_ARGB32);
+        appearance.fill(0xFF4080C0);
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LTA);   // no TSA url → real PartialLtvMissing
+
+        // Attempt 1 — the modal warns and offers "Retry Signing".
+        const auto o1 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       appearance, "RetryTest", "Loc");
+        QCOMPARE(o1, SignOutcome::PartialLtvMissing);
+        QVERIFY(QFileInfo::exists(out));
+        const auto detail1 = mgr.lastSignOutcomeDetail();
+        QVERIFY(detail1.docTimestampMissing && !detail1.dssMissing);
+
+        // The request inputs were not consumed or mutated by attempt 1.
+        QCOMPARE(fileSha(source), sourceBefore);
+        QVERIFY2(SignatureManager::takePendingAppearanceImage().isNull(),
+                 "the explicit-appearance entry point must not drain the shared slot");
+
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        {
+            auto results = mgr.validateSignatures(out);
+            QVERIFY(!results.isEmpty());
+            QVERIFY2(results.first().integrityIntact, "attempt 1 signature must be intact");
+        }
+        QFile a1(out);
+        QVERIFY(a1.open(QIODevice::ReadOnly));
+        const QByteArray bytes1 = a1.readAll(); a1.close();
+        QVERIFY2(bytes1.contains("/AP"), "attempt 1 must embed the appearance image (/AP)");
+
+        // RETRY — SecurityController re-runs the SAME captured request.
+        const auto o2 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       appearance, "RetryTest", "Loc");
+        QCOMPARE(o2, SignOutcome::PartialLtvMissing);   // deterministic: still no TSA
+
+        // The retry re-signed the PRISTINE source: exactly one approval
+        // signature (the retry REPLACES the partial output, never stacks onto
+        // it), integrity intact, appearance present, source still untouched.
+        QCOMPARE(fileSha(source), sourceBefore);
+        auto results2 = mgr.validateSignatures(out);
+        QCOMPARE(results2.size(), 1);
+        QVERIFY2(results2.first().integrityIntact, "retry signature must be intact");
+        QFile a2(out);
+        QVERIFY(a2.open(QIODevice::ReadOnly));
+        const QByteArray bytes2 = a2.readAll(); a2.close();
+        QVERIFY2(bytes2.contains("/AP"), "retry must re-embed the same appearance image");
+        // NOTE: retry output MAY be byte-identical to attempt 1 — RSA/PKCS#7
+        // signing is deterministic and the retry runs the same request. That
+        // is the desired idempotence, not a defect; the replacement contract
+        // itself is pinned by testFailedReplacementPreservesPreviousOutput.
+
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // N06: FAILED replacement must preserve the previous partial output.
+    // The retry fails at the checked-replacement commit (SafeSave's
+    // deterministic fault seam) — the PartialLtvMissing artifact from
+    // attempt 1 must survive byte-identical. Pre-fix the output was
+    // truncated/rewritten by every attempt, so this failed before the fix.
+    // -----------------------------------------------------------------------
+    void testFailedReplacementPreservesPreviousOutput()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString source = m_tmpDir.filePath("fr_source.pdf");
+        QVERIFY(QFile::copy(kInputPdf, source));
+        QString out = m_tmpDir.filePath("fr_out.pdf");
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LTA);
+        const QImage noAppearance;
+        QCOMPARE(mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                noAppearance, "FRTest", ""),
+                 SignOutcome::PartialLtvMissing);
+        const QByteArray h1 = fileSha(out);
+        QVERIFY(!h1.isEmpty());
+
+        // Retry whose replacement commit FAILS (injected at the shared
+        // SafeSave commit seam — same fault used by the redaction/form
+        // transaction tests).
+        gp::SafeSave::setCommitFaultForTesting(
+            gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+        const auto o2 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       noAppearance, "FRTest", "");
+        gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+        QCOMPARE(o2, SignOutcome::Failed);
+        QVERIFY2(fileSha(out) == h1,
+                 "a failed replacement must preserve the previous output byte-identical");
+
+        // Disarmed retry with a different /Reason completes and actually
+        // replaces the output (different reason ⇒ different signed bytes,
+        // so equality with h1 is impossible for a successful replacement).
+        const auto o3 = mgr.signDocumentWithAppearance(source, out, kP12Path, kP12Pass,
+                                                       noAppearance, "FRTest-retry", "");
+        QCOMPARE(o3, SignOutcome::PartialLtvMissing);
+        QVERIFY2(fileSha(out) != h1, "a successful retry must replace the output");
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            auto results = mgr.validateSignatures(out);
+            QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                     "the replaced output must carry an intact signature");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // N06: the source VANISHES between retry attempts. The retry must fail
+    // LOUD (Failed, not a false Success/PartialLtvMissing) and the previous
+    // partial output must survive. Post-fix the failure happens at candidate
+    // staging, before anything touches the destination. (Pre-fix the same
+    // scenario also preserved the output, but only accidentally: doc.Load
+    // failed before the destructive remove-then-copy ever ran — the checked
+    // replacement makes the preservation contractual instead of incidental.)
+    // -----------------------------------------------------------------------
+    void testFailedRetryKeepsOutputWhenSourceVanished()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // Build a source that ALREADY carries a signature so the retry takes
+        // the incremental-append staging path.
+        QString signedSrc = m_tmpDir.filePath("vanished_source.pdf");
+        {
+            SignatureManager mgr0;
+            mgr0.setSignatureLevel(PAdESLevel::B_T);
+            QCOMPARE(mgr0.signDocument(kInputPdf, signedSrc, kP12Path, kP12Pass,
+                                       "VanishedTest", ""), SignOutcome::Success);
+        }
+        QString out = m_tmpDir.filePath("vanished_out.pdf");
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LTA);
+        // Attempt 1: sign the signed source → partial (LTV-missing) output.
+        QCOMPARE(mgr.signDocument(signedSrc, out, kP12Path, kP12Pass, "VanishedTest", ""),
+                 SignOutcome::PartialLtvMissing);
+        const QByteArray h1 = fileSha(out);
+        QVERIFY(!h1.isEmpty());
+
+        // The user deletes the source; the modal retry re-runs the same request.
+        QVERIFY(QFile::remove(signedSrc));
+        const auto o2 = mgr.signDocument(signedSrc, out, kP12Path, kP12Pass,
+                                         "VanishedTest", "");
+        QCOMPARE(o2, SignOutcome::Failed);
+
+        // The previous partial output MUST still exist, byte-identical.
+        QVERIFY2(QFileInfo::exists(out),
+                 "a failed retry must not delete the previous output");
+        QCOMPARE(fileSha(out), h1);
+    }
+
+    // -----------------------------------------------------------------------
+    // SEP13:4: the D6 post-condition re-validation must be FAIL-CLOSED on an
+    // EMPTY result. The old code failed only when a returned SignatureInfo
+    // carried integrityIntact == false; an EMPTY validateSignatures() result
+    // (the signature not detected/parsed on the signed result) made the loop
+    // body never run and the operation fell through to Success — committing a
+    // document whose signatures could not be confirmed intact.
+    // Real signing always produces a parseable signature, so no honest input
+    // empties the re-validation; the forceEmptyPostConditionForTesting seam
+    // (same test-only status as setTrustStoreForTest) makes the empty
+    // observation deterministic.
+    // Reconciled with N06 (18bd879): the checked-replacement boundary is the
+    // one N06 built — the empty-result failure returns BEFORE the commit, so
+    // the candidate is discarded and the previous output is preserved, the
+    // same contract testFailedReplacementPreservesPreviousOutput pins for
+    // integrity failures.
+    // -----------------------------------------------------------------------
+    void testEmptyPostConditionFailsAndPreservesOutput()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString source = m_tmpDir.filePath("sep13_source.pdf");
+        QVERIFY(QFile::copy(kInputPdf, source));
+        QString out = m_tmpDir.filePath("sep13_out.pdf");
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_T);
+        // Attempt 1: a REAL signature lands on out and validates intact.
+        QCOMPARE(mgr.signDocument(source, out, kP12Path, kP12Pass,
+                                  "Sep13", ""), SignOutcome::Success);
+        const QByteArray h1 = fileSha(out);
+        QVERIFY(!h1.isEmpty());
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            auto results = mgr.validateSignatures(out);
+            QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                     "attempt 1 signature must be intact");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+
+        // Attempt 2: the re-validation observes NOTHING (seam). The
+        // operation must FAIL, the candidate must be discarded, and the
+        // previous output must survive byte-identical.
+        mgr.forceEmptyPostConditionForTesting(true);
+        const auto o2 = mgr.signDocument(source, out, kP12Path, kP12Pass,
+                                         "Sep13-empty", "");
+        mgr.forceEmptyPostConditionForTesting(false);
+        QCOMPARE(o2, SignOutcome::Failed);
+        QVERIFY2(fileSha(out) == h1,
+                 "an unconfirmable signing result must not replace the "
+                 "previous output (fail-closed, N06 checked replacement)");
+
+        // The preserved output still carries its ORIGINAL intact signature.
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            auto results = mgr.validateSignatures(out);
+            QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                     "the preserved output's signature must still validate");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // PGR-21 (CRITICAL): an IN-PLACE sign (input == output) whose post-condition
+    // re-validation fails must never delete the user's only copy. Pre-fix, both
+    // failure branches of the D6 post-condition ran
+    //   if (!replaceOutput) QFile::remove(outputPath);
+    // and in in-place mode outputPath IS the input document — a signature that
+    // does not re-validate (the forceEmptyPostConditionForTesting seam makes
+    // that observation deterministic, SEP13:4) deleted the whole document
+    // instead of only the failed signing result. Post-fix the in-place sign
+    // stages onto a unique candidate like every other path: the failure drops
+    // only the candidate and the original survives byte-identical.
+    // -----------------------------------------------------------------------
+    void pgr21_failedInPlaceSignPreservesOriginalByteIdentical()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // Attempt 1: a REAL in-place signature — the file signs itself.
+        QString doc = m_tmpDir.filePath("pgr21_inplace.pdf");
+        QVERIFY(QFile::copy(kInputPdf, doc));
+        const QByteArray original = fileSha(doc);
+        QVERIFY(!original.isEmpty());
+        {
+            SignatureManager mgr;
+            mgr.setSignatureLevel(PAdESLevel::B_T);
+            QCOMPARE(mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                      "PGR21", ""), SignOutcome::Success);
+        }
+        const QByteArray signedSha = fileSha(doc);
+        QVERIFY2(signedSha != original,
+                 "attempt 1 must actually sign the document in place");
+        QVERIFY2(QFileInfo::exists(doc),
+                 "a successful in-place sign must leave the document in place");
+        {
+            X509_STORE *store = buildTestStore();
+            SignatureManager v;
+            v.setTrustStoreForTest(store);
+            const auto sigs = v.validateSignatures(doc);
+            QVERIFY2(!sigs.isEmpty() && sigs.first().integrityIntact,
+                     "attempt 1 signature must be intact");
+            X509_STORE_free(store);
+            v.setTrustStoreForTest(nullptr);
+        }
+
+        // Attempt 2: in-place again, and the re-validation observes NOTHING
+        // (seam). The operation must FAIL — and the user's only copy must
+        // survive byte-identical. Pre-fix this deleted the document.
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_T);
+        mgr.forceEmptyPostConditionForTesting(true);
+        const auto o2 = mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                         "PGR21-empty", "");
+        mgr.forceEmptyPostConditionForTesting(false);
+        QCOMPARE(o2, SignOutcome::Failed);
+
+        QVERIFY2(QFileInfo::exists(doc),
+                 "PGR-21: a failed in-place re-sign DELETED the document — the "
+                 "user's only copy must survive a failed post-validation");
+        QCOMPARE(fileSha(doc), signedSha);
+
+        // The preserved document still carries its ORIGINAL intact signature.
+        {
+            X509_STORE *store = buildTestStore();
+            mgr.setTrustStoreForTest(store);
+            const auto sigs = mgr.validateSignatures(doc);
+            QVERIFY2(!sigs.isEmpty() && sigs.first().integrityIntact,
+                     "the preserved document's original signature must still validate");
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+        }
+    }
+
+    // PGR-21 companion guard (green before AND after the fix): the in-place
+    // SUCCESS path must keep the incremental-append contract — a second
+    // in-place signature appends a revision, and both signatures (including
+    // the first one's byte ranges) re-validate intact.
+    void pgr21_inPlaceSecondSignatureStaysIncrementalAndValid()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QString doc = m_tmpDir.filePath("pgr21_incremental.pdf");
+        QVERIFY(QFile::copy(kInputPdf, doc));
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QCOMPARE(mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                  "PGR21-first", ""), SignOutcome::Success);
+        QCOMPARE(mgr.signDocument(doc, doc, kP12Path, kP12Pass,
+                                  "PGR21-second", ""), SignOutcome::Success);
+
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        const auto sigs = mgr.validateSignatures(doc);
+        QVERIFY2(sigs.size() >= 2,
+                 qPrintable(QStringLiteral("in-place double sign must yield >= 2 "
+                                          "signatures, got %1").arg(sigs.size())));
+        for (const auto &sig : sigs) {
+            QVERIFY2(sig.integrityIntact,
+                     qPrintable(QStringLiteral("in-place incremental append broke "
+                                              "the earlier signature %1")
+                                    .arg(sig.fieldName)));
+        }
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // R19(a+b): the signing SETTINGS really drive the engine — the documented
+    // keys (signing/tsaUrl, signing/padesLevel) are read through the
+    // controller's settings seam (gp::SecurityController::readSigningConfig) and
+    // applied via setTsaUrl/setSignatureLevel exactly like runSigning does
+    // before every dispatch. The engine attests the configured level's pieces.
+    // NOTE on scope: the B-LT DSS build does not need the TSA (the DSS carries
+    // certs/OCSP/CRLs, not timestamp tokens), so an empty tsaUrl at B-LT
+    // attests hasDss. (The controller's production pre-flight refuses empty-
+    // TSA-above-B-B; this pin is the ENGINE contract of the configured level.)
+    // -----------------------------------------------------------------------
+    void settingsDrivenLevelAttestsItsPieces()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QSettings ini(m_tmpDir.filePath("signing-r19a.ini"), QSettings::IniFormat);
+        ini.setValue(QStringLiteral("signing/padesLevel"), QStringLiteral("B-LT"));
+        ini.setValue(QStringLiteral("signing/tsaUrl"), QString());
+        ini.sync();
+        const auto cfg = gp::SecurityController::readSigningConfig(&ini);
+        QCOMPARE(cfg.level, PAdESLevel::B_LT);
+
+        QString output = m_tmpDir.filePath("r19_settings_bltn.pdf");
+        SignatureManager mgr;
+        // The controller-consumption seam (R19b): same calls runSigning makes
+        // before every dispatch, in the same order.
+        mgr.setTsaUrl(cfg.tsaUrl);
+        mgr.setSignatureLevel(cfg.level);
+
+        QVERIFY2(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "R19a", "")
+                     == SignOutcome::Success,
+                 "the settings-driven B-LT sign must succeed (no TSA pieces needed)");
+
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        const auto results = mgr.validateSignatures(output);
+        QVERIFY2(!results.isEmpty(), "the signed document must validate");
+        QVERIFY2(results.first().integrityIntact, "the signature must be intact");
+        QVERIFY2(results.first().hasDss,
+                 "the settings-driven B-LT must attest the DSS (hasDss) — the "
+                 "configured level was really applied, not the default");
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // R19(b+c): a CONFIGURED-but-unreachable TSA is deterministic (refused
+    // loopback — no network, no sleeps). The settings-driven B-LTA attempt:
+    //   * outcome PartialLtvMissing with EXACT detail: the refused TSA fails
+    //     BOTH the B-T signature timestamp (SEP13 lead 1: timestampMissing)
+    //     AND the archive timestamp (docTimestampMissing); the DSS itself is
+    //     built (not flagged),
+    //   * attainedLevelLabel(B_LTA, detail) == "B-B" — without the B-T token
+    //     the signature is B-B (the pre-lead-1 "B-LT" expectation was the
+    //     dishonest label this residual lane removes),
+    //   * N06 non-regression: the destination is never left broken — the
+    //     partial result is written through checked replacement and still
+    //     carries an intact signature (E-06: no malformed /DocTimeStamp).
+    // -----------------------------------------------------------------------
+    void refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        QSettings ini(m_tmpDir.filePath("signing-r19b.ini"), QSettings::IniFormat);
+        ini.setValue(QStringLiteral("signing/padesLevel"), QStringLiteral("B-LTA"));
+        ini.setValue(QStringLiteral("signing/tsaUrl"), QStringLiteral("http://127.0.0.1:9/"));
+        ini.sync();
+        const auto cfg = gp::SecurityController::readSigningConfig(&ini);
+        QCOMPARE(cfg.level, PAdESLevel::B_LTA);
+        QCOMPARE(cfg.tsaUrl, QStringLiteral("http://127.0.0.1:9/"));
+
+        QString output = m_tmpDir.filePath("r19_loopback_lta.pdf");
+        SignatureManager mgr;
+        mgr.setTsaUrl(cfg.tsaUrl);          // the controller-consumption seam
+        mgr.setSignatureLevel(cfg.level);
+
+        const SignOutcome outcome = mgr.signDocument(kInputPdf, output, kP12Path,
+                                                     kP12Pass, "R19b", "");
+        QCOMPARE(outcome, SignOutcome::PartialLtvMissing);
+        const SignatureOutcomeDetail detail = mgr.lastSignOutcomeDetail();
+        QVERIFY2(detail.docTimestampMissing,
+                 "the refused TSA must flag exactly the archive timestamp as missing");
+        QVERIFY2(detail.timestampMissing,
+                 "the refused TSA must ALSO flag the B-T signature timestamp as missing "
+                 "(SEP13 lead 1) — the token fetch fails for the same reason");
+        QVERIFY2(!detail.dssMissing,
+                 "the DSS itself must NOT be flagged missing");
+
+        // R19c: the attained-level disclosure for this outcome is B-B —
+        // without the timestamp token the signature attests no level above B-B.
+        QCOMPARE(gp::SecurityController::attainedLevelLabel(PAdESLevel::B_LTA, detail),
+                 QStringLiteral("B-B"));
+
+        // N06 non-regression: the destination went through checked replacement
+        // and is a valid, intact signed document — never a broken file.
+        QVERIFY2(QFileInfo::exists(output), "the partial result must be on disk (E-02)");
+        X509_STORE *store = buildTestStore();
+        mgr.setTrustStoreForTest(store);
+        const auto results = mgr.validateSignatures(output);
+        QVERIFY2(!results.isEmpty() && results.first().integrityIntact,
+                 "the destination must never be left broken: the partial result "
+                 "still carries an intact signature");
+        QVERIFY2(!results.first().hasDocTimestamp,
+                 "a refused TSA must not leave a (malformed) /DocTimeStamp (E-06)");
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // Candidate-leak pin: a SUCCESSFUL sign/certify must not leave its
+    // committed SafeSave candidate in <temp>/glyphpdf-candidates/. Before the
+    // fix, signDocumentImpl set candidateCommitted=true after
+    // commitFileToDestination and cleanupCandidate() then skipped removal —
+    // every successful sign leaked one stray PDF into the shared temp dir
+    // (observed: TestCertifySelector grew the dir ~5 files per pass).
+    // Certify shares signDocumentImpl, so one slot pins both entry points.
+    // -----------------------------------------------------------------------
+    void successfulSignLeavesNoCandidate()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        const int candidatesBefore = leftoverCandidates();
+
+        // Sign: the shared success path under test.
+        QString signedOut = m_tmpDir.filePath("candidate_leak_sign.pdf");
+        {
+            SignatureManager mgr;
+            QCOMPARE(mgr.signDocument(kInputPdf, signedOut, kP12Path, kP12Pass,
+                                      "CandidateLeakPin", ""),
+                     SignOutcome::Success);
+            QVERIFY2(QFileInfo::exists(signedOut), "signed output must exist");
+        }
+        QVERIFY2(leftoverCandidates() == candidatesBefore,
+                 "a successful signDocument must remove its committed candidate "
+                 "from <temp>/glyphpdf-candidates");
+
+        // Certify: shares signDocumentImpl — same success path, pinned too.
+        QString certifiedOut = m_tmpDir.filePath("candidate_leak_certify.pdf");
+        {
+            SignatureManager mgr;
+            QCOMPARE(mgr.certifyDocument(kInputPdf, certifiedOut, kP12Path, kP12Pass,
+                                         2, "CandidateLeakPin", ""),
+                     SignOutcome::Success);
+            QVERIFY2(QFileInfo::exists(certifiedOut), "certified output must exist");
+        }
+        QVERIFY2(leftoverCandidates() == candidatesBefore,
+                 "a successful certifyDocument must remove its committed candidate "
+                 "from <temp>/glyphpdf-candidates");
     }
 };
 

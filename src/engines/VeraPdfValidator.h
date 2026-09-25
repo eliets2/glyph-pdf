@@ -3,6 +3,10 @@
 #include <QString>
 #include <QList>
 
+// Test binary's QtTest suite — declared only so it can be friended below
+// (test-only access to the private schema parser; no production code path).
+class TestVeraPdf;
+
 namespace gp {
 
 enum class PdfAConformance {
@@ -41,6 +45,10 @@ public:
 private:
     static QString conformanceFlag(PdfAConformance level);
     static PdfAValidationReport parseJson(const QByteArray& jsonOutput);
+
+    // Test-only access to the private schema parser: TestVeraPdf pins the real
+    // veraPDF 1.26-1.30 JSON shape with offline fixtures (no CLI required).
+    friend class ::TestVeraPdf;
 };
 
 } // namespace gp

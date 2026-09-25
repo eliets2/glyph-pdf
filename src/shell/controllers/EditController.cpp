@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "EditController.h"
+#include "shell/EditPolicy.h"
 #include "core/AppContext.h"
+#include "core/PolicyController.h" // emergence E-2: policy-aware OCR refusal wording
 #include "GpMainWindow.h"
 #include "ui/PdfViewerWidget.h"
 #include "engines/OcrEngine.h"
@@ -15,11 +17,18 @@
 #include "commands/RotateImageCommand.h"
 #include "commands/ReplaceImageCommand.h"
 #include "commands/DeleteImageCommand.h"
+#include "commands/ImageAppearanceCommand.h"
 #include "commands/EditTextInlineCommand.h"
 #include "ui/AnnotationLayer.h"
 #include "ui/FindBar.h"
+#include "ui/FindReplaceDialog.h"
+#include "ui/StampLibraryDialog.h"
+#include "ui/AutoBookmarkDialog.h"
+#include "commands/SetOutlineCommand.h"
+#include "core/StampLibrary.h"
 #include "ui/EditToolBar.h"
 #include "ui/SignaturePicker.h" // §9.7 P0: Draw/Type/Upload signature picker
+#include "engines/DocumentSession.h" // §9.7 P1: session-scoped signature cache
 
 #include <QFileDialog>
 #include <QInputDialog>
@@ -45,12 +54,39 @@
 
 namespace gp {
 
+// §9.7 P1: ONE SignatureSessionCache per DocumentSession, parented to it so
+// its lifetime IS the document session's — no EditController.h surface and no
+// teardown wiring. findChild keeps it a singleton per session.
+namespace {
+SignatureSessionCache *signatureSessionCacheFor(DocumentSession *doc)
+{
+    if (!doc)
+        return nullptr;
+    if (auto *existing = doc->findChild<SignatureSessionCache *>(
+            QStringLiteral("signatureSessionCache")))
+        return existing;
+    auto *cache = new SignatureSessionCache(doc);
+    cache->setObjectName(QStringLiteral("signatureSessionCache"));
+    return cache;
+}
+} // namespace
+
 EditController::EditController(const AppContext* ctx, MainWindow* mainWindow, QObject* parent)
     : QObject(parent), _ctx(ctx), _mainWindow(mainWindow) {}
+
+// ARC07: dispatch and enablement share ONE predicate (shell/EditPolicy.h).
+bool EditController::isEnabled(ToolId id) const {
+    return !EditPolicy::toolRefusedByReadOnly(
+        _ctx && _ctx->document ? _ctx->document.get() : nullptr, id);
+}
 
 QList<ToolId> EditController::handledTools() const {
     return {
         ToolId::Search, ToolId::Ocr,
+        // R15 (PP06): the T2-2 Find & Replace dialog is the real route for the
+        // ribbon's Find & Replace / Regex entries (the regex / match-case /
+        // whole-word options live in that dialog).
+        ToolId::FindReplace,
         ToolId::EditText, ToolId::Hand, ToolId::Select,
         ToolId::SelectObject, ToolId::EditObject,
         ToolId::Highlight, ToolId::Underline, ToolId::Strikeout, ToolId::Squiggly,
@@ -62,7 +98,12 @@ QList<ToolId> EditController::handledTools() const {
         ToolId::Rectangle, ToolId::Oval,
         ToolId::Line, ToolId::Arrow,
         ToolId::Image, ToolId::EditImage,
-        ToolId::Cut, ToolId::Copy, ToolId::DeleteSelection
+        ToolId::Cut, ToolId::Copy, ToolId::DeleteSelection,
+        // T2-6: dynamic stamp presets + library management
+        ToolId::StampApproved, ToolId::StampDraft, ToolId::StampConfidential,
+        ToolId::StampReceived, ToolId::StampReviewed, ToolId::StampLibraryManage,
+        // T2-9: auto-bookmarks from text styles
+        ToolId::AutoBookmarks
     };
 }
 
@@ -102,6 +143,11 @@ void EditController::activate(ToolId id) {
     case ToolId::Search:
         _mainWindow->toggleFindBar();
         break;
+    case ToolId::FindReplace:
+        // R15: the dedicated T2-2 dialog (same production surface the
+        // Edit > Find & Replace menu item and Ctrl+H use).
+        _mainWindow->showFindReplaceDialog();
+        break;
     case ToolId::Ocr:
         runOcr();
         break;
@@ -136,7 +182,13 @@ void EditController::activate(ToolId id) {
         // default. Draw keeps the existing freehand flow; Type/Upload render
         // or decode the signature image here, then arm the matching placement
         // mode — cancel leaves everything untouched.
+        // §9.7 P1: the session cache rides along — the picker offers the last
+        // accepted signature for THIS document, cleared on a document switch.
+        auto *sessionCache = signatureSessionCacheFor(_ctx ? _ctx->document.get() : nullptr);
+        if (sessionCache)
+            sessionCache->noteDocument(_ctx->document->path());
         SignaturePickerDialog picker(_mainWindow);
+        picker.setSessionCache(sessionCache);
         if (picker.exec() != QDialog::Accepted)
             break;
         switch (picker.acceptedKind()) {
@@ -146,8 +198,12 @@ void EditController::activate(ToolId id) {
                 tr("Signature: draw on the page with the mouse."), 5000);
             break;
         case SignatureContent::Kind::Typed:
+        case SignatureContent::Kind::Initials:
         case SignatureContent::Kind::Upload: {
-            const bool typed = picker.acceptedKind() == SignatureContent::Kind::Typed;
+            // §9.7 P1: Initials shares the TYPED placement path — the variant
+            // is only a different render of the same image-stamp annotation
+            // (no new ToolMode; PdfEnums.h ordinals are frozen).
+            const bool typed = picker.acceptedKind() != SignatureContent::Kind::Upload;
             // Order matters: arm the placement mode FIRST, then set the image
             // (AnnotationLayer::setMode discards a pending image for any
             // non-signature tool).
@@ -161,6 +217,24 @@ void EditController::activate(ToolId id) {
         }
         break;
     }
+    case ToolId::StampApproved:
+    case ToolId::StampDraft:
+    case ToolId::StampConfidential:
+    case ToolId::StampReceived:
+    case ToolId::StampReviewed:
+        // T2-6: the previously silent Stamps menu items route to the REAL
+        // stamp flow — placeholders resolved at apply time, placement armed.
+        armDynamicStamp(stampTemplateIdForTool(id));
+        break;
+    case ToolId::StampLibraryManage:
+        // T2-6: the "Custom Stamp…" wire target — the library dialog
+        // (built-ins listed, custom stamps add/remove/persist/place).
+        openStampLibraryDialog();
+        break;
+    case ToolId::AutoBookmarks:
+        // T2-9: heading detection + preview + undoable outline commit.
+        runAutoBookmarks();
+        break;
     default:
         if (toolModes.contains(id)) {
             viewer->setToolMode(toolModes.value(id));
@@ -333,101 +407,192 @@ void EditController::onSearchRequested(const QString &text, bool forward, bool m
     }
 }
 
-void EditController::onReplaceRequested(const QString &searchText, const QString &replaceText,
-                                        bool matchCase, bool wholeWords, bool useRegex) {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
-
-    _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
-
-    // Replace current match using PoDoFo content stream text substitution
-    auto* sm = viewer->searchModel();
-    if (!sm || _currentMatchIndex < 0 || _currentMatchIndex >= sm->rowCount(QModelIndex()))
-        return;
-
-    QModelIndex idx = sm->index(_currentMatchIndex, 0);
-    int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-    QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-    QRectF rect(loc.x(), loc.y() - 15, 200, 20);
-    if (_ctx->undoStack) {
-        _ctx->document->setPath(viewer->filePath());
-        _ctx->undoStack->push(new EditTextInlineCommand(
-            _ctx->pdfEditor.get(), _ctx->document.get(), page, rect, replaceText,
-            _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+// ── T2-2: Find & Replace — the real replace pipeline ────────────────────────
+//
+// The previous implementation painted a white 200×20 rectangle with the
+// replacement text OVER each QPdfSearchModel hit: the original glyphs were
+// never removed, the flags (match case / whole words / regex) were ignored by
+// the locator, and nothing warned about changed text metrics. This pipeline:
+//   1. locates matches in the REAL text layer (TextMatchFinder — PDFium
+//      per-character boxes, decoded Unicode, flag-aware pattern),
+//   2. EXCISES the matched glyphs via the engine's content-stream surgery
+//      (ITextReplacer::replaceTextRegions — the redaction engine's excision
+//      core, without its annotation-removal tail), covers the region white
+//      and draws the replacement at the match origin in the match's size,
+//   3. compares each MEASURED drawn width with the match width and reports
+//      the count as the reflow/geometry warning (moat M8 — never silently
+//      reflow; the caller surfaces this before and after apply),
+//   4. saves through the signed-aware path and reloads the viewer.
+ReplaceOutcome
+EditController::replaceAllInDocument(const ReplaceOptions &options) {
+    ReplaceOutcome out;
+    auto *viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!_ctx || !_ctx->pdfEditor || !viewer || viewer->filePath().isEmpty()) {
+        out.message = tr("No document is open — nothing to replace.");
+        return out;
+    }
+    // ARC07: shared read-only gate (same policy as every other mutation).
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        out.message = EditPolicy::readOnlyMessage();
+        return out;
+    }
+    if (options.searchText.isEmpty()) {
+        out.message = tr("Enter text to search for.");
+        return out;
+    }
+    // packa-F1: an unusable scope is refused HERE, at the pipeline boundary.
+    // An empty page list legitimately means "all pages", so producers mark a
+    // refused scope with scopeValid=false — this guard makes whole-document
+    // widening impossible for bad input no matter which caller forgot to
+    // check, and leaves the file untouched (zero mutation).
+    if (!options.scopeValid) {
+        out.message = tr("The replace scope is not usable — nothing was changed. "
+                         "Fix the page range and try again.");
+        return out;
     }
 
-    _mainWindow->statusBar()->showMessage(
-        tr("Replaced match %1 on page %2").arg(_currentMatchIndex + 1).arg(page + 1), 3000);
+    const QString path = viewer->filePath();
+    const QRegularExpression rx = TextMatchFinder::buildPattern(
+        options.searchText, options.matchCase, options.wholeWords, options.useRegex);
+    if (!rx.isValid()) {
+        out.message = tr("Invalid regular expression: %1").arg(rx.errorString());
+        return out;
+    }
 
-    // Re-search to update counts
-    onSearchRequested(searchText, true, matchCase, wholeWords, useRegex, FindBar::ScopeDocumentText);
+    // Scope: explicit page list, or every page of the document.
+    QList<int> pages = options.pages;
+    if (pages.isEmpty()) {
+        const int pageCount = viewer->pageCount();
+        pages.reserve(pageCount);
+        for (int p = 0; p < pageCount; ++p) pages.append(p);
+    }
+
+    const QList<TextMatch> matches = TextMatchFinder::findMatches(path, pages, rx);
+    out.requested = matches.size();
+    out.matches = matches;
+    if (matches.isEmpty()) {
+        out.ok = true;
+        out.message = tr("No matches to replace.");
+        return out;
+    }
+
+    QList<TextReplacementSpec> specs;
+    specs.reserve(matches.size());
+    for (const auto &m : matches) {
+        TextReplacementSpec s;
+        s.pageIndex = m.pageIndex;
+        s.rect = m.rect;
+        s.text = options.replaceText;
+        s.fontSize = m.fontSize;
+        specs.append(s);
+    }
+
+    // Excise + redraw on the RESIDENT document (single pass over all pages).
+    _ctx->pdfEditor->loadDocumentForEditing(path);
+    QList<double> drawnWidths;
+    if (!_ctx->pdfEditor->replaceTextRegions(specs, &drawnWidths)) {
+        out.message = tr("Replace failed: a page's content could not be edited. "
+                         "Nothing was saved — the document is unchanged on disk.");
+        return out;
+    }
+
+    // Measured geometry warnings: the drawn replacement's width vs the match
+    // box width (side bearings included in the box, hence the tolerance).
+    for (int i = 0; i < drawnWidths.size() && i < matches.size(); ++i) {
+        if (qAbs(drawnWidths.at(i) - matches.at(i).rect.width()) > 0.5) {
+            if (out.widthChanged == 0)
+                out.firstChangedPage = tr("page %1").arg(matches.at(i).pageIndex + 1);
+            ++out.widthChanged;
+        }
+    }
+    out.applied = specs.size();
+
+    // Checked save (D3/R2-2): signed documents go through the incremental
+    // update path so /ByteRange signatures stay intact.
+    const bool isSigned = _ctx->pdfEditor->hasPdfSignatures();
+    const bool saveOk = isSigned ? _ctx->pdfEditor->writeUpdate(path)
+                                 : _ctx->pdfEditor->saveDocument(path);
+    if (!saveOk) {
+        out.message = tr("The replacements were applied in memory, but the file "
+                         "could not be saved. Check that the disk is not full and "
+                         "the file is not write-protected.");
+        return out;
+    }
+    out.ok = true;
+
+    // Reload so the viewer shows the committed result.
+    if (_ctx->document) {
+        _ctx->document->setPath(path);
+        _ctx->document->markReload();
+    }
+    viewer->loadDocument(path);
+
+    out.message = tr("Replaced %1 of %2 occurrence(s).")
+                      .arg(out.applied).arg(out.requested);
+    if (out.widthChanged > 0)
+        out.message += tr(" %1 replacement(s) changed the text width (first on %2) — "
+                          "check those pages for overlapping text.")
+                           .arg(out.widthChanged).arg(out.firstChangedPage);
+    return out;
+}
+
+void EditController::onReplaceRequested(const QString &searchText, const QString &replaceText,
+                                        bool matchCase, bool wholeWords, bool useRegex) {
+    auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
+
+    // Replace the FIRST match at or after the current page, honoring the
+    // flags (the old path used the case-insensitive locator index and painted
+    // an overlay without removing the original glyphs).
+    ReplaceOptions options;
+    options.searchText = searchText;
+    options.replaceText = replaceText;
+    options.matchCase = matchCase;
+    options.wholeWords = wholeWords;
+    options.useRegex = useRegex;
+    const int from = qMax(0, viewer->currentPage());
+    for (int p = from; p < viewer->pageCount(); ++p)
+        options.pages.append(p);
+    // Single replacement: shrink the scope after the scan to the first hit.
+    const QRegularExpression rx = TextMatchFinder::buildPattern(
+        searchText, matchCase, wholeWords, useRegex);
+    if (!rx.isValid()) {
+        _mainWindow->statusBar()->showMessage(tr("Invalid regular expression."), 4000);
+        return;
+    }
+    const QList<TextMatch> scoped = TextMatchFinder::findMatches(
+        viewer->filePath(), options.pages, rx);
+    if (scoped.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
+        return;
+    }
+    options.pages = { scoped.first().pageIndex };
+    const ReplaceOutcome out = replaceAllInDocument(options);
+    _mainWindow->statusBar()->showMessage(out.message, 5000);
 }
 
 void EditController::onReplaceAllRequested(const QString &searchText, const QString &replaceText,
                                            bool matchCase, bool wholeWords, bool useRegex) {
-    auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer || !_ctx || !_ctx->pdfEditor) return;
-
-    _ctx->pdfEditor->loadDocumentForEditing(viewer->filePath());
-
-    auto* sm = viewer->searchModel();
-    if (!sm) return;
-
-    int count = sm->rowCount(QModelIndex());
-    if (count == 0) {
-        _mainWindow->statusBar()->showMessage(tr("No matches to replace."), 3000);
-        return;
-    }
-
-    // Iterate all matches from last to first (reverse order to preserve positions)
-    for (int i = count - 1; i >= 0; --i) {
-        QModelIndex idx = sm->index(i, 0);
-        int page = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Page)).toInt();
-        QPointF loc = sm->data(idx, static_cast<int>(QPdfSearchModel::Role::Location)).toPointF();
-
-        QRectF rect(loc.x(), loc.y() - 15, 200, 20);
-        _ctx->pdfEditor->editTextInline(page, rect, replaceText,
-                                        _fontFamily, _fontSize, _fontColor,
-                                        _fontBold, _fontItalic, _fontAlignment);
-    }
-
-    // R2-1 D2: route through incremental update when document is signed, so
-    // existing /ByteRange signatures are not invalidated by a full rewrite.
-    // D3 (R2-2): check the save return value — a silent discard here means
-    // the user sees "Replaced N occurrences" while the file was never written.
-    {
-        const bool isSigned = _ctx->pdfEditor->hasPdfSignatures();
-        const bool saveOk = isSigned
-            ? _ctx->pdfEditor->writeUpdate(viewer->filePath())
-            : _ctx->pdfEditor->saveDocument(viewer->filePath());
-        if (!saveOk) {
-            QMessageBox::critical(
-                _mainWindow,
-                tr("Save Failed"),
-                tr("The replacements were applied in memory, but the file could not "
-                   "be saved. Check that the disk is not full and the file is not "
-                   "write-protected."));
-            _mainWindow->statusBar()->showMessage(tr("Replace All: save failed."), 5000);
-            return;
-        }
-    }
-
-    if (_ctx->document) {
-        _ctx->document->setPath(viewer->filePath());
-        _ctx->document->markReload();
-    }
-
-    _mainWindow->statusBar()->showMessage(
-        tr("Replaced %1 occurrences.").arg(count), 5000);
-
-    // Reload to reflect changes
-    viewer->loadDocument(viewer->filePath());
+    // FindBar's Replace All: whole-document scope through the SAME pipeline
+    // as the Find & Replace dialog — no parallel implementation.
+    ReplaceOptions options;
+    options.searchText = searchText;
+    options.replaceText = replaceText;
+    options.matchCase = matchCase;
+    options.wholeWords = wholeWords;
+    options.useRegex = useRegex;   // empty list = all pages
+    const ReplaceOutcome out = replaceAllInDocument(options);
+    _mainWindow->statusBar()->showMessage(out.message, 6000);
 }
 
 void EditController::onRedactAllRequested(const QString &text, bool matchCase, bool wholeWords) {
     auto* viewer = _mainWindow->pdfViewer();
     if (viewer && _ctx && _ctx->pdfEditor) {
+        // ARC07: FindBar entries bypass the registry — shared read-only gate.
+        if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+            _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+            return;
+        }
         // §9.15: reuse the shared page-text matcher. wholeWords-only is the
         // historical behavior for this path (FindBar never sends useRegex here).
         const PageTextPattern pt = pageTextPattern(text, matchCase, wholeWords, /*useRegex*/ false);
@@ -439,7 +604,320 @@ void EditController::onRedactAllRequested(const QString &text, bool matchCase, b
     }
 }
 
+// ── T2-6: dynamic stamps ────────────────────────────────────────────────────
+
+// Pure seam: the stamp template id behind each dynamic-stamp ToolId.
+QString EditController::stampTemplateIdForTool(ToolId id) {
+    switch (id) {
+    case ToolId::StampApproved:     return QStringLiteral("builtin:approved");
+    case ToolId::StampDraft:        return QStringLiteral("builtin:draft");
+    case ToolId::StampConfidential: return QStringLiteral("builtin:confidential");
+    case ToolId::StampReceived:     return QStringLiteral("builtin:received");
+    case ToolId::StampReviewed:     return QStringLiteral("builtin:reviewed");
+    default:                        return QString();
+    }
+}
+
+void EditController::armDynamicStamp(const QString &templateId) {
+    auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!viewer) {
+        if (_mainWindow) _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+    const auto tmpl = StampLibrary::findById(templateId);
+    if (!tmpl) {
+        _mainWindow->statusBar()->showMessage(tr("Unknown stamp: %1").arg(templateId), 4000);
+        return;
+    }
+    // ARC07: read-only documents may not receive stamps.
+    if (EditPolicy::mutationBlocked(_ctx ? _ctx->document.get() : nullptr)) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    // Placeholders are substituted AT APPLY TIME (now, when the user picked
+    // the stamp) — the annotation saved into the PDF carries the concrete
+    // author/date, never a live template.
+    const QString author = QSettings().value(QStringLiteral("stamps/author")).toString();
+    const QString resolved = StampLibrary::resolveText(tmpl->textTemplate,
+                                                       author,
+                                                       QDateTime::currentDateTime());
+    viewer->setToolMode(ToolMode::Stamp);          // arm FIRST (clears pending)
+    viewer->setPendingStampText(resolved);         // then the resolved text
+    _mainWindow->statusBar()->showMessage(
+        tr("Stamp '%1' ready — click or drag on the page. Text: %2")
+            .arg(tmpl->name, resolved), 6000);
+}
+
+void EditController::openStampLibraryDialog() {
+    if (!_mainWindow) return;
+    auto* dialog = _mainWindow->findChild<StampLibraryDialog*>(QStringLiteral("stampLibraryDialog"));
+    if (!dialog) {
+        dialog = new StampLibraryDialog(_mainWindow);
+        dialog->setObjectName(QStringLiteral("stampLibraryDialog"));
+        // Place requests come back through the SAME armDynamicStamp path as
+        // the menu items — one stamp flow, several entry points.
+        QObject::connect(dialog, &StampLibraryDialog::placeRequested,
+                         _mainWindow, [this](const QString& templateId) {
+                             armDynamicStamp(templateId);
+                         });
+    }
+    dialog->reload();
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
+}
+
+// ── T2-9: auto-bookmarks from text styles ───────────────────────────────────
+// Detect → preview (heuristic disclosed, rows editable) → undoable commit.
+// The engine write REPLACES the whole outline in one committed step; the
+// pre-change outline is snapshotted and restored by undo (SetOutlineCommand).
+void EditController::runAutoBookmarks() {
+    auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
+    if (!_ctx || !_ctx->pdfEditor || !viewer || viewer->filePath().isEmpty()) {
+        if (_mainWindow) _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    const QString path = viewer->filePath();
+    AutoBookmarkDialog dialog(path, _mainWindow);
+    if (dialog.exec() != QDialog::Accepted)
+        return;   // reviewed, then cancelled — nothing written
+
+    const QList<OutlineEntry> entries = dialog.buildTree();
+    if (entries.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No bookmarks selected — nothing was changed."), 4000);
+        return;
+    }
+
+    // Snapshot BEFORE the write so undo restores the document's own history.
+    const QList<OutlineEntry> previous = _ctx->pdfEditor->getOutline(path);
+    if (!_ctx->pdfEditor->replaceOutline(path, entries)) {
+        _mainWindow->statusBar()->showMessage(
+            tr("Could not write the bookmarks — the file is unchanged."), 5000);
+        return;
+    }
+
+    // Undoable (restores the previous outline) + viewer reload. The command
+    // takes the IPdfEditorEngine interface (IOutlineEditor seam).
+    // packa-F3: the outline was JUST committed above — the command is pushed
+    // with alreadyApplied=true so its initial redo only reloads (single-
+    // writer ownership: one user action = one expensive path-based save).
+    if (_ctx->undoStack && _ctx->document) {
+        _ctx->document->setPath(path);
+        _ctx->undoStack->push(new SetOutlineCommand(
+            _ctx->pdfEditor.get(),
+            _ctx->document.get(), viewer, path, previous, entries,
+            /*alreadyApplied=*/true));
+    } else if (_ctx->document) {
+        _ctx->document->markReload();
+        viewer->reload();
+    }
+
+    _mainWindow->statusBar()->showMessage(
+        tr("Created %1 bookmark(s). Undo restores the previous outline.")
+            .arg(entries.size()), 6000);
+}
+
 // ── OCR ─────────────────────────────────────────────────────────────────────
+
+// R07 (F11): pre-dispatch validation as a pure seam so the "no document" exit
+// is testable without the application shell. Empty string == dispatchable.
+QString EditController::ocrDispatchBlocker(const QString& filePath, int page)
+{
+    if (filePath.isEmpty() || page < 0)
+        return EditController::tr("OCR needs an open document — open a PDF and run OCR again.");
+    return QString();
+}
+
+// ARC07 residual: the accept flow exports a searchable COPY, so a read-only
+// document keeps the route (Save-As shape — same policy that leaves Save As
+// available). The one refused shape is writing over the read-only document
+// itself. Case-insensitive compare catches a case-alias of the open file;
+// canonical paths catch it when both sides exist.
+QString EditController::ocrAcceptWriteBlocker(bool sessionReadOnly,
+                                              const QString& sessionSourcePath,
+                                              const QString& outPath)
+{
+    if (!sessionReadOnly || outPath.isEmpty() || sessionSourcePath.isEmpty())
+        return QString();
+    const QFileInfo outInfo(outPath);
+    const QFileInfo srcInfo(sessionSourcePath);
+    const bool sameFile =
+        (!outInfo.canonicalFilePath().isEmpty()
+         && outInfo.canonicalFilePath().compare(srcInfo.canonicalFilePath(), Qt::CaseInsensitive) == 0)
+        || (outInfo.size() == srcInfo.size()
+            && outInfo.absoluteFilePath().compare(srcInfo.absoluteFilePath(), Qt::CaseInsensitive) == 0);
+    if (!sameFile)
+        return QString();
+    return EditPolicy::readOnlyMessage()
+        + EditController::tr(" Choose a different output file to export the searchable copy.");
+}
+
+// R07 (F11): one classification for every terminal outcome of a dispatched job.
+// Order matters: a superseded generation wins (the newer job owns the user's
+// attention), then the worker error, then source-identity staleness.
+EditController::OcrJobVerdict EditController::classifyOcrJobCompletion(
+    qint64 jobGeneration, qint64 currentGeneration,
+    const QString& jobSourcePath, int jobPage,
+    const QString& currentSourcePath, int currentPage,
+    const QString& workerError, QString* messageOut,
+    qint64 jobSourceRevision, qint64 currentSourceRevision,
+    qint64 jobSourceDocumentGeneration, qint64 currentDocumentGeneration)
+{
+    const auto setMessage = [messageOut](const QString& m) {
+        if (messageOut) *messageOut = m;
+    };
+
+    // 1) A newer request supersedes this job's results entirely.
+    if (jobGeneration != currentGeneration) {
+        setMessage(EditController::tr("OCR run superseded by a newer request — discarding its results."));
+        return OcrJobVerdict::Stale;
+    }
+    // 2) Worker failure (missing language/model data, render failure, engine error).
+    if (!workerError.isEmpty()) {
+        setMessage(workerError);
+        return OcrJobVerdict::Failed;
+    }
+    // 3) The viewer/editor disappeared or the source identity changed.
+    if (currentSourcePath.isEmpty() || currentPage < 0) {
+        setMessage(EditController::tr("OCR finished, but the editor was closed — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    if (currentSourcePath != jobSourcePath) {
+        setMessage(EditController::tr("OCR finished, but the document changed — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    if (currentPage != jobPage) {
+        setMessage(EditController::tr("OCR finished, but the page changed — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    // G10 (QUALITY-GATE-2026-09-09): same path and page, but the document was
+    // RE-OPENED since the snapshot (A→B→A). beginDocument() advances the
+    // document generation without touching path, page or (here) the mutation
+    // revision — the revision check below cannot see this. -1 = unknown
+    // generation (legacy callers) — falls through to the revision check.
+    if (jobSourceDocumentGeneration >= 0 && currentDocumentGeneration >= 0
+            && jobSourceDocumentGeneration != currentDocumentGeneration) {
+        setMessage(EditController::tr("OCR finished, but the document was reopened — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    // V05: same path and page, but the document was mutated in place since
+    // this job's page snapshot was rendered (page replace/reorder, text edit,
+    // redaction — none change path or page count). The rendered words
+    // no longer describe the current document. -1 = unknown revision (legacy
+    // callers) — only the identity checks above apply.
+    if (jobSourceRevision >= 0 && currentSourceRevision >= 0
+            && jobSourceRevision != currentSourceRevision) {
+        setMessage(EditController::tr("OCR finished, but the document was modified — results discarded."));
+        return OcrJobVerdict::Stale;
+    }
+    return OcrJobVerdict::Deliver;
+}
+
+// ── R08 (F04) review-session seams ──────────────────────────────────────────
+
+// May this review session still be saved against the live viewer? A stale
+// session (source changed, or the document revision changed) is rejected with
+// a reason instead of exporting the wrong page/document.
+bool EditController::ocrSessionIsExportable(const OcrReviewSession& session,
+                                            const QString& currentSourcePath,
+                                            int currentPageCount,
+                                            qint64 currentSourceRevision,
+                                            QString* reasonOut,
+                                            qint64 currentDocumentGeneration)
+{
+    const auto reject = [reasonOut](const QString& r) {
+        if (reasonOut) *reasonOut = r;
+        return false;
+    };
+
+    if (!session.isValid())
+        return reject(EditController::tr("No OCR results to save — run OCR first."));
+    if (session.sourcePath != currentSourcePath)
+        return reject(EditController::tr(
+            "The reviewed page belongs to another document — run OCR on the current document before saving."));
+    if (currentPageCount >= 0 && session.sourcePageCount != currentPageCount)
+        return reject(EditController::tr(
+            "The document changed since this OCR run (page count differs) — run OCR again."));
+    // G10 (QUALITY-GATE-2026-09-09): same path and page count is not even
+    // proof the session describes the same OPEN of the document. A→B→A
+    // restores the path (and here keeps the mutation revision unchanged)
+    // while beginDocument() advanced the load identity. The session's
+    // captured document generation must still match the live one. -1 on
+    // either side (legacy session / unknown caller) falls back to the
+    // revision check below.
+    if (session.sourceDocumentGeneration >= 0 && currentDocumentGeneration >= 0
+            && session.sourceDocumentGeneration != currentDocumentGeneration)
+        return reject(EditController::tr(
+            "The reviewed page belongs to a previous open of this document — run OCR again."));
+    // V05: same path and page count is NOT proof the reviewed page is still
+    // current — a replacement, reorder, in-place edit or redaction preserves
+    // both. The mutation revision captured with the page snapshot must still
+    // match the live document session. -1 on either side (legacy session /
+    // unavailable session) falls back to the path+count proxies above.
+    // Ordinary page navigation never advances the revision, so the explicitly
+    // reviewed page stays exportable while the user browses.
+    if (session.sourceRevision >= 0 && currentSourceRevision >= 0
+            && session.sourceRevision != currentSourceRevision)
+        return reject(EditController::tr(
+            "The document was modified since this OCR run — run OCR again."));
+    return true;
+}
+
+// Merge the panel's reviewed records into the session and build the export
+// payload. Reviewed words are authoritative; deleted/empty words are dropped;
+// the source box of every kept word is the ORIGINAL recognized box.
+PageOcrResult EditController::buildReviewedPageOcrResult(
+    const OcrReviewSession& session,
+    const QList<OcrReviewedWord>& reviewedWords,
+    QString* errorOut)
+{
+    PageOcrResult r;
+    r.pageIndex = session.sourcePage;
+    const auto fail = [errorOut](const QString& e) {
+        if (errorOut) *errorOut = e;
+        return PageOcrResult{};
+    };
+
+    if (!session.isValid())
+        return fail(EditController::tr("No OCR results to save — run OCR first."));
+
+    // Stale-interaction guard: the panel's records must describe the same
+    // delivery as the session. An empty list means "unedited review".
+    QList<OcrReviewedWord> effective = reviewedWords;
+    if (!effective.isEmpty()) {
+        if (effective.size() != session.words.size())
+            return fail(EditController::tr(
+                "The review no longer matches the recognized page — run OCR again."));
+        for (int i = 0; i < effective.size(); ++i) {
+            if (effective[i].stableId != session.words[i].stableId)
+                return fail(EditController::tr(
+                    "The review no longer matches the recognized page — run OCR again."));
+        }
+    } else {
+        effective = session.words;
+    }
+
+    r.words.reserve(effective.size());
+    for (const auto& rec : effective) {
+        if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) continue;
+        MergedOcrWord w;
+        // Reviewed text wins; the box is the ORIGINAL source box (review
+        // edits never move, split or invent coordinates).
+        w.text         = rec.reviewedText;
+        w.boundingBox  = rec.boundingBox;
+        w.confidence   = rec.confidence;
+        w.sourceEngine = rec.sourceEngine;
+        r.words.append(w);
+    }
+    r.success = !r.words.isEmpty();
+    return r;
+}
 
 void EditController::runOcr() {
     auto* viewer = _mainWindow->pdfViewer();
@@ -447,7 +925,12 @@ void EditController::runOcr() {
 
     const QString filePath = viewer->filePath();
     const int page = viewer->currentPage();
-    if (filePath.isEmpty() || page < 0) return;
+
+    // R07 (F11): a blocked dispatch must still complete the panel's lifecycle —
+    // emit ocrRunFailed so the review screen returns to a retryable state
+    // (previously these early returns left Run disabled forever).
+    const QString blocker = ocrDispatchBlocker(filePath, page);
+    if (!blocker.isEmpty()) { emit ocrRunFailed(blocker); return; }
 
     // Read the pref at call-time so changes take effect without restart (D2 guardrail 3).
     // Default is "auto": prefer the ROVER ensemble when the PP-OCRv5 models are
@@ -481,15 +964,35 @@ void EditController::runOcr() {
 
     // Honest availability check for an EXPLICIT RapidOCR/Ensemble selection: fail
     // loudly rather than silently downgrade (audit §7 Pattern 5). The auto path
-    // already guaranteed availability above, so it is exempt.
+    // already guaranteed availability above, so it is exempt. R07: emit the
+    // failure so the review panel recovers instead of staying in Running.
     if (!autoSelect && (wantRapid || wantEnsemble) && !onnxAvailable) {
-        _mainWindow->statusBar()->showMessage(
+        emit ocrRunFailed(
             tr("OCR failed: PP-OCRv5 ONNX models not found. "
-               "Change the OCR engine in Preferences → Engines, or install the models."), 7000);
+               "Change the OCR engine in Preferences → Engines, or install the models."));
         return;
     }
 
     _ocrRunning = true;
+
+    // R07: generation identity of this job — the completion callback drops the
+    // results if a newer request was issued in the meantime. R08: the page
+    // count snapshot is the session's cheap revision proxy (page insert/delete
+    // invalidates the session at accept time). V05: the DocumentSession
+    // mutation revision is captured with the page snapshot (the render below
+    // is the snapshot) and re-validated at completion AND export, so an
+    // in-place mutation between/after these points rejects the stale words.
+    // G10 (QUALITY-GATE-2026-09-09): the DocumentSession::documentGeneration()
+    // load identity is captured with the same snapshot and composed with the
+    // revision at completion AND export — a reopen (A→B→A) advances the
+    // generation while path and revision stay put.
+    ++_ocrJobGeneration;
+    const qint64 jobGeneration = _ocrJobGeneration;
+    const int sourcePageCount = viewer->pageCount();
+    const qint64 sourceRevision = (_ctx && _ctx->document)
+        ? _ctx->document->mutationRevision() : qint64(-1);
+    const qint64 sourceDocumentGeneration = (_ctx && _ctx->document)
+        ? _ctx->document->documentGeneration() : qint64(-1);
 
     // Audit 9.4 P0: honor the user's OCR language selection instead of a
     // hard-coded "eng". Read + map on the GUI thread (QSettings is not
@@ -502,12 +1005,14 @@ void EditController::runOcr() {
     const bool orientDetect = QSettings().value(
         QStringLiteral("ocr/orientDetect"), false).toBool();
     // §9.4: the OCRMode preprocessing checkboxes are persisted prefs — the
-    // pipeline honors all four (defaults match the struct's long-standing
-    // behavior: deskew/binarize/denoise on).
+    // pipeline honors all four. F5-F2: the shipped default is OFF for the
+    // destructive chain (deskew/binarize/denoise) — recognition must work out
+    // of the box on a clean scan; the audit observed the old on-by-default
+    // chain zero it (SWEEP-W3-UX F5-F2). Opt-in per scan via the OCR screen.
     OcrPreprocessOptions preprocessPrefs;
-    preprocessPrefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), true).toBool();
-    preprocessPrefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), true).toBool();
-    preprocessPrefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), true).toBool();
+    preprocessPrefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), false).toBool();
+    preprocessPrefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), false).toBool();
+    preprocessPrefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), false).toBool();
     preprocessPrefs.orientDetect = orientDetect;
     const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
                               : wantRapid    ? tr("RapidOCR / PP-OCRv5")
@@ -527,7 +1032,9 @@ void EditController::runOcr() {
     const QImage renderedPage = viewer->renderPage(page, 2.0);
 
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
-                                       wantRapid, wantEnsemble, ocrLang, preprocessPrefs]() {
+                                       wantRapid, wantEnsemble, ocrLang, preprocessPrefs,
+                                       jobGeneration, sourcePageCount, sourceRevision,
+                                       sourceDocumentGeneration]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
@@ -582,7 +1089,22 @@ void EditController::runOcr() {
                     }
                     if (!self->_ocrTesseract->initialize(lang)) {
                         self->_ocrTesseractLang.clear();
-                        error = QStringLiteral("OCR failed: Tesseract language data for '%1' is unavailable.").arg(lang);
+                        // emergence E-2 (SWEEP-W3-EMERGENCE §1b): the refusal
+                        // names the machine policy when it manages the OCR
+                        // download — the bare "unavailable" wording sent the
+                        // user hunting for a setting policy overrides.
+                        auto& policy = gp::PolicyController::instance();
+                        policy.ensureLoaded();
+                        const QString downloadKey =
+                            QStringLiteral("ocr/allowNetworkDownload");
+                        error = policy.isManaged(downloadKey)
+                            ? QStringLiteral("OCR failed: Tesseract language data for '%1' "
+                                             "is unavailable, and the download that would "
+                                             "provide it is managed by machine policy "
+                                             "(ocr/allowNetworkDownload — see the Network "
+                                             "Touchpoints page for the effective value).").arg(lang)
+                            : QStringLiteral("OCR failed: Tesseract language data for '%1' "
+                                             "is unavailable.").arg(lang);
                     } else {
                         self->_ocrTesseractLang = lang;
                         primary = self->_ocrTesseract;
@@ -614,31 +1136,80 @@ void EditController::runOcr() {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration, sourcePageCount, sourceRevision, sourceDocumentGeneration]() {
+            // R07: a destroyed controller (and its panels) receives no callbacks.
             if (!self) return;
 
+            // Every terminal path restores job dispatch exactly once, first.
             self->_ocrRunning = false;
 
-            if (!error.isEmpty()) {
-                self->_mainWindow->statusBar()->showMessage(error, 7000);
+            // R07 (F11): classify this completion — success, worker failure, or
+            // stale/cancelled — and drive the matching recovery path. Widget
+            // updates happen via the signals' host lambdas on the UI thread.
+            QString message;
+            const QString currentPath    = viewerPtr ? viewerPtr->filePath() : QString();
+            const int currentPage        = viewerPtr ? viewerPtr->currentPage() : -1;
+            // V05: the live mutation revision at completion time. G10: the live
+            // document generation (load identity) beside it.
+            const qint64 currentRevision = (self->_ctx && self->_ctx->document)
+                ? self->_ctx->document->mutationRevision() : qint64(-1);
+            const qint64 currentDocumentGeneration = (self->_ctx && self->_ctx->document)
+                ? self->_ctx->document->documentGeneration() : qint64(-1);
+            const OcrJobVerdict verdict  = classifyOcrJobCompletion(
+                jobGeneration, self->_ocrJobGeneration, filePath, page,
+                currentPath, currentPage, error, &message,
+                sourceRevision, currentRevision,
+                sourceDocumentGeneration, currentDocumentGeneration);
+
+            if (verdict == OcrJobVerdict::Failed) {
+                emit self->ocrRunFailed(message);
                 return;
             }
-
-            if (!viewerPtr || viewerPtr->filePath() != filePath || viewerPtr->currentPage() != page) {
-                self->_mainWindow->statusBar()->showMessage(tr("OCR complete, but the page changed before results could be applied."), 5000);
+            if (verdict == OcrJobVerdict::Stale) {
+                emit self->ocrRunAbandoned(message);
                 return;
             }
 
             viewerPtr->setOcrResults(resultsArr);
             viewerPtr->setToolMode(ToolMode::SelectText);
-            // §9.4 P0: cache this run so Accept can persist a searchable copy.
-            self->m_lastOcrPageImage = pageImg;
-            self->m_lastOcrWords = mergedWords;
-            self->m_lastOcrPage = page;
-            self->m_lastOcrSourcePath = filePath;
+            // R08: cache the review session — source identity/revision, the
+            // page image the words belong to, and the words with stable IDs.
+            // Acceptance merges the panel's reviewed records into this.
+            OcrReviewSession session;
+            session.generation      = jobGeneration;
+            session.sourcePath      = filePath;
+            session.sourcePage      = page;
+            session.sourcePageCount = sourcePageCount;
+            // V05: the session carries the revision captured with the page
+            // snapshot (NOT a post-delivery read) — export re-validates this
+            // against the live document session. G10: it also carries the
+            // load identity (document generation) captured with the SAME
+            // snapshot, so an A→B→A reopen rejects the stale review.
+            session.sourceRevision  = sourceRevision;
+            session.sourceDocumentGeneration = sourceDocumentGeneration;
+            session.pageImage       = pageImg;
+            session.words.reserve(mergedWords.size());
+            for (int i = 0; i < mergedWords.size(); ++i) {
+                OcrReviewedWord rec;
+                rec.stableId      = i;
+                rec.originalText  = mergedWords[i].text;
+                rec.reviewedText  = mergedWords[i].text;
+                rec.deleted       = false;
+                rec.boundingBox   = mergedWords[i].boundingBox;
+                rec.confidence    = mergedWords[i].confidence;
+                rec.sourceEngine  = mergedWords[i].sourceEngine;
+                session.words.append(rec);
+            }
+            self->m_reviewSession = session;
             // Feed the OCR Verify screen (if open) so it shows real recognised words
             // for review instead of an empty/decorative panel.
             emit self->ocrResultsReady(mergedWords);
+            // U03: right after the words, deliver the FULL review session —
+            // the source page image the words were recognized on travels by
+            // implicit sharing, so the scan pane shows the real source image
+            // and the zoom pane can crop actual pixels. Emitted after
+            // ocrResultsReady so the words path always runs first.
+            emit self->ocrReviewReady(session);
             self->_mainWindow->statusBar()->showMessage(tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
         }, Qt::QueuedConnection);
     });
@@ -662,10 +1233,17 @@ void EditController::editPdfText() {
             _textToolBar = new EditToolBar(tr("Text Edit"), _mainWindow);
             _mainWindow->addToolBar(Qt::TopToolBarArea, _textToolBar);
             connect(_textToolBar, &EditToolBar::textFormatChanged, this, &EditController::onTextFormatChanged);
+            connect(_textToolBar, &EditToolBar::textStyleChanged, this, &EditController::onTextStyleChanged);
             connect(viewer, &PdfViewerWidget::textEditRequested, this, &EditController::onTextEditRequested, Qt::UniqueConnection);
         }
         _textToolBar->show();
     }
+}
+
+void EditController::onTextStyleChanged(double opacity, double letterSpacing, double lineSpacing) {
+    _textOpacity = opacity;
+    _letterSpacing = letterSpacing;
+    _lineSpacing = lineSpacing;
 }
 
 void EditController::onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment) {
@@ -688,11 +1266,18 @@ void EditController::onTextEditRequested(int pageIndex, QPointF pos) {
         QRectF rect(pos.x(), pos.y(), 200, 50);
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new EditTextInlineCommand(_ctx->pdfEditor.get(), _ctx->document.get(), pageIndex, rect, newText,
-                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment));
+                                                        _fontFamily, _fontSize, _fontColor, _fontBold, _fontItalic, _fontAlignment,
+                                                        _textOpacity, _letterSpacing, _lineSpacing));
     }
 }
 
 // ── Image editing ───────────────────────────────────────────────────────────
+
+// EC03: mirrors the backend page-restore limit (PoDoFoBackend
+// ::insertPageFromBytes rejects page data over 10 MB). Extraction does not
+// enforce it, so the controller refuses an over-limit backup BEFORE the
+// destructive edit instead of creating an unundoable command.
+static constexpr qint64 kMaxPageBackupBytes = 10 * 1024 * 1024;
 
 void EditController::enterImageEditMode() {
     auto* viewer = _mainWindow->pdfViewer();
@@ -738,6 +1323,12 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
     QMenu menu(viewer);
     QAction* rotCw  = menu.addAction(tr("Rotate 90° Clockwise"));
     QAction* rotCcw = menu.addAction(tr("Rotate 90° Counter-Clockwise"));
+    QAction* rot180 = menu.addAction(tr("Rotate 180°"));
+    QAction* rotAngle = menu.addAction(tr("Rotate by Angle…"));
+    menu.addSeparator();
+    QAction* frontAct = menu.addAction(tr("Bring to Front"));
+    QAction* backAct = menu.addAction(tr("Send to Back"));
+    QAction* opacityAct = menu.addAction(tr("Opacity…"));
     menu.addSeparator();
     QAction* replaceAct = menu.addAction(tr("Replace…"));
     QAction* deleteAct  = menu.addAction(tr("Delete"));
@@ -745,17 +1336,72 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
     QAction* chosen = menu.exec(QCursor::pos());
     if (!chosen) return; // selection alone is fine — no-op, honestly
 
-    if (chosen == rotCw || chosen == rotCcw) {
-        const double degrees = (chosen == rotCw) ? 90.0 : -90.0;
+    // ARC07: every entry below mutates the document. The menu is reached
+    // through the (gated) EditImage tool, but the session can turn read-only
+    // while the mode stays armed — e.g. the expiry guard firing.
+    if (EditPolicy::mutationBlocked(_ctx->document.get())) {
+        _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    if (chosen == rotCw || chosen == rotCcw || chosen == rot180 || chosen == rotAngle) {
+        double degrees = chosen == rotCw ? 90.0 : chosen == rotCcw ? -90.0 : 180.0;
+        if (chosen == rotAngle) {
+            bool ok = false;
+            degrees = QInputDialog::getDouble(
+                _mainWindow, tr("Rotate Image"), tr("Angle in degrees (positive = clockwise):"),
+                0.0, -360.0, 360.0, 1, &ok);
+            if (!ok || qFuzzyIsNull(degrees)) return;
+        }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new RotateImageCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, degrees));
+    } else if (chosen == frontAct || chosen == backAct || chosen == opacityAct) {
+        double opacity = 1.0;
+        if (chosen == opacityAct) {
+            bool ok = false;
+            const int percent = QInputDialog::getInt(
+                _mainWindow, tr("Image Opacity"), tr("Opacity (%):"), 100, 0, 100, 5, &ok);
+            if (!ok) return;
+            opacity = percent / 100.0;
+        }
+        const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        // EC03: undo restores the page from `backup` — same restorable-backup
+        // contract as Replace/Delete below.
+        if (backup.isEmpty() || backup.size() > kMaxPageBackupBytes) {
+            _mainWindow->statusBar()->showMessage(
+                backup.isEmpty()
+                    ? tr("Image edit refused: the page could not be backed up; nothing was changed.")
+                    : tr("Image edit refused: the page exceeds the 10 MB restore limit; nothing was changed."),
+                5000);
+            return;
+        }
+        const auto kind = chosen == frontAct ? ImageAppearanceCommand::Kind::BringToFront
+                        : chosen == backAct  ? ImageAppearanceCommand::Kind::SendToBack
+                                             : ImageAppearanceCommand::Kind::Opacity;
+        _ctx->document->setPath(viewer->filePath());
+        _ctx->undoStack->push(new ImageAppearanceCommand(
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, kind, opacity, backup));
     } else if (chosen == replaceAct) {
         const QString newPath = QFileDialog::getOpenFileName(
             _mainWindow, tr("Replacement Image"), QString(),
             tr("Images (*.png *.jpg *.jpeg *.bmp)"));
         if (newPath.isEmpty()) return;
         const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        // EC03: the undo of this command restores the page from `backup` —
+        // refuse the destructive edit up front when the backup is unusable
+        // (missing, or over the backend's 10 MB page-restore limit) instead of
+        // creating an undoable step that cannot be undone.
+        if (backup.isEmpty()) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Replace image refused: the page could not be backed up; nothing was changed."), 5000);
+            return;
+        }
+        if (backup.size() > kMaxPageBackupBytes) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Replace image refused: the page exceeds the 10 MB restore limit; nothing was changed."), 5000);
+            return;
+        }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new ReplaceImageCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, newPath, backup));
@@ -765,6 +1411,17 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
             tr("Delete image %1 from page %2?").arg(name).arg(_imageEditPage + 1));
         if (reply != QMessageBox::Yes) return;
         const QByteArray backup = _ctx->pdfEditor->extractPageAsBytes(viewer->filePath(), _imageEditPage);
+        // EC03: same restorable-backup contract as the replace path above.
+        if (backup.isEmpty()) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Delete image refused: the page could not be backed up; nothing was changed."), 5000);
+            return;
+        }
+        if (backup.size() > kMaxPageBackupBytes) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Delete image refused: the page exceeds the 10 MB restore limit; nothing was changed."), 5000);
+            return;
+        }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new DeleteImageCommand(
             _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, backup));
@@ -868,42 +1525,102 @@ QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QStr
 // §9.4 P0: Accept persists the recognised text as a searchable MRC PDF/A
 // copy — the same production writer Batch Mode uses — instead of only
 // showing a status message while the searchable layer silently vanished.
-void EditController::onOcrAcceptRequested() {
-    if (!_ctx || !_ctx->pdfEditor) return;
+// R07 (F11): every exit reports its outcome via ocrSaveFinished so the
+// review panel's Saving state always completes (cancelled saves retain the
+// review edits and re-enable Accept; failed saves retain data for retry).
+// R08 (F04): the REVIEWED words are authoritative for the export; the save
+// dialog and the payload both use the session's REVIEWED page index, so the
+// displayed page can no longer differ from the page being saved.
+void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewedWords) {
+    if (!_ctx || !_ctx->pdfEditor) {
+        emit ocrSaveFinished(false, false, tr("No document is open — nothing to save."));
+        return;
+    }
     auto* viewer = _mainWindow->pdfViewer();
-    if (!viewer) return;
 
-    const QString currentPath = viewer->filePath();
-    if (m_lastOcrPageImage.isNull() || m_lastOcrWords.isEmpty()
-        || m_lastOcrSourcePath != currentPath) {
-        _mainWindow->statusBar()->showMessage(
-            tr("No fresh OCR results to save — run OCR first."), 5000);
+    // R08: validate the review session against the live viewer BEFORE doing
+    // any work — a stale session (source/revision change) is a validation
+    // failure, and the panel's Saving state must recover from it.
+    // V05: the live mutation revision travels with the check so a mutated
+    // document (path and page count unchanged) rejects the stale review.
+    // G10 (QUALITY-GATE-2026-09-09): the live document generation (load
+    // identity) travels with it too, so a session captured on a previous
+    // OPEN of the same path (A→B→A) can no longer be exported onto the new
+    // incarnation. The exported image, words and output all come from the
+    // validated session — one identity end to end.
+    QString reason;
+    const QString currentPath = viewer ? viewer->filePath() : QString();
+    const int currentCount    = viewer ? viewer->pageCount() : -1;
+    const qint64 currentRevision = (_ctx && _ctx->document)
+        ? _ctx->document->mutationRevision() : qint64(-1);
+    const qint64 currentGeneration = (_ctx && _ctx->document)
+        ? _ctx->document->documentGeneration() : qint64(-1);
+    if (!ocrSessionIsExportable(m_reviewSession, currentPath, currentCount,
+                                currentRevision, &reason, currentGeneration)) {
+        emit ocrSaveFinished(false, false, reason);
         return;
     }
 
-    const QFileInfo fi(currentPath);
-    const int totalPages = viewer->pageCount();
-    const int pageIndex = viewer->currentPage();
+    // R08: merge the panel's reviewed records into the session.
+    QString mergeError;
+    const PageOcrResult pageResult =
+        buildReviewedPageOcrResult(m_reviewSession, reviewedWords, &mergeError);
+    if (!mergeError.isEmpty()) {
+        emit ocrSaveFinished(false, false, mergeError);
+        return;
+    }
+    if (pageResult.words.isEmpty()) {
+        // Every word was removed (or nothing was recognized) — nothing
+        // searchable to write; the review stays editable for retry.
+        emit ocrSaveFinished(false, false,
+            tr("No reviewed words remain to save — restore the removed words or run OCR again."));
+        return;
+    }
+
+    // R07/R08: dialog title and payload identity come from the REVIEWED
+    // session (page + page count snapshot), never from the displayed page.
+    const QFileInfo fi(m_reviewSession.sourcePath);
+    const int totalPages  = m_reviewSession.sourcePageCount;
+    const int pageIndex   = m_reviewSession.sourcePage;
     const QString outPath = QFileDialog::getSaveFileName(
         _mainWindow, ocrSaveDialogTitle(totalPages, pageIndex),
         fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
             + QStringLiteral("_ocr.pdf"),
         tr("PDF Files (*.pdf)"));
-    if (outPath.isEmpty()) return;
+    if (outPath.isEmpty()) {
+        // Cancelled save: nothing written, review edits retained.
+        emit ocrSaveFinished(false, true, QString());
+        return;
+    }
 
-    const PageOcrResult pageResult = EditController::buildPageOcrResult(m_lastOcrPage, m_lastOcrWords);
+    // ARC07 residual: a read-only document keeps the export route, but the
+    // destination must not be the read-only document itself.
+    const QString writeBlocker = ocrAcceptWriteBlocker(
+        _ctx->document ? _ctx->document->isReadOnly() : false,
+        m_reviewSession.sourcePath, outPath);
+    if (!writeBlocker.isEmpty()) {
+        emit ocrSaveFinished(false, false, writeBlocker);
+        return;
+    }
 
     QApplication::setOverrideCursor(Qt::WaitCursor);
+    // R08: the original page image from the session is exported (never a
+    // re-render of the currently displayed page), with the reviewed words as
+    // the searchable text layer (Unicode).
     const bool ok = _ctx->pdfEditor->exportMrcPdfA(
-        outPath, {m_lastOcrPageImage}, {pageResult});
+        outPath, {m_reviewSession.pageImage}, {pageResult});
     QApplication::restoreOverrideCursor();
 
     if (ok)
-        _mainWindow->statusBar()->showMessage(
-            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName()), 8000);
+        emit ocrSaveFinished(true, false,
+            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName()));
     else
-        QMessageBox::warning(_mainWindow, tr("OCR Export Failed"),
+        emit ocrSaveFinished(false, false,
             tr("Could not write the searchable MRC PDF/A copy. See the application log."));
+}
+
+void EditController::onOcrAcceptRequested() {
+    onOcrAcceptRequested({});   // no panel records: unedited review
 }
 
 } // namespace gp

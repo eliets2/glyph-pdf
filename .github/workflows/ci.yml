@@ -2,9 +2,14 @@ name: CI
 
 on:
   push:
-    # Run on main and the active audit-remediation branch so regressions are
-    # caught before a merge. AR-12 D3: CI must gate every push, not just main.
-    branches: [ main, audit-remediation ]
+    # INF04: run on main plus stable branch PATTERNS so active remediation
+    # branches (feat/parity-glm, future feat/* lanes) trigger CI on every
+    # push — the old literal allowlist [main, audit-remediation] excluded the
+    # active branch entirely. PRs to main keep their own trigger.
+    branches:
+      - main
+      - 'feat/**'
+      - 'audit-remediation'
   pull_request:
     branches: [ main ]
 
@@ -43,6 +48,7 @@ jobs:
             mingw-w64-ucrt-x86_64-qt6-pdf
             mingw-w64-ucrt-x86_64-podofo
             mingw-w64-ucrt-x86_64-qpdf
+            mingw-w64-ucrt-x86_64-quickjs-ng
             mingw-w64-ucrt-x86_64-openssl
             mingw-w64-ucrt-x86_64-tesseract-ocr
             mingw-w64-ucrt-x86_64-tesseract-data-eng
@@ -57,6 +63,15 @@ jobs:
             mingw-w64-ucrt-x86_64-libtiff
             mingw-w64-ucrt-x86_64-openjpeg2
             mingw-w64-ucrt-x86_64-fontconfig
+
+      # The CMake quickjs pin guard (GLYPHPDF_QUICKJS_PIN) enforces the version
+      # the PGR-40 check lane authorized (0.15.1, hash-recorded). The
+      # setup-msys2 snapshot can lag the repo; refresh quickjs-ng alone so the
+      # guarded configure matches. If MSYS2 moves past the pin, the guard fails
+      # loudly by design — bump deliberately, never weaken the guard.
+      - name: Sync quickjs-ng to the pinned release
+        shell: msys2 {0}
+        run: pacman -Sy --needed --noconfirm mingw-w64-ucrt-x86_64-quickjs-ng
 
       # The codebase requires podofo 1.1.0 (accessor API on PdfContent etc.).
       # MSYS2 ships an older podofo, so build 1.1.0 from source into the
@@ -137,6 +152,45 @@ jobs:
             exit 1
           fi
           echo "PASS: HAS_PDFIUM, HAS_TESSERACT, HAS_RAPIDOCR all confirmed ON"
+
+      # Fontconfig has NO default configuration on Windows — the package
+      # installs the library but no usable fonts.conf, and font matching then
+      # fails for every UI surface. That is what reds the Test step on
+      # TestWelcomeRoutes + TestSweepW3UxFlows (the modal/route UI suites;
+      # recorded in docs/audit/CONSOLIDATION-HANDOFF-2026-09-24.md §10). Write
+      # a minimal honest config — the runner's real font directory, a writable
+      # cache, the standard generic-family aliases — and export it for the
+      # Test step via FONTCONFIG_FILE/FONTCONFIG_PATH.
+      - name: Provide a default Fontconfig configuration
+        run: |
+          mkdir -p /tmp/fontconfig /tmp/fontconfig-cache
+          cat > /tmp/fontconfig/fonts.conf <<'EOF'
+          <?xml version="1.0"?>
+          <!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+          <fontconfig>
+            <!-- Windows runners ship no default Fontconfig configuration:
+                 point the library at the real font directory and a writable
+                 cache so font matching works for the UI test suites. -->
+            <dir>C:/Windows/Fonts</dir>
+            <cachedir>/tmp/fontconfig-cache</cachedir>
+            <alias binding="same">
+              <family>sans-serif</family>
+              <prefer><family>Arial</family><family>Segoe UI</family></prefer>
+            </alias>
+            <alias binding="same">
+              <family>serif</family>
+              <prefer><family>Times New Roman</family></prefer>
+            </alias>
+            <alias binding="same">
+              <family>monospace</family>
+              <prefer><family>Courier New</family></prefer>
+            </alias>
+          </fontconfig>
+          EOF
+          fc-cache -f >/dev/null
+          fc-match sans-serif
+          echo "FONTCONFIG_FILE=/tmp/fontconfig/fonts.conf" >> "$GITHUB_ENV"
+          echo "FONTCONFIG_PATH=/tmp/fontconfig" >> "$GITHUB_ENV"
 
       - name: Test
         # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully.

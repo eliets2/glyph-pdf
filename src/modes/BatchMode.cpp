@@ -2,17 +2,34 @@
 #include "BatchMode.h"
 #include "util/GpTheme.h"
 
+#include "core/Capability.h"
+#include "core/PolicyController.h"     // emergence E-2: name the download policy in the whyNot
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/IConversionEngine.h"
 #include "core/interfaces/IOcrEngine.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/SafeSave.h"          // R26: the preset candidate chain commits through SafeSave
+#include "engines/VeraPdfValidator.h"  // R26: pdfa-check step (the registry's PdfAValidation probe)
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/podofo/PdfPageOps.h"
+#include "engines/pdfium/PdfiumBackend.h" // N3: per-page has-text probe (PDFium text extraction)
+#include "engines/PatternRedactor.h" // §9.12 P1: named PII preset keys
+#include "ui/PresetManagerDialog.h"  // R26-P2 U7: the manager + editor surface
+
+// §9.12 P1: the async merge worker appends input-by-input so it can report
+// progress, honor cancellation and account per item — boundaries PdfPageOps'
+// all-at-once mergeDocuments cannot expose. That loop therefore uses PoDoFo
+// directly, mirroring PdfPageOps::mergeDocuments' idiom (see startMergeWorker).
+#include <podofo/podofo.h>
+
+#include <QPromise> // §9.12 P1: merge worker reports per-file results/progress
 
 using TargetFormat = IConversionEngine::TargetFormat;
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QFileDialog>
@@ -21,6 +38,8 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QLabel>
 #include <QLineEdit>
 #include <QListView>
+#include <QMap>
+#include <QHash>
 #include <QMessageBox>
 #include <QMimeData>
 #include <QPushButton>
@@ -39,12 +58,24 @@ using TargetFormat = IConversionEngine::TargetFormat;
 #include <QRegularExpression>
 #include <QSettings>
 #include <QSet>
+#include <QStandardPaths>
+#include <QTemporaryFile> // R26-P2 U4: the staging probe's create+delete writability check
 #include <QTimer>
+#include <QJsonArray>    // R26-P2 U5: run-report JSON export (M5 precedent)
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <algorithm>
 #include <QUrl>
 #include <QtConcurrent/QtConcurrent>
 
 namespace gp {
+
+// R26: the preset schema validates targetDpi against ITS OWN copy of the
+// engine's clamp range (core must not depend on modes). If the engine range
+// ever changes, this pin breaks the build instead of letting the two drift.
+static_assert(BatchMode::kMinTargetDpi == 36 && BatchMode::kMaxTargetDpi == 600,
+              "BatchPreset schema targetDpi range (36-600) must match "
+              "BatchMode's engine clamp constants");
 
 // ── Constructor ───────────────────────────────────────────────────────────────
 
@@ -203,6 +234,7 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     m_opCombo->addItem(tr("Merge PDFs"));            // OpMerge = 4
     m_opCombo->addItem(tr("OCR (searchable PDF)"));  // OpOCR = 5
     m_opCombo->addItem(tr("Redact (Search Pattern)")); // OpRedact = 6
+    m_opCombo->addItem(tr("Preset Pipeline"));         // OpPresetPipeline = 7 (R26: append-only)
     opRow->addWidget(m_opCombo);
     vlay->addLayout(opRow);
 
@@ -259,9 +291,53 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         });
 
         lay->addWidget(new QLabel(tr("Target DPI (images):")));
-        auto* dpiNote = new QLabel(tr("150 DPI — balanced quality/size"));
-        dpiNote->setStyleSheet("color:#71747a; font-size:10px;");
-        lay->addWidget(dpiNote);
+        // §9.12 P1: user-configurable target DPI. Previously the value was
+        // hard-coded (opts.targetDpi = 150 in the worker, with a static
+        // "150 DPI" note here and no way to change it). The spin is the
+        // single source of truth; the named presets are quick picks that
+        // write into it.
+        auto* dpiRow = new QHBoxLayout;
+        m_dpiPresetCombo = new QComboBox;
+        m_dpiPresetCombo->setObjectName(QStringLiteral("batchCompressDpiPreset"));
+        m_dpiPresetCombo->addItem(tr("Low (72 DPI)"),    72);
+        m_dpiPresetCombo->addItem(tr("Medium (150 DPI)"), 150);
+        m_dpiPresetCombo->addItem(tr("High (300 DPI)"),  300);
+        m_dpiPresetCombo->addItem(tr("Custom"),          -1);  // spin-only, set on manual edit
+        m_dpiSpin = new QSpinBox;
+        m_dpiSpin->setObjectName(QStringLiteral("batchCompressDpiSpin"));
+        m_dpiSpin->setRange(kMinTargetDpi, kMaxTargetDpi);
+        m_dpiSpin->setValue(kDefaultTargetDpi);
+        m_dpiSpin->setSuffix(tr(" DPI"));
+        m_dpiSpin->setToolTip(tr("Images are downsampled to this resolution.\n"
+                                 "Lower DPI = smaller file, coarser images."));
+        dpiRow->addWidget(m_dpiPresetCombo);
+        dpiRow->addWidget(m_dpiSpin);
+        dpiRow->addStretch(1);
+        lay->addLayout(dpiRow);
+        // Named preset → spin. The spin write is signal-blocked so the spin's
+        // own handler below does not immediately flip the combo to "Custom".
+        connect(m_dpiPresetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+                this, [this](int idx) {
+            const int dpi = m_dpiPresetCombo->itemData(idx).toInt();
+            if (dpi > 0) {
+                QSignalBlocker block(m_dpiSpin);
+                m_dpiSpin->setValue(dpi);
+            }
+        });
+        // Manual spin edit → no longer on a named preset.
+        connect(m_dpiSpin, QOverload<int>::of(&QSpinBox::valueChanged),
+                this, [this](int v) {
+            const int presetDpi = m_dpiPresetCombo->currentData().toInt();
+            if (presetDpi != v && m_dpiPresetCombo->currentIndex() != 3) {
+                QSignalBlocker block(m_dpiPresetCombo);
+                m_dpiPresetCombo->setCurrentIndex(3);  // Custom
+            }
+        });
+        // The default DPI is 150 (the previous hard-coded value) — start the
+        // combo on the matching named preset so it never disagrees with the
+        // spin. (Plain construction leaves index 0 selected without ever
+        // firing currentIndexChanged.)
+        m_dpiPresetCombo->setCurrentIndex(1);
 
         lay->addWidget(new QLabel(tr("Output Folder:")));
         auto* dirRow = new QHBoxLayout;
@@ -398,6 +474,36 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         m_ocrLanguage->setCurrentIndex(savedIdx);
         lay->addWidget(m_ocrLanguage);
 
+        // N3 (pdf24 §1.3 skip-already-text pattern): the CLI's "-skipFilesWithText
+        // / -skipPagesWithText … force OCR" switches mirrored in the GUI. A
+        // skipped file is reported truthfully in the batch summary — never as
+        // completed OCR work. Force overrides both skips.
+        // Q3: the checkboxes READ their state from QSettings on construction,
+        // so persistence is the advertised behavior — write back on every
+        // change (write-on-change), or the user's choice silently evaporates
+        // on the next app start.
+        m_ocrSkipFilesWithText = new QCheckBox(tr("Skip files that already contain text"));
+        m_ocrSkipFilesWithText->setChecked(
+            QSettings().value(QStringLiteral("ocr/skipFilesWithText"), false).toBool());
+        connect(m_ocrSkipFilesWithText, &QCheckBox::toggled, this, [](bool on) {
+            QSettings().setValue(QStringLiteral("ocr/skipFilesWithText"), on);
+        });
+        lay->addWidget(m_ocrSkipFilesWithText);
+        m_ocrSkipPagesWithText = new QCheckBox(tr("Skip pages that already contain text (keep original page)"));
+        m_ocrSkipPagesWithText->setChecked(
+            QSettings().value(QStringLiteral("ocr/skipPagesWithText"), false).toBool());
+        connect(m_ocrSkipPagesWithText, &QCheckBox::toggled, this, [](bool on) {
+            QSettings().setValue(QStringLiteral("ocr/skipPagesWithText"), on);
+        });
+        lay->addWidget(m_ocrSkipPagesWithText);
+        m_ocrForceOcr = new QCheckBox(tr("Force OCR (override skip options)"));
+        m_ocrForceOcr->setChecked(
+            QSettings().value(QStringLiteral("ocr/forceOcr"), false).toBool());
+        connect(m_ocrForceOcr, &QCheckBox::toggled, this, [](bool on) {
+            QSettings().setValue(QStringLiteral("ocr/forceOcr"), on);
+        });
+        lay->addWidget(m_ocrForceOcr);
+
         lay->addWidget(new QLabel(tr("Output Folder:")));
         auto* dirRow = new QHBoxLayout;
         m_ocrOutDir = new QLineEdit;
@@ -419,6 +525,29 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     auto* pRedact = new QFrame;
     {
         auto* lay = new QVBoxLayout(pRedact);
+        // §9.12 P1: named PII quick-pick presets — the same PatternRedactor
+        // built-in keys the interactive Redact mode offers ("email",
+        // "phone-us", "ssn", …); only the three most common PII cases are
+        // surfaced here as one-click checkboxes. Opt-in: a preset redacts
+        // only when checked, in ADDITION to any free-form patterns below.
+        lay->addWidget(new QLabel(tr("Quick Presets:")));
+        auto* presetRow = new QHBoxLayout;
+        struct NamedPreset { const char* key; const char* label; };
+        const NamedPreset piiPresets[] = {
+            { "email",    "Email" },
+            { "phone-us", "Phone (US)" },
+            { "ssn",      "SSN" },
+        };
+        for (const NamedPreset& p : piiPresets) {
+            auto* chk = new QCheckBox(tr(p.label));
+            chk->setObjectName(QStringLiteral("batchRedactPreset_%1").arg(QLatin1String(p.key)));
+            chk->setProperty("presetKey", QString::fromLatin1(p.key));
+            presetRow->addWidget(chk);
+            m_redactPresets.append(chk);
+        }
+        presetRow->addStretch(1);
+        lay->addLayout(presetRow);
+
         lay->addWidget(new QLabel(tr("Regex Patterns (comma-separated):")));
         m_redactPatterns = new QLineEdit;
         m_redactPatterns->setPlaceholderText(tr(R"(e.g. \d{3}-\d{2}-\d{4}, [\w.]+@[\w.]+)"));
@@ -446,7 +575,30 @@ void BatchMode::buildOperationPanel(QWidget* host) {
     }
     m_cfgStack->addWidget(pRedact);  // index 6
 
-    vlay->addWidget(m_cfgStack, 1);
+    // ── Panel 7: Preset Pipeline (R26, batch-presets P1) ──────────────────
+    auto* pPreset = new QFrame;
+    buildPresetPanel(pPreset);
+    m_cfgStack->addWidget(pPreset);  // index 7
+
+    // F1 (SWEEP-W3-UI): a QStackedWidget's minimumSizeHint is the MAX over
+    // every page — including the currently hidden ones — so the tallest
+    // operation panel hardened this page's (and via the mode stack the
+    // window's) minimum height past a 768-high viewport. Host the stack in a
+    // scroll area: when the viewport is generous every panel still fits and
+    // renders exactly as before (no scrollbars, identical geometry); on a
+    // short viewport the active panel scrolls instead of inflating the
+    // window minimum. The explicit small minimum is what lets the parent
+    // layout shrink the area — a scroll area otherwise propagates its
+    // widget's minimum.
+    auto* cfgScroll = new QScrollArea;
+    cfgScroll->setObjectName(QStringLiteral("batchConfigScroll"));
+    cfgScroll->setWidgetResizable(true);
+    cfgScroll->setFrameShape(QFrame::NoFrame);
+    cfgScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    cfgScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    cfgScroll->setMinimumSize(180, 120);
+    cfgScroll->setWidget(m_cfgStack);
+    vlay->addWidget(cfgScroll, 1);
 
     connect(m_opCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &BatchMode::onOperationChanged);
@@ -524,6 +676,36 @@ void BatchMode::buildProgressPanel(QWidget* host) {
 
 void BatchMode::setAppContext(const AppContext* ctx) {
     m_ctx = ctx;
+
+    // U08: mark OCR language items whose traineddata is missing. A supported
+    // language is never disabled outright — the data is seeded from the
+    // bundled copy or downloaded on first use (Degraded → tooltip disclosure,
+    // mirroring OcrEngine::initialize's actual behavior); only an unsupported
+    // language becomes a disabled-with-explanation item. The user's selection
+    // is never silently switched.
+    if (m_ctx && m_ctx->capabilities && m_ocrLanguage) {
+        auto* model = qobject_cast<QStandardItemModel*>(m_ocrLanguage->model());
+        for (int i = 0; i < m_ocrLanguage->count(); ++i) {
+            QStandardItem* item = model ? model->item(i) : nullptr;
+            if (!item) continue;
+            const gp::Capability c = m_ctx->capabilities->query(
+                gp::CapId::OcrLanguageData, m_ocrLanguage->itemData(i).toString());
+            if (c.status == gp::Availability::UnavailableRuntime) {
+                item->setEnabled(false);
+                item->setToolTip(gp::CapabilityRegistry::combineWhyNot(c));
+            } else if (c.status == gp::Availability::Degraded) {
+                item->setToolTip(gp::CapabilityRegistry::combineWhyNot(c));
+            }
+        }
+    }
+
+    // R26 (batch-presets): the preset panel is built before the context (and
+    // its capability registry) arrives — re-render the selected preset's
+    // step/capability disclosure with the real registry answers.
+    if (m_presetSelected && m_presetStepsLabel)
+        m_presetStepsLabel->setText(
+            presetStepsDisplayText(m_selectedPreset,
+                                   m_ctx ? m_ctx->capabilities.get() : nullptr));
 }
 
 // ── Drag-drop (D1) ────────────────────────────────────────────────────────────
@@ -649,6 +831,7 @@ void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
 
     auto* hotRow = new QHBoxLayout;
     m_hotFolderEdit = new QLineEdit;
+    m_hotFolderEdit->setObjectName(QStringLiteral("batchHotFolderPath"));
     m_hotFolderEdit->setReadOnly(true);
     m_hotFolderEdit->setPlaceholderText(tr("No folder watched"));
     auto* hotBrowse = new QPushButton(tr("…"));
@@ -723,6 +906,21 @@ void BatchMode::onToggleHotFolder() {
     }
 }
 
+// R26-P2 U2: arms the hot folder WITHOUT the native directory picker (the
+// checkbox path stays interactive). Same seeding as onToggleHotFolder's ON
+// branch; the auto-run option is switched on so the ingest runs.
+void BatchMode::armHotFolderForTest(const QString& dir) {
+    m_hotFolderPath = dir;
+    m_hotProcessed.clear();
+    const auto seed = QDir(dir).entryInfoList(QStringList() << QStringLiteral("*.pdf")
+                                                            << QStringLiteral("*.PDF"),
+                                              QDir::Files);
+    for (const QFileInfo& fi : seed)
+        m_hotProcessed.insert(hotFileKey(fi));
+    if (m_hotAutoRunCheck)
+        m_hotAutoRunCheck->setChecked(true);
+}
+
 void BatchMode::onHotFolderChanged(const QString& path) {
     if (path.isEmpty()) return;
 
@@ -744,13 +942,24 @@ void BatchMode::onHotFolderChanged(const QString& path) {
                   .arg(newFiles.size() == 1 ? QString() : tr("s")),
               "#5b9bd5");
 
-    if (m_hotAutoRunCheck && m_hotAutoRunCheck->isChecked() && !m_watcher.isRunning())
+    if (m_hotAutoRunCheck && m_hotAutoRunCheck->isChecked() && !m_watcher.isRunning()) {
+        // R26-P2 U2 (§4.5): this auto-run is UNATTENDED — mark it so the run
+        // stages its conflict policy without any modal ("ask" degrades to
+        // "rename", logged by onRunClicked).
+        m_unattendedAutoRunPending = true;
         onRunClicked();
+    }
 }
 
 // ── Output path resolution ────────────────────────────────────────────────────
 
-QString BatchMode::resolveOutputPath(const QString& inputPath) const {
+namespace {
+// R26-P2 U2 (plan §4.3): rename de-confliction — defined with the preset
+// chain below; first use is the preset arm of resolveOutputPath above it.
+QString deConflictRename(const QString& firstChoice, QString* err);
+}
+
+QString BatchMode::resolveOutputPath(const QString& inputPath, QString* deConflictErr) const {
     int opIdx = m_opCombo ? m_opCombo->currentIndex() : 0;
 
     // Determine output directory
@@ -791,6 +1000,44 @@ QString BatchMode::resolveOutputPath(const QString& inputPath) const {
         outDir = pickOutDir(m_redactOutDir);
         if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
         return QDir(outDir).filePath(outName + "_redacted.pdf");
+    case OpPresetPipeline: {
+        // R26: the naming template is resolved exactly as the worker resolves
+        // it (same pure function, same file index from the list order), so
+        // the overwrite pre-check and the actual commit always agree.
+        // R26-P2 U2 (§4.3): with onConflict "rename" the resolved path is
+        // de-conflicted AT STAGING to the first free stem-N (bounded,
+        // re-checked through the containment guard) — the AR-8 pre-check
+        // then sees no conflict and never prompts.
+        if (!m_presetSelected) return {};
+        outDir = pickOutDir(m_presetOutDir);
+        if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
+        const int n = m_filesToProcess.indexOf(inputPath) + 1;
+        QString name;
+        QString namingErr;
+        if (!BatchPresetSchema::resolveNaming(m_selectedPreset.outputNaming, outName,
+                                              m_selectedPreset.id, n,
+                                              QDate::currentDate(), &name, &namingErr))
+            return {};
+        QString path = QDir(outDir).filePath(name);
+        const QString policy = m_presetConflictOverride.isEmpty()
+                                   ? m_selectedPreset.onConflict
+                                   : m_presetConflictOverride;
+        if (policy == QLatin1String("rename")) {
+            QString dErr;
+            const QString freed = deConflictRename(path, &dErr);
+            if (freed.isEmpty()) {
+                // R26-P2 U2: the exhaustion reason survives staging — the
+                // worker reports it as the file's techDetail instead of the
+                // generic "no output path" line (an honest file-scoped
+                // failure, never a silent overwrite).
+                if (deConflictErr && !dErr.isEmpty())
+                    *deConflictErr = dErr;
+                return {};
+            }
+            path = freed;
+        }
+        return path;
+    }
     default:
         return {};
     }
@@ -804,6 +1051,519 @@ bool BatchMode::confirmOverwrite(const QString& path) {
         QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     return btn == QMessageBox::Yes;
 }
+
+// ── R26 (batch-presets P1): the per-file preset candidate chain ───────────────
+// plan §3.1: per input file, steps run as a CANDIDATE CHAIN — each mutating
+// step writes a unique SafeSave temp candidate, the candidate is validated
+// (reopens as a PDF; page count equals the input's — every P1 preset op is
+// page-count invariant), and the final candidate is committed ONCE through
+// SafeSave::commitFileToDestination. A failed step aborts that file's chain,
+// every intermediate is removed on every outcome, and the original is left
+// byte-identical on failure. A preset changes WHAT runs — never HOW results
+// are accounted: results flow through the same mapped pipeline + G12 ledger.
+
+namespace {
+
+// ── emergence E-2 (SWEEP-W3-EMERGENCE §1b) ──────────────────────────────────
+// OcrEngine::initialize fails console-only when the language data is missing
+// and the EFFECTIVE ocr/allowNetworkDownload value refuses the download. The
+// batch worker must honor that failure — and the whyNot it reports must name
+// the policy instead of a bare engine error. The local-availability
+// discriminator mirrors the engine's own gate: the AppLocalData pack, the
+// seeded bundled pack, then the effective download decision.
+bool ocrLanguageDataAvailableLocally(const QString& lang)
+{
+    const QString filename = lang.trimmed().toLower() + QStringLiteral(".traineddata");
+    if (filename == QLatin1String(".traineddata")) return false;
+    const QString appData = QStandardPaths::writableLocation(
+        QStandardPaths::AppLocalDataLocation) + QStringLiteral("/tessdata/");
+    if (QFileInfo::exists(appData + filename)) return true;
+    const QString bundled = QApplication::applicationDirPath()
+        + QStringLiteral("/tessdata/") + filename;
+    return QFileInfo::exists(bundled);
+}
+
+// The honest per-file failure reason for a failed OcrEngine::initialize in
+// the batch worker: under a refused download it names the deciding half
+// (machine policy when the key is managed, the user setting otherwise) and
+// states plainly that NO output was written — never a silent success.
+QString ocrInitFailureDetail(const QString& lang)
+{
+    auto& policy = PolicyController::instance();
+    policy.ensureLoaded();
+    const QString key = QStringLiteral("ocr/allowNetworkDownload");
+    const bool downloadAllowed = policy.effectiveValue(
+        key, QSettings().value(key, false)).toBool();
+    if (!downloadAllowed && !ocrLanguageDataAvailableLocally(lang)) {
+        const QString decidedBy = policy.isManaged(key)
+            ? QStringLiteral("machine policy")
+            : QStringLiteral("the OCR download setting");
+        return QStringLiteral(
+            "OCR language data for '%1' is not available and the required "
+            "download was refused by %2 (ocr/allowNetworkDownload) — the file "
+            "was NOT OCRed and no output was written. Install the '%1' "
+            "language pack or allow the OCR download, then retry.")
+            .arg(lang, decidedBy);
+    }
+    return QStringLiteral(
+        "OCR engine initialization failed for language '%1' — the file was "
+        "not OCRed and no output was written.").arg(lang);
+}
+
+// Schema level strings → the engine's conformance codes — the SAME codes the
+// Export PDF/A combo feeds exportPdfA (1=1B, 2=2B, 4=2U, 3=3B, 5=3U;
+// PoDoFoBackend::exportPdfA's switch).
+int pdfaLevelCode(const QString& level) {
+    if (level == QLatin1String("1b")) return 1;
+    if (level == QLatin1String("2b")) return 2;
+    if (level == QLatin1String("2u")) return 4;
+    if (level == QLatin1String("3b")) return 3;
+    if (level == QLatin1String("3u")) return 5;
+    return 2;
+}
+
+// R26-P2 (plan §2.2): the schema's six named bates positions → the engine's
+// HeaderFooterOptions::Position. Validation guarantees one of the six values;
+// the fall-through default is the schema default (bottom-right).
+HeaderFooterOptions::Position batesPositionFromSchema(const QString& position) {
+    if (position == QLatin1String("top-left"))     return HeaderFooterOptions::Position::TopLeft;
+    if (position == QLatin1String("top-center"))   return HeaderFooterOptions::Position::TopCenter;
+    if (position == QLatin1String("top-right"))    return HeaderFooterOptions::Position::TopRight;
+    if (position == QLatin1String("bottom-left"))  return HeaderFooterOptions::Position::BottomLeft;
+    if (position == QLatin1String("bottom-center"))return HeaderFooterOptions::Position::BottomCenter;
+    return HeaderFooterOptions::Position::BottomRight;
+}
+
+PdfAConformance pdfaConformance(const QString& level) {
+    if (level == QLatin1String("1b")) return PdfAConformance::PDF_A_1B;
+    if (level == QLatin1String("2u")) return PdfAConformance::PDF_A_2U;
+    if (level == QLatin1String("3b")) return PdfAConformance::PDF_A_3B;
+    if (level == QLatin1String("3u")) return PdfAConformance::PDF_A_3U;
+    return PdfAConformance::PDF_A_2B;
+}
+
+// One MUTATING preset step against a freshly loaded editor, writing `dest`.
+// The engine seams are exactly the single-op batch worker's set plus the
+// strip-metadata sanitize pass and — R26-P2 (plan §4.1) — the bates path
+// mutator. `currentLink` is the chain link the editor was loaded from (bates
+// stages its own candidate from it); `effectiveBatesStart` is the run-state
+// resolved start (N1); `lastBatesOut` receives the last number stamped.
+bool runPresetMutatingStep(PdfEditorEngine& editor, const BatchPresetStep& step,
+                           const QString& currentLink, const QString& dest,
+                           int effectiveBatesStart, int* lastBatesOut,
+                           QString* techDetail) {
+    bool ok = false;
+    if (step.op == QLatin1String("compress")) {
+        OptimizeOptions opts;
+        opts.jpegQuality = step.params.value(QStringLiteral("quality"), 75).toInt();
+        opts.targetDpi   = BatchMode::resolveCompressTargetDpi(
+            step.params.value(QStringLiteral("targetDpi"), 150).toInt());
+        ok = editor.optimizeDocument(dest, opts);
+    } else if (step.op == QLatin1String("watermark")) {
+        TextWatermarkOptions opts;
+        opts.text    = step.params.value(QStringLiteral("text"), QStringLiteral("CONFIDENTIAL")).toString();
+        opts.opacity = step.params.value(QStringLiteral("opacity"), 30).toInt() / 100.0;
+        ok = editor.addTextWatermark(opts);
+        if (ok) ok = editor.saveDocument(dest);
+    } else if (step.op == QLatin1String("pdfa-export")) {
+        ok = editor.exportPdfA(dest, pdfaLevelCode(
+            step.params.value(QStringLiteral("level"), QStringLiteral("2b")).toString()));
+    } else if (step.op == QLatin1String("strip-metadata")) {
+        // Resident mutation FIRST (metadata), then ONE terminal write — the
+        // sanitize pass writes the already-cleared document.
+        const bool clearInfoDict = step.params.value(QStringLiteral("clearInfoDict"), true).toBool();
+        const bool sanitize      = step.params.value(QStringLiteral("sanitize"), true).toBool();
+        ok = true;
+        if (clearInfoDict)
+            ok = editor.setMetadata(PdfMetadata{});
+        if (ok)
+            ok = sanitize ? editor.sanitizeDocument(dest) : editor.saveDocument(dest);
+    } else if (step.op == QLatin1String("redact")) {
+        const QStringList patterns = BatchMode::effectiveRedactPatterns(
+            step.params.value(QStringLiteral("presets")).toStringList(),
+            step.params.value(QStringLiteral("patterns")).toStringList());
+        ok = editor.applyPatternRedactionsMulti(patterns, QList<int>(), dest);
+    } else if (step.op == QLatin1String("bates")) {
+        // R26-P2 (plan §4.1): bates is a PATH-based engine mutator (contract:
+        // load→mutate→save over ONE path) and cannot write a distinct
+        // destination from a resident document — the backend refuses a
+        // different path while another file is loaded. The chain link is
+        // therefore staged by copying the current link onto the reserved
+        // candidate, and the copy is stamped in place through its OWN engine
+        // instance. The candidate discipline is unchanged: on any failure the
+        // candidate is discarded and the original is untouched.
+        QFile::remove(dest);
+        if (!QFile::copy(currentLink, dest)) {
+            if (techDetail)
+                *techDetail = QStringLiteral("bates step: could not stage the chain "
+                                             "candidate from %1").arg(currentLink);
+            return false;
+        }
+        BatesNumberingOptions opts;
+        opts.prefix      = step.params.value(QStringLiteral("prefix")).toString();
+        opts.suffix      = step.params.value(QStringLiteral("suffix")).toString();
+        opts.startNumber = effectiveBatesStart;
+        opts.digitCount  = step.params.value(QStringLiteral("digitCount"), 6).toInt();
+        opts.position    = batesPositionFromSchema(
+            step.params.value(QStringLiteral("position")).toString());
+        PdfEditorEngine batesEditor;
+        // The backend is created by the load (BackendRouter); loading the
+        // staged candidate itself makes the mutator's residency guard pass —
+        // the engine then stamps ITS OWN file in place.
+        if (!batesEditor.loadDocumentForEditing(dest)) {
+            if (techDetail)
+                *techDetail = batesEditor.lastError().technicalDetails;
+            return false;
+        }
+        ok = batesEditor.applyBatesNumbering(dest, opts, lastBatesOut);
+        if (!ok && techDetail)
+            *techDetail = batesEditor.lastError().technicalDetails;
+    }
+    if (!ok && techDetail && techDetail->isEmpty())
+        *techDetail = editor.lastError().technicalDetails;
+    return ok;
+}
+
+// ── R26-P2 U2 (plan §4.3): rename de-confliction ─────────────────────────────
+// First free `stem-N.pdf` for the already-resolved (containment-checked)
+// `firstChoice`, bounded at 998 attempts. Every candidate is re-validated
+// through resolveNaming — the W1-01 choke point — so a renamed output obeys
+// exactly the same rules (bare component, no device names, bounded length)
+// as the template render. Exhaustion is an honest failure: there is NO
+// fallback that overwrites, and "ask"/"overwrite" never enter here.
+QString deConflictRename(const QString& firstChoice, QString* err) {
+    const QFileInfo fi(firstChoice);
+    // The policy de-conflicts an ACTUAL conflict (plan §4.3 — "output path
+    // exists → rename …"): a free first choice is used verbatim, stem-2 is
+    // for the second file with the same rendered name, not for the first.
+    if (!QFileInfo::exists(firstChoice))
+        return firstChoice;
+    const QString dir = fi.absolutePath();
+    for (int attempt = 2; attempt <= 999; ++attempt) {
+        const QString name = BatchPresetSchema::renameCandidate(fi.fileName(), attempt);
+        if (name.isEmpty()) {
+            if (err)
+                *err = QStringLiteral("%1 cannot be de-conflicted — the name does not "
+                                      "end \".pdf\" or its stem is empty").arg(firstChoice);
+            return {};
+        }
+        // W1-01: re-check the candidate through the shared choke point
+        // (containment + reserved device names + length), rendering it
+        // verbatim (a rendered name never contains '{' tokens).
+        QString checkName;
+        QString checkErr;
+        if (!BatchPresetSchema::resolveNaming(name, {}, {}, 1, QDate::currentDate(),
+                                              &checkName, &checkErr)
+            || checkName != name) {
+            if (err)
+                *err = checkErr.isEmpty()
+                           ? QStringLiteral("rename candidate %1 failed the containment "
+                                            "check").arg(name)
+                           : checkErr;
+            return {};
+        }
+        const QString candidate = QDir(dir).filePath(name);
+        if (!QFileInfo::exists(candidate))
+            return candidate;
+    }
+    if (err)
+        *err = QStringLiteral("%1: every rename candidate stem-2…stem-999 already "
+                              "exists — nothing was overwritten").arg(firstChoice);
+    return {};
+}
+
+// pdfa-check: a NON-mutating step — validates the candidate in flight and
+// never touches the destination (plan §3.1 step 4). A failed check fails the
+// file honestly: a "web-optimize" that cannot pass its declared PDF/A level
+// reports the failure instead of shipping an unverified file. When no
+// capability registry was available to gate the step, the validator's own
+// unavailable-report still fails the file — never a silent skip.
+bool runPresetCheckStep(const QString& current, const BatchPresetStep& step,
+                        QString* techDetail) {
+    const QString level =
+        step.params.value(QStringLiteral("level"), QStringLiteral("2b")).toString();
+    const auto report = VeraPdfValidator::validate(current, pdfaConformance(level));
+    if (!report.validatorAvailable) {
+        *techDetail = QStringLiteral("PDF/A-%1 check could not run — %2")
+                          .arg(level, report.errorMessage.isEmpty()
+                                          ? QStringLiteral("the veraPDF validator is not available")
+                                          : report.errorMessage);
+        return false;
+    }
+    if (!report.isValid) {
+        QStringList clauses;
+        for (const auto& v : report.violations) {
+            clauses << v.ruleId;
+            if (clauses.size() >= 5) break;
+        }
+        *techDetail = QStringLiteral("PDF/A-%1 check failed — %2 rule violation(s)%3")
+                          .arg(level).arg(report.violations.size())
+                          .arg(clauses.isEmpty()
+                                   ? QString()
+                                   : QStringLiteral(": %1").arg(clauses.join(QStringLiteral(", "))));
+        return false;
+    }
+    return true;
+}
+
+// ── R26-P2 U4 (plan §4.6): batch-scoped failure classification ────────────────
+// Detection rule of record: batch-scoped = the error class is independent of
+// file CONTENT (the same failure would hit any file). Continuing a batch-
+// scoped failure would multiply identical errors onto every remaining file
+// and bury the cause in per-file noise; N3 aborts the run at the current
+// file boundary instead, keeps everything already committed, and names the
+// cause once.
+
+// R26-P2 U5: the step status spelling shared by the log lines and the
+// run-report artifacts (JSON + CSV).
+QString runReportStatusString(BatchStepResult::Status status) {
+    switch (status) {
+    case BatchStepResult::Status::Ok:      return QStringLiteral("ok");
+    case BatchStepResult::Status::Failed:  return QStringLiteral("failed");
+    case BatchStepResult::Status::Blocked: return QStringLiteral("blocked");
+    case BatchStepResult::Status::Skipped: return QStringLiteral("skipped");
+    }
+    return QStringLiteral("failed");
+}
+
+// Staging probe — the "output directory unwritable/absent" class, detected
+// BEFORE any worker starts (deterministic on both lanes, which the mid-run
+// mapped pipeline cannot offer). Each distinct resolved output directory is
+// probed with a temp-file create+delete on the GUI thread (staging phase —
+// one tiny file per directory, auto-removed). Returns the abort cause, or
+// empty when every directory accepts output files.
+QString stagingProbeFailure(const QStringList& dirs) {
+    QStringList seen;
+    for (const QString& dir : dirs) {
+        if (dir.isEmpty() || seen.contains(dir))
+            continue;
+        seen << dir;
+        if (!QFileInfo(dir).isDir())
+            return BatchMode::tr("output directory is missing or not a directory: %1")
+                       .arg(QDir::toNativeSeparators(dir));
+        QTemporaryFile probe(dir + QStringLiteral("/.glyph-write-probe-XXXXXX"));
+        if (!probe.open())
+            return BatchMode::tr("output directory is not writable: %1 (%2)")
+                       .arg(QDir::toNativeSeparators(dir), probe.errorString());
+        probe.write("probe", 5);
+        probe.close();   // QTemporaryFile auto-removes on destruction
+    }
+    return {};
+}
+
+bool runPresetChain(const QString& inputPath, const QString& outputPath,
+                    const BatchPreset& preset, QMutex* engineMutex,
+                    PresetRunState* runState, QList<BatchStepResult>* stepRecords,
+                    const std::function<void(const QString&)>& raceHook,
+                    QString* resolvedOutput, QString* techDetail,
+                    bool* batchScoped = nullptr) {
+    // PDFium (QPdfDocument) is not thread-safe: the read-side probes of the
+    // chain are serialized behind the SAME engine mutex the batch OCR path
+    // uses for its PDFium probes (PoDoFo writer steps stay parallel).
+    QMutexLocker pdfiumLock(engineMutex);
+    QPdfDocument baseline;
+    baseline.load(inputPath);
+    if (baseline.status() != QPdfDocument::Status::Ready || baseline.pageCount() <= 0) {
+        *techDetail = QStringLiteral("Failed to open PDF: %1").arg(inputPath);
+        if (stepRecords && !preset.steps.isEmpty()) {
+            // The chain never started — every step is a failed record with the
+            // same honest reason (the file failed, not any single step).
+            BatchStepResult record;
+            record.stepIndex = 0;
+            record.op = preset.steps.first().op;
+            record.label = preset.steps.first().label;
+            record.status = BatchStepResult::Status::Failed;
+            // U5: the entering link is the input itself (measured on disk).
+            record.bytesIn = QFileInfo(inputPath).size();
+            record.detail = *techDetail;
+            stepRecords->append(record);
+        }
+        return false;
+    }
+    const int expectedPages = baseline.pageCount();
+    pdfiumLock.unlock();
+
+    QString current = inputPath;
+    QStringList intermediates;
+    bool ok = true;
+    int failedAt = -1;
+    for (int i = 0; i < preset.steps.size() && ok; ++i) {
+        const BatchPresetStep& step = preset.steps.at(i);
+        BatchStepResult record;
+        record.stepIndex = i;
+        record.op = step.op;
+        record.label = step.label;
+        // R26-P2 U5 (plan §3/§4.8): every step is timed; byte counts are
+        // MEASURED on disk (chain links), never estimated.
+        QElapsedTimer stepTimer;
+        stepTimer.start();
+
+        // R26-P2 (N1): bates only ever runs on the ordered lane. A bates step
+        // reaching the parallel chain is an internal scheduling error — fail
+        // the file honestly instead of stamping numbers out of order.
+        if (step.op == QLatin1String("bates") && !runState) {
+            *techDetail = QStringLiteral(
+                "bates step on the parallel lane — a bates-bearing preset must "
+                "run on the ordered lane (internal scheduling error)");
+            ok = false;
+        }
+
+        // A check step validates the candidate in flight — no candidate of
+        // its own.
+        if (ok && step.op == QLatin1String("pdfa-check")) {
+            ok = runPresetCheckStep(current, step, techDetail);
+            // U5: a non-mutating row — the validator READS the current link,
+            // so bytesIn == bytesOut (no byte delta) and the duration covers
+            // the validation only.
+            record.bytesIn  = QFileInfo(current).size();
+            record.bytesOut = record.bytesIn;
+        } else if (ok) {
+            // R26-P2 (N1): the effective start continues the run's sequence —
+            // the last SUCCESSFUL stamp + 1 — and the first file (or the run
+            // after a restart) uses the step's explicit startNumber (default
+            // 1). A failed file's candidate is discarded and never burns a
+            // number.
+            int effectiveBatesStart = 1;
+            int lastBatesOut = -1;
+            if (step.op == QLatin1String("bates")) {
+                effectiveBatesStart = runState->batesStarted
+                    ? runState->lastBatesOut + 1
+                    : step.params.value(QStringLiteral("startNumber"), 1).toInt();
+            }
+
+            QString candidate;
+            QString candidateErr;
+            // U5: the entering link (the input for step 0, otherwise the
+            // previous candidate) measured before the step touches anything.
+            record.bytesIn = QFileInfo(current).size();
+            if (!SafeSave::makeUniqueCandidate(&candidate, &candidateErr)) {
+                *techDetail = candidateErr;
+                ok = false;
+                // U4: candidate creation is content-independent (every file
+                // shares the candidate store) — batch-scoped.
+                if (batchScoped)
+                    *batchScoped = true;
+            }
+            if (ok) {
+                intermediates.append(candidate);
+                {
+                    // Fresh per-file engine per step — the same TRUE-parallel
+                    // pattern the single-op editor workers use (self-contained
+                    // load/save).
+                    PdfEditorEngine editor;
+                    if (!editor.loadDocumentForEditing(current)) {
+                        *techDetail = editor.lastError().technicalDetails;
+                        ok = false;
+                    } else {
+                        ok = runPresetMutatingStep(editor, step, current, candidate,
+                                                   effectiveBatesStart, &lastBatesOut,
+                                                   techDetail);
+                    }
+                }
+                if (ok) {
+                    // Validate the candidate: it must open as a PDF and
+                    // preserve the page count (bates is an overlay — the
+                    // invariant holds for it too). A step that breaks the
+                    // document never becomes the new chain link.
+                    QMutexLocker lock(engineMutex);
+                    QPdfDocument probe;
+                    probe.load(candidate);
+                    if (probe.status() != QPdfDocument::Status::Ready
+                        || probe.pageCount() != expectedPages) {
+                        *techDetail = QStringLiteral("step %1 (%2) produced an invalid candidate — "
+                                                     "the file is left unchanged")
+                                          .arg(i + 1).arg(step.op);
+                        ok = false;
+                    }
+                }
+                if (ok)
+                    current = candidate;
+                if (ok) {
+                    // U5: the produced link, measured on disk after validation
+                    // promoted it (a rejected candidate is not a chain link —
+                    // its record keeps bytesOut = -1).
+                    record.bytesOut = QFileInfo(candidate).size();
+                }
+                if (ok && step.op == QLatin1String("bates") && runState) {
+                    runState->batesStarted = true;
+                    runState->lastBatesOut = lastBatesOut;
+                }
+                if (step.op == QLatin1String("bates")) {
+                    record.firstBates = effectiveBatesStart;
+                    record.lastBates  = ok ? lastBatesOut : -1;
+                }
+            }
+        }
+
+        record.status = ok ? BatchStepResult::Status::Ok : BatchStepResult::Status::Failed;
+        if (!ok) {
+            record.detail = *techDetail;
+            failedAt = i;
+        }
+        record.durationMs = stepTimer.elapsed();   // U5: wall duration of the step
+        if (stepRecords)
+            stepRecords->append(record);
+    }
+
+    if (ok) {
+        // R26-P2 U2 (plan §4.3): with onConflict "rename" the pinned name is
+        // RE-CHECKED at commit — a file may have appeared between the staging
+        // pin and now. That is a rename-resolution retry (bounded, contained),
+        // then an honest file-scoped failure. There is no silent overwrite.
+        QString dest = outputPath;
+        if (ok && raceHook)
+            raceHook(dest);   // seam models the rival writer striking pre-commit
+        if (ok && preset.onConflict == QLatin1String("rename") && QFileInfo::exists(dest)) {
+            QString dErr;
+            const QString freed = deConflictRename(dest, &dErr);
+            if (freed.isEmpty()) {
+                if (techDetail->isEmpty())
+                    *techDetail = dErr;
+                ok = false;
+            } else {
+                dest = freed;
+            }
+        }
+        if (ok) {
+            QString commitErr;
+            ok = SafeSave::commitFileToDestination(current, dest, &commitErr);
+            if (!ok) {
+                if (techDetail->isEmpty())
+                    *techDetail = commitErr;
+                // U4: a commit whose DESTINATION DIRECTORY is gone is
+                // batch-scoped — every remaining file would fail identically.
+                // Classified by a directory-existence test, never by matching
+                // error text.
+                if (batchScoped
+                    && !QFileInfo(QFileInfo(dest).absolutePath()).isDir())
+                    *batchScoped = true;
+            }
+        }
+        if (ok && resolvedOutput)
+            *resolvedOutput = dest;   // report the FINAL (possibly renamed) path
+    } else if (stepRecords && failedAt >= 0) {
+        // Steps after the failure were never attempted — honest skipped rows
+        // (plan §3 status set), never a silently truncated record list.
+        for (int j = failedAt + 1; j < preset.steps.size(); ++j) {
+            BatchStepResult skipped;
+            skipped.stepIndex = j;
+            skipped.op = preset.steps.at(j).op;
+            skipped.label = preset.steps.at(j).label;
+            skipped.status = BatchStepResult::Status::Skipped;
+            skipped.detail = QStringLiteral("not attempted — the chain aborted at step %1")
+                                 .arg(failedAt + 1);
+            stepRecords->append(skipped);
+        }
+    }
+
+    // Intermediates are removed on EVERY outcome (the committed candidate
+    // included — commitFileToDestination copied it to the destination).
+    for (const QString& path : intermediates)
+        QFile::remove(path);
+    return ok;
+}
+
+} // namespace
 
 // ── Execution engine (D3) ─────────────────────────────────────────────────────
 
@@ -823,25 +1583,93 @@ void BatchMode::onRunClicked() {
         return;
     }
 
-    // Merge is a single combined output over all files — it does not fit the
-    // per-file mapped pipeline, so it has a dedicated synchronous handler.
+    // §9.12 P1: Merge is a single combined output over all files — it does not
+    // fit the per-file mapped pipeline, but it must not run synchronously on
+    // the GUI thread either (a large merge froze the whole app here). This
+    // branch only stages the run (guards + output path + overwrite confirm);
+    // the worker itself starts on the QtConcurrent pool at the end of this
+    // function, behind the SAME QFutureWatcher and per-result accounting the
+    // per-file ops use.
+    QString mergeOutPath;
     if (opIdx == OpMerge) {
-        runMerge();
+        if (m_filesToProcess.size() < 2) {
+            QMessageBox::information(this, tr("Merge PDFs"),
+                tr("Add at least two PDF files to merge."));
+            return;
+        }
+        const QString first = m_filesToProcess.first();
+        QString outDir = m_mergeOutDir ? m_mergeOutDir->text().trimmed() : QString();
+        if (outDir.isEmpty()) outDir = QFileInfo(first).absolutePath();
+        mergeOutPath = QDir(outDir).filePath(
+            QFileInfo(first).completeBaseName() + QStringLiteral("_merged.pdf"));
+        if (!confirmOverwrite(mergeOutPath)) return;
+    }
+
+    // Redact requires at least one effective pattern — a checked named
+    // preset (§9.12 P1) or a free-form regex entry.
+    if (opIdx == OpRedact &&
+        effectiveRedactPatterns(checkedRedactPresetKeys(),
+                                m_redactPatterns
+                                    ? m_redactPatterns->text().split(QLatin1Char(','),
+                                                                     Qt::SkipEmptyParts)
+                                    : QStringList()).isEmpty()) {
+        QMessageBox::information(this, tr("No Patterns"),
+            tr("Check at least one quick preset or enter one or more "
+               "comma-separated regex patterns to redact."));
         return;
     }
 
-    // Redact requires at least one pattern.
-    if (opIdx == OpRedact &&
-        (!m_redactPatterns || m_redactPatterns->text().trimmed().isEmpty())) {
-        QMessageBox::information(this, tr("No Patterns"),
-            tr("Enter one or more comma-separated regex patterns to redact."));
-        return;
+    // R26 (batch-presets): a preset run needs a SELECTED preset. A preset
+    // changes WHAT runs, not HOW results are accounted — the run below flows
+    // through the same per-file mapped pipeline, SafeSave commit and G12
+    // exactly-once accounting as every other op.
+    // R26-P2 U2 (§4.5): consume the unattended flag ONCE. An auto-run ingest
+    // with onConflict "ask" degrades to "rename" — a modal overwrite prompt
+    // from the watcher path would block the GUI on a dropped file (and W1-01
+    // already forbids silent overwrite). The degrade is logged, never silent.
+    // R26-P2 U4: per-run reset BEFORE the staging below — the unattended flag
+    // is consumed HERE, and the abort cause is recorded during accounting and
+    // consumed at completion.
+    m_batchAbortCause.clear();
+    m_runWasUnattended = false;
+    m_presetConflictOverride.clear();
+    bool unattendedConflictDegraded = false;
+    QString presetBlocker;
+    if (opIdx == OpPresetPipeline) {
+        if (!m_presetSelected) {
+            QMessageBox::information(this, tr("No Preset Selected"),
+                tr("Select a preset to run, or configure an operation and "
+                   "choose \u201cSave as preset\u2026\u201d to create one."));
+            return;
+        }
+        if (m_unattendedAutoRunPending) {
+            m_unattendedAutoRunPending = false;
+            // U4: remembered for the run so a batch-scoped abort can disclose
+            // that the hot folder stays armed (the watcher keeps watching).
+            m_runWasUnattended = true;
+            if (m_selectedPreset.onConflict == QLatin1String("ask")) {
+                m_presetConflictOverride = QLatin1String("rename");
+                unattendedConflictDegraded = true;
+            }
+        }
+        // Run gate: steps present, minAppVersion satisfied, and every step's
+        // capability re-queried NOW (GUI thread, cached probes). An
+        // unavailable step blocks the run with the registry's whyNot +
+        // alternative — disclosed per file below, never silently skipped,
+        // never faked.
+        presetBlocker = presetRunBlocker();
     }
 
     // AR-8 D4: Pre-check output paths for overwrite conflicts.
     // For single-file runs, show a per-file dialog.
     // For multi-file runs, collect all conflicting paths and show one summary
     // dialog rather than flooding the user with N dialogs.
+    // W1-01: a preset's onConflict "overwrite" NEVER bypasses this
+    // confirmation — a preset is data, and the file it rides in is not the
+    // user's answer to "may I destroy this output file?". "overwrite" maps to
+    // the same interactive path as "ask": the user is asked exactly once (the
+    // AR-8 summary dialog for multi-file runs), and declining cancels the run.
+    // There is no silent overwrite.
     if (m_filesToProcess.size() == 1) {
         QString out = resolveOutputPath(m_filesToProcess.first());
         if (!out.isEmpty() && !confirmOverwrite(out)) return;
@@ -874,6 +1702,10 @@ void BatchMode::onRunClicked() {
     m_errorLog.clear();
     m_successCount = 0;
     m_failCount    = 0;
+    m_skipCount    = 0;
+    m_mergeOutputPath.clear();   // F2a-F1: named only by a merge that commits
+    m_accountedIndices.clear();   // G12: per-run exactly-once accounting ledger
+    m_lastRunResults.clear();     // R26-P2: fresh per-run result records
     m_exportLogBtn->setVisible(false);
     m_runBtn->setEnabled(false);
     m_cancelBtn->setEnabled(true);
@@ -882,10 +1714,14 @@ void BatchMode::onRunClicked() {
     appendLog(tr("Starting batch: %1 files — operation: %2")
         .arg(m_filesToProcess.size())
         .arg(m_opCombo->currentText()));
+    if (unattendedConflictDegraded)
+        appendLog(tr("Unattended run: conflicting outputs were renamed instead of "
+                     "asking (hot folder)."), "#c8a000");
     m_batchTimer.restart();
 
     // Capture config values for the worker lambda (all GUI data captured before worker starts)
     const int capturedOp = opIdx;
+    m_lastRunWasPreset = (opIdx == OpPresetPipeline);   // U5: export surface switch
     const auto capturedCtx = m_ctx;
 
     // Convert config
@@ -895,6 +1731,10 @@ void BatchMode::onRunClicked() {
 
     // Compress config
     const int capturedQuality = m_qualitySlider ? m_qualitySlider->value() : 75;
+    // §9.12 P1: the user-chosen target DPI (clamped through the named seam;
+    // was hard-coded to 150).
+    const int capturedTargetDpi =
+        resolveCompressTargetDpi(m_dpiSpin ? m_dpiSpin->value() : kDefaultTargetDpi);
 
     // Watermark config
     const QString capturedWmText = m_wmTextEdit
@@ -911,6 +1751,10 @@ void BatchMode::onRunClicked() {
     // We capture the config values directly in the lambda instead of calling resolveOutputPath
     // (which touches GUI objects — forbidden from worker threads).
     QStringList capturedFiles = m_filesToProcess;
+    // PGR-38: the run's own total — the worker maps the captured copy, so
+    // every mid-run accounting read must use THIS number, not the live list
+    // (add/remove/hot-folder stay enabled during a run).
+    m_runFileTotal = capturedFiles.size();
     const QString capturedConvertOutDir = m_convertOutDir ? m_convertOutDir->text().trimmed() : QString();
     const QString capturedCompressOutDir = m_compressOutDir ? m_compressOutDir->text().trimmed() : QString();
     const QString capturedWmOutDir = m_wmOutDir ? m_wmOutDir->text().trimmed() : QString();
@@ -924,24 +1768,111 @@ void BatchMode::onRunClicked() {
     const QString capturedOcrLang = m_ocrLanguage
         ? ocrEngineLanguageCode(m_ocrLanguage->currentData().toString())
         : QStringLiteral("eng");
-    // §9.4 P0: shared Auto-Rotate (page orientation detection) preference, read
-    // on the GUI thread for the same reason; the worker only gets a copy.
-    const bool capturedOcrOrientDetect = QSettings().value(
+    // N3 (pdf24 skip-already-text): checkbox state captured on the GUI thread
+    // (QSettings-backed state is GUI-affine); the worker only gets values.
+    const bool capturedOcrSkipFiles = m_ocrSkipFilesWithText
+        ? m_ocrSkipFilesWithText->isChecked() : false;
+    const bool capturedOcrSkipPages = m_ocrSkipPagesWithText
+        ? m_ocrSkipPagesWithText->isChecked() : false;
+    const bool capturedOcrForce = m_ocrForceOcr ? m_ocrForceOcr->isChecked() : false;
+    // §9.4 P0 / U08: the SAME preprocessing options as the interactive path —
+    // deskew/binarize/denoise/orientDetect are persisted prefs read on the GUI
+    // thread (QSettings is not thread-safe); the worker only gets a copy.
+    // Previously batch honored Auto-Rotate only, silently diverging from the
+    // interactive panel's persisted preprocessing choices.
+    OcrPreprocessOptions capturedOcrPreprocess;
+    // F5-F2: same shipped defaults as the interactive path — the destructive
+    // chain (deskew/binarize/denoise) is OFF out of the box so batch OCR on a
+    // clean scan recognizes out of the box too (SWEEP-W3-UX F5-F2).
+    capturedOcrPreprocess.deskew   = QSettings().value(
+        QStringLiteral("ocr/preprocessDeskew"), false).toBool();
+    capturedOcrPreprocess.binarize = QSettings().value(
+        QStringLiteral("ocr/preprocessBinarize"), false).toBool();
+    capturedOcrPreprocess.denoise  = QSettings().value(
+        QStringLiteral("ocr/preprocessDenoise"), false).toBool();
+    capturedOcrPreprocess.orientDetect = QSettings().value(
         QStringLiteral("ocr/orientDetect"), false).toBool();
+    // U08: report intentionally unsupported batch options (engine selection)
+    // instead of silently diverging from the interactive path; captured on the
+    // GUI thread because it reads QSettings.
+    const QString capturedOcrReviewNote =
+        preFlightReviewNote(capturedOp, m_ctx ? m_ctx->capabilities.get() : nullptr);
 
     // Redact config
     const QString capturedRedactOutDir = m_redactOutDir ? m_redactOutDir->text().trimmed() : QString();
-    const QStringList capturedRedactPatterns = m_redactPatterns
-        ? m_redactPatterns->text().split(QLatin1Char(','), Qt::SkipEmptyParts)
-        : QStringList();
+    // §9.12 P1: effective list = named-preset regex bodies + free-form
+    // entries (deduped; resolved on the GUI thread — PatternRedactor and the
+    // checkbox state are GUI-affine, the worker only gets the string list).
+    const QStringList capturedRedactPatterns =
+        effectiveRedactPatterns(checkedRedactPresetKeys(),
+                                m_redactPatterns
+                                    ? m_redactPatterns->text().split(QLatin1Char(','),
+                                                                     Qt::SkipEmptyParts)
+                                    : QStringList());
+
+    // R26-P2 U2: the worker sees the EFFECTIVE conflict policy (the
+    // unattended degrade included), not just the preset's stored value.
+    BatchPreset capturedPreset = m_selectedPreset;
+    if (!m_presetConflictOverride.isEmpty())
+        capturedPreset.onConflict = m_presetConflictOverride;
+    const QString capturedPresetBlocker = presetBlocker;
+    QMap<QString, QString> capturedOutputs;
+    // R26-P2 U2: per-file staged resolve failures carry their de-conflict
+    // reason (rename exhaustion) so the worker can report it verbatim.
+    QMap<QString, QString> capturedResolveErrors;
+    // R26-P2 U4 (plan §4.6): the staging probe's abort cause — empty when
+    // every resolved output directory accepts files.
+    QString capturedBatchAbortCause;
+    if (opIdx == OpPresetPipeline) {
+        for (const QString& f : capturedFiles) {
+            QString resolveErr;
+            const QString out = resolveOutputPath(f, &resolveErr);
+            if (out.isEmpty() && !resolveErr.isEmpty())
+                capturedResolveErrors.insert(f, resolveErr);
+            capturedOutputs.insert(f, out);
+        }
+        // U4: probe every distinct output directory NOW (GUI thread, staging
+        // phase) — the "output directory unwritable/absent" class is detected
+        // BEFORE the worker starts, deterministically on both lanes.
+        QStringList outDirs;
+        for (const QString& out : capturedOutputs.values())
+            outDirs << QFileInfo(out).absolutePath();
+        capturedBatchAbortCause = stagingProbeFailure(outDirs);
+    }
+    m_presetConflictOverride.clear();   // staging done — never leak the override
+
+    // PGR-35 (D2 delta review 2026-09-23): cross-file output-path collision
+    // staging. Two inputs resolving to the SAME output path (two same-stem
+    // files into one shared output folder; a shareable preset whose naming
+    // template omits {basename}/{n} — e.g. "{date}.pdf" — collapses EVERY
+    // file onto one name) used to run "successfully": each commit overwrote
+    // the previous output, the ledger claimed N successes, and exactly one
+    // artifact existed. Nothing existed on disk at staging, so the AR-8
+    // overwrite pre-check never fired. The collisions are staged as
+    // pre-flight failures below — the first file in list order keeps the
+    // path (the same "list order wins" semantics the merge uses), the rest
+    // fail honestly with the reason. Pure seam: outputCollisionBlockers.
+    QMap<QString, QString> outputBlockers;
+    if (capturedOp != OpMerge) {
+        QStringList outs;
+        outs.reserve(capturedFiles.size());
+        for (const QString& f : capturedFiles)
+            outs << resolveOutputPath(f);   // GUI thread: the SAME resolution the overwrite pre-check used
+        outputBlockers = outputCollisionBlockers(capturedFiles, outs);
+    }
 
     // Worker lambda — runs on QtConcurrent thread pool.
     // All captured values are by-value copies of GUI state taken above on the GUI thread.
     // 'this' is not captured to avoid dangling if BatchMode is destroyed mid-batch.
     // Engine mutex is captured as a raw pointer (stable lifetime: member of BatchMode).
+    // R26-P2: `runState` carries the ordered lane's bates continuity (nullptr
+    // on the mapped pipeline — lane selection guarantees bates never maps
+    // there, and the chain fails the file honestly if it ever does).
     QMutex* engineMutexPtr = &m_engineMutex;
+    // R26-P2 U2: captured by value — the member itself is never read cross-thread.
+    const std::function<void(const QString&)> raceHook = m_presetRaceHook;
 
-    auto processFileReal = [=](const QString& inputPath) -> BatchFileResult {
+    auto processFileReal = [=](const QString& inputPath, PresetRunState* runState) -> BatchFileResult {
         BatchFileResult result;
         result.inputPath = inputPath;
 
@@ -968,6 +1899,11 @@ void BatchMode::onRunClicked() {
             result.outputPath = QDir(outDir).filePath(baseName + ext);
             break;
         }
+        case OpPresetPipeline:
+            // R26: resolved on the GUI thread from the SAME naming resolution
+            // the overwrite pre-check used — the worker never recomputes it.
+            result.outputPath = capturedOutputs.value(inputPath);
+            break;
         case OpCompress:
             result.outputPath = QDir(resolveDir(capturedCompressOutDir)).filePath(baseName + "_compressed.pdf");
             break;
@@ -991,7 +1927,32 @@ void BatchMode::onRunClicked() {
         bool ok = false;
         QString techDetail;
 
-        if (capturedOp == OpConvert) {
+        if (capturedOp == OpPresetPipeline) {
+            // R26: the transactional per-file candidate chain (SafeSave
+            // candidate per step, validated, ONE atomic commit). Failures are
+            // file-scoped and honest — the original is untouched, every
+            // intermediate removed.
+            if (result.outputPath.isEmpty()) {
+                // R26-P2 U2: a staged rename exhaustion reports its own
+                // bounded-exhaustion reason (plan §4.3 — honest file-scoped
+                // failure, nothing overwritten); anything else stays generic.
+                techDetail = capturedResolveErrors.value(
+                    inputPath, QStringLiteral("no output path was resolved for this file"));
+                ok = false;
+            } else {
+                QString resolvedOut = result.outputPath;
+                // U4: the chain classifies batch-scoped failure causes (the
+                // content-independence rule of record) onto the result.
+                bool fileBatchScoped = false;
+                ok = runPresetChain(inputPath, result.outputPath, capturedPreset,
+                                    engineMutexPtr, runState, &result.steps,
+                                    raceHook, &resolvedOut, &techDetail,
+                                    &fileBatchScoped);
+                result.batchScoped = fileBatchScoped;
+                if (ok)
+                    result.outputPath = resolvedOut;   // report the final (renamed) path
+            }
+        } else if (capturedOp == OpConvert) {
             // convertTo is specified as stateless (takes full pdfPath arg) — no mutex needed
             if (capturedCtx && capturedCtx->conversion) {
                 ok = capturedCtx->conversion->convertTo(inputPath, result.outputPath, capturedFmt);
@@ -1001,6 +1962,10 @@ void BatchMode::onRunClicked() {
                 techDetail = QStringLiteral("IConversionEngine not available");
             }
         } else if (capturedOp == OpOCR) {
+            // N3 (pdf24 skip-already-text): force-OCR overrides both skip
+            // switches — the user's explicit "OCR everything" wins.
+            const bool skipFiles = capturedOcrSkipFiles && !capturedOcrForce;
+            const bool skipPages = capturedOcrSkipPages && !capturedOcrForce;
             // OCR uses the SHARED engine (OcrEngine + OcrPipeline are not
             // thread-safe), so it stays serialized behind the engine mutex.
             QMutexLocker locker(engineMutexPtr);
@@ -1014,43 +1979,225 @@ void BatchMode::onRunClicked() {
                     techDetail = QStringLiteral("Failed to open PDF for rendering: %1").arg(inputPath);
                     ok = false;
                 } else {
-                    capturedCtx->ocr->initialize(capturedOcrLang);
+                    // N3: probe per-page text ONCE through the PDFium text
+                    // extraction seam (the same one the Bates tests read) —
+                    // inside the engine mutex, because PDFium is not
+                    // thread-safe either. A FAILED probe never enables a skip
+                    // (skipping is only honest on positive evidence of text).
+                    QList<bool> pageHasText;
+                    if (skipFiles || skipPages) {
+                        PdfiumBackend probe;
+                        if (probe.loadDocument(inputPath)) {
+                            for (int p = 0; p < pdf.pageCount(); ++p) {
+                                bool has = false;
+                                const auto runs = probe.extractPageTextRuns(p);
+                                for (const auto& run : runs) {
+                                    if (!run.text.trimmed().isEmpty()) { has = true; break; }
+                                }
+                                pageHasText.append(has);
+                            }
+                        }
+                    }
+
+                    // N3: skip-files-with-text — any existing text layer means
+                    // the file is already searchable. Report as SKIPPED (its
+                    // own truthful bucket), never as success or failure.
+                    if (skipFiles && pageHasText.contains(true)) {
+                        locker.unlock();
+                        result.skipped = true;
+                        result.skipReason = QStringLiteral(
+                            "already contains a text layer — not OCRed (skip-files-with-text)");
+                        return result;
+                    }
+
+                    // emergence E-2 (SWEEP-W3-EMERGENCE §1b): honor
+                    // initialize()'s result. The discarded return let the
+                    // pipeline run on an uninitialized engine — processImage
+                    // then re-initialized with the DEFAULT "eng" (wrong-
+                    // language text layer) or produced zero-word output —
+                    // and the file was accounted SUCCESSFUL either way while
+                    // the policy whyNot stayed console-only. The file now
+                    // fails honestly, naming the deciding half of the
+                    // ocr/allowNetworkDownload value; nothing is exported.
+                    if (!capturedCtx->ocr->initialize(capturedOcrLang)) {
+                        locker.unlock();
+                        result.success = false;
+                        result.errorMessage = ocrInitFailureDetail(capturedOcrLang);
+                        return result;
+                    }
                     OcrPipeline pipeline(capturedCtx->ocr);
                     pipeline.setStrategy(OcrStrategy::PrimaryOnly);
-                    // §9.4 P0: correct scans whose rotation is baked into the
-                    // content; word boxes still map back through
-                    // PreprocessedImage::inverseTransform. The other options
-                    // keep their defaults (current behavior).
-                    OcrPreprocessOptions preprocessOpts;
-                    preprocessOpts.orientDetect = capturedOcrOrientDetect;
+                    // §9.4 P0 / U08: the SAME preprocessing options the
+                    // interactive path honors (GUI-thread-captured prefs) —
+                    // deskew/binarize/denoise/orientDetect, no divergence.
+                    OcrPreprocessOptions preprocessOpts = capturedOcrPreprocess;
                     pipeline.setPreprocessing(preprocessOpts);
 
-                    QList<QImage> images;
-                    QList<PageOcrResult> pageResults;
+                    // N3: skip-pages-with-text — pages WITH text pass through
+                    // UNCHANGED (extractPageAsBytes + the N09 page-copy
+                    // writer keep the original page content, so the text page
+                    // in the output is the original page, not a re-encoded
+                    // image); pages WITHOUT text are OCRed into a per-page
+                    // MRC fragment and assembled in order. When the probe
+                    // found no text page at all this is a no-op vs. the
+                    // plain path except for the per-page assembly.
+                    if (skipPages && !pageHasText.isEmpty()) {
+                        bool anyNeedsOcr = false;
+                        for (bool has : pageHasText)
+                            if (!has) { anyNeedsOcr = true; break; }
+                        if (!anyNeedsOcr) {
+                            locker.unlock();
+                            result.skipped = true;
+                            result.skipReason = QStringLiteral(
+                                "every page already contains text — not OCRed (skip-pages-with-text)");
+                            return result;
+                        }
+                    }
+
+                    // Q1: the skip decision gates the RENDER/OCR work itself,
+                    // not just the assembly. Pages that will be KEPT as
+                    // original page objects (skip-pages active, page has
+                    // text) are never rasterized nor pushed through the OCR
+                    // engine — the old code rendered + OCRed every page up
+                    // front and then silently discarded the text pages'
+                    // results. Work is memoized per page so a lazy fallback
+                    // (kept-page extraction failure, below) re-renders a page
+                    // at most once.
+                    const bool perPageSkipActive = skipPages && !pageHasText.isEmpty();
+                    QMap<int, QImage> ocrImageByPage;
+                    QMap<int, PageOcrResult> ocrResultByPage;
                     const double dpi = 150.0;
-                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                    const auto renderAndOcrPage = [&](int p) {
+                        if (ocrResultByPage.contains(p)) return;
                         const QSizeF pts = pdf.pagePointSize(p);
                         const QSize px(qMax(1, int(pts.width()  * dpi / 72.0)),
                                        qMax(1, int(pts.height() * dpi / 72.0)));
                         const QImage img = pdf.render(p, px);
-                        images.append(img);
-
                         PageOcrResult pr;
                         pr.pageIndex = p;
                         pr.words     = img.isNull() ? QList<MergedOcrWord>() : pipeline.run(img);
                         pr.success   = true;
-                        pageResults.append(pr);
+                        ocrImageByPage.insert(p, img);
+                        ocrResultByPage.insert(p, pr);
+                    };
+                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                        // Kept text pages skip the render+OCR pipeline
+                        // entirely; everything else is OCRed (in page order).
+                        if (perPageSkipActive && pageHasText.at(p)) continue;
+                        renderAndOcrPage(p);
                     }
+                    // Ordered snapshots for the legacy whole-document export
+                    // and the confidence note (QMap iterates in key order;
+                    // kept pages default-construct with no words, which the
+                    // low-confidence note correctly ignores).
+                    QList<QImage> images;
+                    QList<PageOcrResult> pageResults;
+                    for (int p = 0; p < pdf.pageCount(); ++p) {
+                        images.append(ocrImageByPage.value(p));
+                        pageResults.append(ocrResultByPage.value(p));
+                    }
+
                     if (!capturedCtx->pdfEditor) {
                         techDetail = QStringLiteral("PDF editor engine not available");
                         ok = false;
+                    } else if (skipPages && !pageHasText.isEmpty()) {
+                        // N3: mixed assembly — original text pages + OCRed
+                        // image-only pages, in the original page order.
+                        // Q1: kept-page extraction needs its OWN loaded
+                        // engine. The captured shared engine never runs
+                        // loadDocumentForEditing in the batch worker, so its
+                        // PoDoFo backend is null and extractPageAsBytes
+                        // returned empty for EVERY page — the "keep the
+                        // original page" path was silently dead and every
+                        // text page fell back to an MRC re-encode. A fresh
+                        // per-file engine (the same pattern the editor ops
+                        // below use) with a real load makes extraction work;
+                        // created lazily, only when a page actually needs
+                        // keeping.
+                        std::unique_ptr<PdfEditorEngine> keptPageExtractor;
+                        auto extractKeptPage = [&](int p) -> QByteArray {
+                            if (!keptPageExtractor) {
+                                keptPageExtractor = std::make_unique<PdfEditorEngine>();
+                                if (!keptPageExtractor->loadDocumentForEditing(inputPath))
+                                    return {};   // caller falls back to OCR
+                            }
+                            return keptPageExtractor->extractPageAsBytes(inputPath, p);
+                        };
+                        QList<QByteArray> pageDocs;
+                        int keptCount = 0;
+                        bool assemblyOk = true;
+                        for (int p = 0; p < pdf.pageCount() && assemblyOk; ++p) {
+                            if (pageHasText.at(p)) {
+                                const QByteArray orig = extractKeptPage(p);
+                                if (!orig.isEmpty()) {
+                                    pageDocs.append(orig);
+                                    ++keptCount;
+                                    continue;
+                                }
+                                // Extraction failed — fall back to OCR for
+                                // this page rather than emit a broken page.
+                                // Q1: this page was scheduled to be KEPT, so
+                                // it was never rendered above — render+OCR it
+                                // lazily now (memoized, at most once).
+                                renderAndOcrPage(p);
+                            }
+                            const QString pageTmp =
+                                result.outputPath + QStringLiteral(".page%1.mrc").arg(p);
+                            if (!capturedCtx->pdfEditor->exportMrcPdfA(
+                                    pageTmp, { ocrImageByPage.value(p) },
+                                    { ocrResultByPage.value(p) })) {
+                                techDetail = QStringLiteral(
+                                    "per-page MRC export failed on page %1: %2")
+                                    .arg(p + 1)
+                                    .arg(capturedCtx->pdfEditor->lastError().technicalDetails);
+                                assemblyOk = false;
+                                break;
+                            }
+                            {
+                                QFile f(pageTmp);
+                                if (f.open(QIODevice::ReadOnly)) pageDocs.append(f.readAll());
+                                f.close();
+                            }
+                            QFile::remove(pageTmp);
+                            if (pageDocs.size() != p + 1) {
+                                techDetail = QStringLiteral(
+                                    "could not read the per-page MRC fragment for page %1").arg(p + 1);
+                                assemblyOk = false;
+                            }
+                        }
+                        if (assemblyOk)
+                            ok = gp::writeDocumentFromPages(pageDocs, result.outputPath);
+                        if (ok) {
+                            result.reviewNote = QStringLiteral(
+                                "%1 of %2 page(s) already contained text and were "
+                                "kept unchanged (skip-pages-with-text)")
+                                .arg(keptCount).arg(pdf.pageCount());
+                        }
                     } else {
                         ok = capturedCtx->pdfEditor->exportMrcPdfA(result.outputPath, images, pageResults);
                         if (!ok) techDetail = capturedCtx->pdfEditor->lastError().technicalDetails;
-                        // §9.12 P0: surface OcrPipeline's confidence data — flag
-                        // low-confidence words for review instead of reporting a
-                        // bare pass/fail with zero visibility.
-                        if (ok) result.reviewNote = lowConfidenceNote(pageResults);
+                    }
+                    // §9.12 P0: surface OcrPipeline's confidence data — flag
+                    // low-confidence words for review instead of reporting a
+                    // bare pass/fail with zero visibility. The N3 kept-pages
+                    // note (skip-pages mode) is preserved and appended to.
+                    if (ok) {
+                        const QString confidenceNote = lowConfidenceNote(pageResults);
+                        QString extra = confidenceNote;
+                        // U08: report the intentionally unsupported batch
+                        // engine option alongside the confidence note —
+                        // never a silent divergence from the interactive
+                        // path.
+                        if (!capturedOcrReviewNote.isEmpty()) {
+                            extra = extra.isEmpty()
+                                ? capturedOcrReviewNote
+                                : capturedOcrReviewNote + QLatin1Char(' ') + extra;
+                        }
+                        if (!extra.isEmpty()) {
+                            result.reviewNote = result.reviewNote.isEmpty()
+                                ? extra
+                                : result.reviewNote + QLatin1Char(' ') + extra;
+                        }
                     }
                 }
             }
@@ -1070,7 +2217,7 @@ void BatchMode::onRunClicked() {
                 } else {
                     OptimizeOptions opts;
                     opts.jpegQuality = capturedQuality;
-                    opts.targetDpi   = 150;
+                    opts.targetDpi   = capturedTargetDpi; // §9.12 P1: user-configurable (was hard-coded 150)
                     ok = editor.optimizeDocument(result.outputPath, opts);
                     if (!ok) techDetail = editor.lastError().technicalDetails;
                 }
@@ -1147,105 +2294,426 @@ void BatchMode::onRunClicked() {
     // must not be removed or replaced with UniqueConnection.
     disconnect(&m_watcher, &QFutureWatcher<BatchFileResult>::resultReadyAt, this, nullptr);
     connect(&m_watcher, &QFutureWatcher<BatchFileResult>::resultReadyAt,
-            this, [this](int idx) {
-        BatchFileResult res = m_watcher.resultAt(idx);
-        int completed = m_successCount + m_failCount + 1;
-        int total = m_filesToProcess.size();
+            this, [this](int idx) { accountResultAt(idx); },
+            Qt::QueuedConnection); // Deduplication is enforced by the preceding disconnect call
 
-        if (res.success) {
-            ++m_successCount;
-            appendFileResult(res.inputPath, true, res.outputPath);
-            // §9.12 P0: a successful file can still need review (low-confidence
-            // OCR words). Log it as a warning so it lands in the summary and
-            // the exportable error log — never a silent pass.
-            if (!res.reviewNote.isEmpty()) {
-                appendLog(QStringLiteral("  \xE2\x9A\xA0 %1").arg(res.reviewNote), "#d08b2c");
-                ErrorInfo warn = ErrorInfo::warning(res.reviewNote);
-                warn.sourceFile = res.inputPath;
-                m_errorLog.append(std::move(warn));
-            }
-        } else {
-            ++m_failCount;
-            appendFileResult(res.inputPath, false, res.errorMessage);
-            ErrorInfo err = ErrorInfo::error(
-                tr("Failed: %1").arg(QFileInfo(res.inputPath).fileName()),
-                res.errorMessage,
-                ErrorInfo::Skip);
-            err.sourceFile = res.inputPath;
-            m_errorLog.append(std::move(err));
+
+    // U08 per-item pre-flight (GUI thread — probes are cached and GUI-affine):
+    // every file is checked BEFORE the worker starts. Blocked items are staged
+    // as failed BatchFileResults (log + error log + failCount) so the summary
+    // reports success + failed + remaining truthfully — a skipped file is
+    // never reported as completed. The future maps only the runnable files;
+    // this reuses the existing QtConcurrent pipeline, no new scheduler.
+    int preFlightBlocked = 0;
+    QStringList runnableFiles;
+    const gp::CapabilityRegistry* caps = m_ctx ? m_ctx->capabilities.get() : nullptr;
+    for (const QString& f : capturedFiles) {
+        QString blocker = preFlightBlocker(capturedOp, f, caps);
+        // R26 (batch-presets): a preset-level blocker (a step whose capability
+        // is unavailable, a newer required app version, an empty step list)
+        // applies to EVERY file — each is staged as failed with the registry's
+        // whyNot + alternative so the summary stays truthful. Never a silent
+        // skip, never a fake success.
+        if (blocker.isEmpty())
+            blocker = outputBlockers.value(f);
+        if (blocker.isEmpty())
+            blocker = capturedPresetBlocker;
+        if (blocker.isEmpty()) {
+            runnableFiles << f;
+            continue;
         }
-
-        // Overall progress
-        int pct = total > 0 ? (completed * 100 / total) : 0;
-        m_overallProgress->setValue(pct);
-        m_fileProgress->setValue(pct);
-
-        // ETA calculation
-        qint64 elapsed = m_batchTimer.elapsed();
-        if (completed > 0 && completed < total) {
-            qint64 msPerFile = elapsed / completed;
-            qint64 remaining = msPerFile * (total - completed);
-            int secRemain = static_cast<int>(remaining / 1000);
-            m_etaLabel->setText(tr("ETA ~%1s").arg(secRemain));
-        } else {
-            m_etaLabel->clear();
-        }
-    }, Qt::QueuedConnection); // Deduplication is enforced by the preceding disconnect call
-
-
-    QFuture<BatchFileResult> future = QtConcurrent::mapped(capturedFiles, processFileReal);
-    m_watcher.setFuture(future);
-}
-
-// ── Merge (single combined output) ──────────────────────────────────────────────
-// Merge does not fit the per-file QtConcurrent::mapped pipeline (N inputs → 1
-// output), so it runs synchronously here via gp::mergeDocuments.
-void BatchMode::runMerge() {
-    if (m_filesToProcess.size() < 2) {
-        QMessageBox::information(this, tr("Merge PDFs"),
-            tr("Add at least two PDF files to merge."));
+        ++preFlightBlocked;
+        ++m_failCount;
+        appendFileResult(f, false, blocker);
+        ErrorInfo err = ErrorInfo::error(
+            tr("Not processed: %1").arg(QFileInfo(f).fileName()),
+            blocker, ErrorInfo::Skip);
+        err.sourceFile = f;
+        m_errorLog.append(std::move(err));
+    }
+    if (preFlightBlocked > 0) {
+        appendLog(tr("Pre-flight: %1 of %2 file(s) cannot be processed with the "
+                     "selected operation — see the reasons above.")
+                      .arg(preFlightBlocked).arg(capturedFiles.size()), "#c8a000");
+    }
+    if (runnableFiles.isEmpty()) {
+        // Everything was blocked pre-flight: no worker is started. Finish the
+        // batch UI state truthfully (0 runnable files remain).
+        m_overallProgress->setValue(100);
+        m_fileProgress->setValue(100);
+        m_runBtn->setEnabled(true);
+        m_cancelBtn->setEnabled(false);
+        m_etaLabel->clear();
+        showSummary();
+        emit batchFinished();
         return;
     }
 
-    const QString first = m_filesToProcess.first();
-    QString outDir = m_mergeOutDir ? m_mergeOutDir->text().trimmed() : QString();
-    if (outDir.isEmpty()) outDir = QFileInfo(first).absolutePath();
-    const QString outPath = QDir(outDir).filePath(
-        QFileInfo(first).completeBaseName() + QStringLiteral("_merged.pdf"));
-
-    if (!confirmOverwrite(outPath)) return;
-
-    m_logView->clear();
-    m_overallProgress->setRange(0, 100);
-    m_overallProgress->setValue(0);
-    m_fileProgress->setValue(0);
-    m_statusLabel->setText(tr("Merging %1 files…").arg(m_filesToProcess.size()));
-    appendLog(tr("Merging %1 files → %2")
-        .arg(m_filesToProcess.size()).arg(QFileInfo(outPath).fileName()));
-
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    bool ok = false;
-    QString err;
-    try {
-        ok = gp::mergeDocuments(m_filesToProcess, outPath);
-    } catch (const std::exception& e) {
-        err = QString::fromUtf8(e.what());
-    } catch (...) {
-        err = tr("unknown error");
+    // R26-P2 U4 (plan §4.6, N3): a batch-scoped cause detected at STAGING
+    // aborts the run BEFORE any worker starts — deterministic on both lanes.
+    // Every runnable file is reported as not-run with the cause (the U08 skip
+    // bucket, mirrored here because no worker/future exists yet); nothing was
+    // attempted, nothing is rolled back, nothing silent.
+    if (opIdx == OpPresetPipeline && !capturedBatchAbortCause.isEmpty()) {
+        appendLog(tr("Run aborted before start: %1").arg(capturedBatchAbortCause),
+                  "#c8442b");
+        if (m_runWasUnattended)
+            appendLog(tr("The hot folder stays armed — after the output directory "
+                         "is fixed, new drops will run again."), "#c8a000");
+        for (const QString& f : runnableFiles) {
+            BatchFileResult r;
+            r.inputPath = f;
+            r.skipped = true;
+            r.skipReason = tr("run aborted before start: %1").arg(capturedBatchAbortCause);
+            ++m_skipCount;
+            m_lastRunResults.append(r);
+            appendLog(QStringLiteral("  \xE2\x8F\xAD %1 \xe2\x80\x94 skipped: %2")
+                          .arg(QFileInfo(f).fileName(), r.skipReason), "#7a9c6f");
+            ErrorInfo info = ErrorInfo::error(
+                tr("Skipped: %1").arg(QFileInfo(f).fileName()),
+                r.skipReason, ErrorInfo::Skip);
+            info.sourceFile = f;
+            m_errorLog.append(std::move(info));
+        }
+        m_overallProgress->setValue(100);
+        m_fileProgress->setValue(100);
+        m_runBtn->setEnabled(true);
+        m_cancelBtn->setEnabled(false);
+        m_etaLabel->clear();
+        showSummary();
+        emit batchFinished();
+        return;
     }
-    QApplication::restoreOverrideCursor();
 
-    m_overallProgress->setValue(100);
-    m_fileProgress->setValue(100);
-    if (ok) {
-        appendLog(QStringLiteral("  \xE2\x9C\x93 %1").arg(outPath), "#4ec96d");
-        m_statusLabel->setText(tr("MERGE COMPLETE — %1").arg(QFileInfo(outPath).fileName()));
+    // §9.12 P1: Merge — N inputs → 1 combined output. The append loop runs on
+    // the QtConcurrent thread pool behind the SAME m_watcher the per-file ops
+    // use: per-input BatchFileResults flow through resultReadyAt (shared
+    // accounting + progress wiring above), cancellation is polled at every
+    // file boundary, and the destination is saved exactly once at the end — a
+    // cancelled merge never publishes a partial output. Page order == input
+    // order (each input's pages are appended in list order).
+    if (opIdx == OpMerge) {
+        m_mergeOutputPath = mergeOutPath;   // F2a-F1: the summary names it on success
+        startMergeWorker(runnableFiles, mergeOutPath);
+        return;
+    }
+
+    // R26-P2 (plan §4.2): bates-bearing presets run on the ORDERED lane — one
+    // worker iterating the file list IN ORDER, so cross-file Bates continuity
+    // (N1) is a loop invariant rather than scheduling luck. The parallelism
+    // cost is disclosed, never silent. Everything else keeps the mapped
+    // pipeline unchanged.
+    if (opIdx == OpPresetPipeline && BatchMode::presetNeedsOrderedLane(capturedPreset)) {
+        appendLog(tr("Preset \u201c%1\u201d numbers pages with Bates sequences \u2014 files "
+                     "are processed in order (one at a time); large batches are slower.")
+                      .arg(capturedPreset.name), "#c8a000");
+        startPresetOrderedWorker(runnableFiles, processFileReal, false);
+        return;
+    }
+
+    // R26-P2 U3 (plan §4.4): onFileFailure "stop" runs on the ordered lane
+    // TOO — with the mapped pipeline, WHICH files get skipped after a stop
+    // is pool-scheduling luck, and the not-run report (U08 truthfulness)
+    // must be deterministic. This log line is the policy's pre-flight
+    // disclosure; a bates-bearing stop preset already took the branch above.
+    if (opIdx == OpPresetPipeline
+        && capturedPreset.onFileFailure == QLatin1String("stop")) {
+        appendLog(tr("Preset \u201c%1\u201d stops at the first failed file "
+                     "(onFileFailure=stop) \u2014 remaining files are reported as "
+                     "not run. Files are processed in order.")
+                      .arg(capturedPreset.name), "#c8a000");
+        startPresetOrderedWorker(runnableFiles, processFileReal, true);
+        return;
+    }
+
+    QFuture<BatchFileResult> future = QtConcurrent::mapped(
+        runnableFiles,
+        [processFileReal](const QString& inputPath) {
+            return processFileReal(inputPath, static_cast<PresetRunState*>(nullptr));
+        });
+    m_watcher.setFuture(future);
+}
+
+// ── R26-P2 (plan §4.2): the ordered lane ──────────────────────────────────────
+// One sequential worker over the file list, behind the SAME QFutureWatcher,
+// result plumbing and G12 exactly-once accounting as the mapped pipeline —
+// the file-loop is the only difference. Cancellation is polled at file
+// boundaries only (never mid-chain); the boundary hook (test seam) runs in
+// the same window, before the file's chain starts. Cross-file bates
+// continuity lives in the worker-local PresetRunState: single thread by
+// construction, advanced only by successful stamps.
+void BatchMode::startPresetOrderedWorker(
+    const QStringList& files,
+    const std::function<BatchFileResult(const QString&, PresetRunState*)>& runOneFile,
+    bool stopOnFileFailure) {
+    // Captured by value like every worker input — the member is never read
+    // cross-thread (m_mergeBoundaryHook's discipline).
+    const std::function<void(int)> boundaryHook = m_presetBoundaryHook;
+
+    auto orderedWorker = [files, runOneFile, boundaryHook,
+                          stopOnFileFailure](QPromise<BatchFileResult>& promise) {
+        promise.setProgressRange(0, files.size());
+        PresetRunState runState;
+        for (int i = 0; i < files.size(); ++i) {
+            if (promise.isCanceled()) return;    // file boundary only
+            if (boundaryHook) boundaryHook(i);
+            if (promise.isCanceled()) return;    // cancel landed in the boundary window
+            const BatchFileResult result = runOneFile(files.at(i), &runState);
+            promise.addResult(result);
+            promise.setProgressValue(i + 1);
+            // R26-P2 U3 (plan §4.4, N2): with onFileFailure "stop" a
+            // file-scoped failure halts the queue AT THIS FILE BOUNDARY —
+            // never mid-file, never mid-chain. Every not-yet-run file is
+            // reported as not-run with the policy reason (the U08 skip
+            // bucket): never success, never silently dropped. Cancellation
+            // stays honored during the not-run drain — a cancelled run's
+            // unreported remainder follows the U08 cancel semantics.
+            // R26-P2 U4 (plan §4.6, N3): a BATCH-SCOPED failure aborts the
+            // run at this file boundary REGARDLESS of onFileFailure — the
+            // error class is independent of file content, so continuing would
+            // only multiply it. Files already committed stay committed (no
+            // rollback pass exists); the remainder drains as not-run with the
+            // abort cause, and the completion handler reports the cause once.
+            const bool batchAbort =
+                !result.success && !result.skipped && result.batchScoped;
+            if (batchAbort || (stopOnFileFailure && !result.success && !result.skipped)) {
+                const QString stopper = QFileInfo(result.inputPath).fileName();
+                for (int j = i + 1; j < files.size(); ++j) {
+                    if (promise.isCanceled()) return;
+                    BatchFileResult notRun;
+                    notRun.inputPath = files.at(j);
+                    notRun.skipped = true;
+                    notRun.skipReason = batchAbort
+                        ? BatchMode::tr("run aborted after %1: %2")
+                              .arg(stopper, result.errorMessage)
+                        : BatchMode::tr("run stopped by onFileFailure=stop after %1")
+                              .arg(stopper);
+                    promise.addResult(notRun);
+                    promise.setProgressValue(j + 1);
+                }
+                return;
+            }
+        }
+    };
+    m_watcher.setFuture(QtConcurrent::run(orderedWorker));
+}
+
+// ── Merge (single combined output) ──────────────────────────────────────────────
+// §9.12 P1: the merge used to run gp::mergeDocuments synchronously on the GUI
+// thread (runMerge), freezing the app for the duration of large merges. The
+// file-append loop now runs on the QtConcurrent thread pool behind the SAME
+// QFutureWatcher<BatchFileResult> the per-file ops use:
+//   - per-input BatchFileResults flow through resultReadyAt → the shared
+//     accounting/progress wiring in onRunClicked (one accounted item per
+//     input; a corrupt input fails as an item instead of aborting the run);
+//   - cancellation is polled at every file boundary — the worker returns
+//     without saving, so a cancelled merge never publishes a partial output;
+//   - the destination is built in memory and saved exactly once at the end;
+//     each input's pages are appended in list order, so the merged page
+//     order == input order (the pre-fix gp::mergeDocuments contract).
+// PdfPageOps.h deliberately keeps PoDoFo headers out of its callers, but its
+// only merge entry merges ALL inputs in one unobservable call — no boundary a
+// worker could poll. The file-boundary loop therefore uses PoDoFo directly
+// (podofo is already a link dependency of pdfws_ui), mirroring
+// PdfPageOps::mergeDocuments' idiom: fresh destination, eager per-document
+// page copy, ONE Save at the end.
+void BatchMode::startMergeWorker(const QStringList& files, const QString& outPath) {
+    // All captures are by-value copies of GUI state taken on the GUI thread
+    // (same discipline as processFileReal). 'this' is not captured to avoid
+    // dangling if BatchMode is destroyed mid-merge; the hook member is copied
+    // here so it is never read cross-thread.
+    const std::function<void(int)> boundaryHook = m_mergeBoundaryHook;
+
+    auto mergeWorker = [files, outPath, boundaryHook](QPromise<BatchFileResult>& promise) {
+        promise.setProgressRange(0, files.size());
+        bool anyAppended = false;
+        // SEP13 leads 9+10: per-input results are published ONLY once the
+        // output's fate is known. The old code streamed per-input
+        // success=true entries during the append loop (pointing at an output
+        // that did not exist yet) and, on save failure or cancel, added an
+        // N+1th "output artifact" result on top — a phantom beyond one
+        // result per input file, with false successes against a
+        // never-written output. QPromise results are append-only, so honest
+        // accounting requires deferring publication.
+        QList<BatchFileResult> perInput;
+        try {
+            PoDoFo::PdfMemDocument dst;
+            for (int i = 0; i < files.size(); ++i) {
+                // Cancel is honored at file boundaries only — never
+                // mid-document. Nothing has been published yet, so a
+                // cancelled merge reports zero results: no success may point
+                // at the output that will never be written (lead 10).
+                if (promise.isCanceled()) return;
+                if (boundaryHook) boundaryHook(i);
+
+                BatchFileResult r;
+                r.inputPath  = files.at(i);
+                r.outputPath = outPath;
+                try {
+                    PoDoFo::PdfMemDocument src;
+                    src.Load(files.at(i).toUtf8().constData());
+                    const int count = static_cast<int>(src.GetPages().GetCount());
+                    if (count > 0) {
+                        dst.GetPages().AppendDocumentPages(src, 0, count);
+                        anyAppended = true;
+                        r.success = true;
+                    } else {
+                        r.success = false;
+                        r.errorMessage = QStringLiteral("Document has no pages");
+                    }
+                } catch (const std::exception& e) {
+                    r.success = false;
+                    r.errorMessage = QString::fromUtf8(e.what());
+                    qWarning() << "BatchMode merge: failed to append"
+                               << files.at(i) << ":" << e.what();
+                } catch (...) {
+                    r.success = false;
+                    r.errorMessage = QStringLiteral("Unknown error appending this file");
+                    qCritical() << "BatchMode merge: unknown error appending" << files.at(i);
+                }
+                perInput.append(r);
+                promise.setProgressValue(i + 1); // file-boundary progress
+            }
+            if (!anyAppended) {
+                // Nothing was appended: every per-input result already
+                // carries its own failure reason. Publish them 1:1 with the
+                // inputs — the old extra "output artifact" item was a
+                // phantom (lead 9).
+                for (const auto& r : perInput)
+                    promise.addResult(r);
+                return;
+            }
+            // Cancelled between the last append and the save: the accumulated
+            // pages are discarded, never written as a partial merge — and no
+            // result may claim success against an output that is never written.
+            if (promise.isCanceled()) return;
+            dst.Save(outPath.toUtf8().constData());
+            // The output exists: NOW the per-input successes are real.
+            for (const auto& r : perInput)
+                promise.addResult(r);
+        } catch (const std::exception& e) {
+            // Save failed: no output exists, so NO input may report success.
+            // Re-mark appended successes as failures — one result per input
+            // file, all truthful (lead 9's contract (b)).
+            for (auto r : perInput) {
+                if (r.success) {
+                    r.success = false;
+                    r.outputPath.clear();
+                    r.errorMessage = QStringLiteral("Merge failed — %1 (no output written)")
+                                         .arg(QString::fromUtf8(e.what()));
+                }
+                promise.addResult(r);
+            }
+            qWarning() << "BatchMode merge: save failed for" << outPath << ":" << e.what();
+        } catch (...) {
+            for (auto r : perInput) {
+                if (r.success) {
+                    r.success = false;
+                    r.outputPath.clear();
+                    r.errorMessage = QStringLiteral("Merge failed — unknown error (no output written)");
+                }
+                promise.addResult(r);
+            }
+            qCritical() << "BatchMode merge: unknown error saving" << outPath;
+        }
+    };
+    m_watcher.setFuture(QtConcurrent::run(mergeWorker));
+}
+
+// §9.12 P1 / G12: per-result accounting shared by the resultReadyAt handler
+// and the completion drain in onBatchFinished. `idx` is the worker-report
+// index (merge: strict file order; mapped ops: completion order — only the
+// count matters). The m_accountedIndices ledger guarantees every completed
+// result is reconciled EXACTLY ONCE, however its delivery races the summary.
+void BatchMode::accountResultAt(int idx) {
+    if (m_accountedIndices.contains(idx))
+        return;                 // G12: a late queued callback cannot double count
+    m_accountedIndices.insert(idx);
+    BatchFileResult res = m_watcher.resultAt(idx);
+    m_lastRunResults.append(res);   // R26-P2: per-file results incl. step records
+    int completed = m_successCount + m_failCount + m_skipCount + 1;
+    // PGR-38: the worker maps the CAPTURED list; computing progress against
+    // the live-mutable file list skewed percent/ETA when files were added or
+    // removed mid-run (the add/remove/hot-folder controls stay enabled).
+    int total = m_runFileTotal > 0 ? m_runFileTotal : m_filesToProcess.size();
+
+    // N3: a deliberate skip (skip-already-text) is its own truthful bucket —
+    // never success ("not processed" would be wrong too: nothing failed).
+    if (res.skipped) {
+        ++m_skipCount;
+        appendLog(QStringLiteral("  \xE2\x8F\xAD %1 \xe2\x80\x94 skipped: %2")
+                      .arg(QFileInfo(res.inputPath).fileName(), res.skipReason), "#7a9c6f");
+        ErrorInfo info = ErrorInfo::error(
+            tr("Skipped: %1").arg(QFileInfo(res.inputPath).fileName()),
+            res.skipReason, ErrorInfo::Skip);
+        info.sourceFile = res.inputPath;
+        m_errorLog.append(std::move(info));
+    } else if (res.success) {
+        ++m_successCount;
+        appendFileResult(res.inputPath, true, res.outputPath);
+        // §9.12 P0: a successful file can still need review (low-confidence
+        // OCR words). Log it as a warning so it lands in the summary and
+        // the exportable error log — never a silent pass.
+        if (!res.reviewNote.isEmpty()) {
+            appendLog(QStringLiteral("  \xE2\x9A\xA0 %1").arg(res.reviewNote), "#d08b2c");
+            ErrorInfo warn = ErrorInfo::warning(res.reviewNote);
+            warn.sourceFile = res.inputPath;
+            m_errorLog.append(std::move(warn));
+        }
     } else {
-        appendLog(QStringLiteral("  \xE2\x9C\x95 %1")
-            .arg(err.isEmpty() ? tr("Merge failed") : tr("Merge failed — %1").arg(err)), "#c8442b");
-        m_statusLabel->setText(tr("MERGE FAILED"));
+        ++m_failCount;
+        appendFileResult(res.inputPath, false, res.errorMessage);
+        ErrorInfo err = ErrorInfo::error(
+            tr("Failed: %1").arg(QFileInfo(res.inputPath).fileName()),
+            res.errorMessage,
+            ErrorInfo::Skip);
+        err.sourceFile = res.inputPath;
+        m_errorLog.append(std::move(err));
+        // R26-P2 U4 (plan §4.6): the FIRST batch-scoped failure's cause is the
+        // run's abort cause — reported once at completion. Both lanes feed
+        // this (the mapped lane reports the flag; only the ordered lane also
+        // drains the remainder as not-run — a recorded residual).
+        if (res.batchScoped && m_batchAbortCause.isEmpty())
+            m_batchAbortCause = tr("after %1: %2")
+                                    .arg(QFileInfo(res.inputPath).fileName(),
+                                         res.errorMessage);
     }
-    emit batchFinished();
+
+    // R26-P2 U5 (plan §3/§4.8): per-step lines under the file's result line —
+    // the measured chain (raw on-disk byte counts, never estimates). Failed
+    // steps carry the engine's techDetail as their detail.
+    for (const auto& step : res.steps) {
+        QString line = QStringLiteral("  \xE2\x86\xB3 step %1 %2 [%3]")
+                           .arg(step.stepIndex + 1)
+                           .arg(step.op, runReportStatusString(step.status));
+        if (step.bytesIn >= 0 && step.bytesOut >= 0)
+            line += QStringLiteral(" %1 B \xE2\x86\x92 %2 B")
+                        .arg(step.bytesIn).arg(step.bytesOut);
+        if (step.durationMs >= 0)
+            line += QStringLiteral(" \xC2\xB7 %1 ms").arg(step.durationMs);
+        if (!step.detail.isEmpty()
+            && step.status != BatchStepResult::Status::Ok
+            && step.status != BatchStepResult::Status::Skipped)
+            line += QStringLiteral(": %1").arg(step.detail);
+        appendLog(line, step.status == BatchStepResult::Status::Failed
+                            ? "#c8442b" : QString());
+    }
+
+    // Overall progress
+    int pct = total > 0 ? (completed * 100 / total) : 0;
+    m_overallProgress->setValue(pct);
+    m_fileProgress->setValue(pct);
+
+    // ETA calculation
+    qint64 elapsed = m_batchTimer.elapsed();
+    if (completed > 0 && completed < total) {
+        qint64 msPerFile = elapsed / completed;
+        qint64 remaining = msPerFile * (total - completed);
+        int secRemain = static_cast<int>(remaining / 1000);
+        m_etaLabel->setText(tr("ETA ~%1s").arg(secRemain));
+    } else {
+        m_etaLabel->clear();
+    }
 }
 
 void BatchMode::onCancelClicked() {
@@ -1262,12 +2730,41 @@ void BatchMode::onCancelClicked() {
 void BatchMode::onBatchProgress(int value) {
     // QFutureWatcher::progressValueChanged gives raw future progress (0..fileCount)
     // We also update from resultReadyAt which is more granular — keep this as fallback
-    int total = m_filesToProcess.size();
+    // PGR-38: same captured-total discipline as accountResultAt.
+    int total = m_runFileTotal > 0 ? m_runFileTotal : m_filesToProcess.size();
     int pct = total > 0 ? (value * 100 / total) : 0;
     m_overallProgress->setValue(pct);
+    // SEP13 leads 9+10: make the worker's own progress observable (used by
+    // the async-merge contract test; see mergeWorker for why per-item result
+    // accounting cannot stream before the merge output's fate is known).
+    emit batchProgress(value);
 }
 
 void BatchMode::onBatchFinished() {
+    // G12 (QUALITY-GATE-2026-09-09): reconcile EVERY completed result exactly
+    // once, for ALL batch modes, BEFORE the summary/finished contract. The
+    // resultReadyAt deliveries of the mapped (watermark / PDF/A / redact / …)
+    // workers are queued and can land after this finished callout — the
+    // merge-only drain left them out, so the summary showed
+    // "0 of 0 succeeded, 1 not processed" for a batch that had actually
+    // succeeded. `finished` implies every result is already reported, so read
+    // the unaccounted indices straight from the future; the ledger makes
+    // callbacks that were merely queued late no-ops.
+    const int reported = m_watcher.future().resultCount();
+    for (int i = 0; i < reported; ++i) {
+        if (!m_accountedIndices.contains(i))
+            accountResultAt(i);
+    }
+    // R26-P2 U4 (plan §4.6, N3): ONE batch-scoped cause line at completion —
+    // the run-level reason the remainder is not-run, never per-file noise.
+    // Files committed before the abort stay committed (no rollback pass
+    // exists); the unattended surface adds the watcher-stays-armed note.
+    if (!m_batchAbortCause.isEmpty()) {
+        appendLog(tr("Run aborted: %1").arg(m_batchAbortCause), "#c8442b");
+        if (m_runWasUnattended)
+            appendLog(tr("The hot folder stays armed — after the output directory "
+                         "is fixed, new drops will run again."), "#c8a000");
+    }
     m_overallProgress->setValue(100);
     m_fileProgress->setValue(100);
     m_runBtn->setEnabled(true);
@@ -1280,6 +2777,10 @@ void BatchMode::onBatchFinished() {
 
     showSummary();
     emit batchFinished();
+    // PGR-38: the run-scoped total is only meaningful while the run is the
+    // live one — reset after the completion contract so post-run reads of
+    // remainingCount() keep their historical live-list semantics.
+    m_runFileTotal = 0;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -1308,6 +2809,566 @@ QString BatchMode::lowConfidenceNote(const QList<PageOcrResult>& pages,
         .arg(lowWords).arg(pageList.join(QStringLiteral(", ")));
 }
 
+// ── §9.12 P1 seams: DPI presets + named redaction presets ────────────────────
+
+// Clamp the user-chosen target DPI into the supported engine range. Pure
+// function so the boundary is testable without driving a batch run.
+int BatchMode::resolveCompressTargetDpi(int requestedDpi) {
+    return qBound(kMinTargetDpi, requestedDpi, kMaxTargetDpi);
+}
+
+// PGR-35 (D2 delta review 2026-09-23): the cross-file output-collision rule.
+// Pure function: input[i]'s output is outputs[i]; the FIRST input (list
+// order — the same "order wins" semantics the merge uses) claiming an output
+// path keeps it, every LATER input resolving to the same path is staged as a
+// pre-flight failure with an actionable reason. Path identity is
+// case-insensitive on Windows (a.pdf and A.pdf are one NTFS/FAT file),
+// case-sensitive elsewhere. Empty outputs (unresolvable) never collide here
+// — they fail later with their own honest "no output path was resolved".
+QMap<QString, QString> BatchMode::outputCollisionBlockers(const QStringList& inputs,
+                                                          const QStringList& outputs) {
+    QMap<QString, QString> blockers;
+    QHash<QString, QString> owner;   // normalized output path -> first input claiming it
+    const int n = qMin(inputs.size(), outputs.size());
+    for (int i = 0; i < n; ++i) {
+        const QString& out = outputs.at(i);
+        if (out.isEmpty()) continue;
+        const QString key =
+#if defined(Q_OS_WIN)
+            out.toLower();
+#else
+            out;
+#endif
+        const auto it = owner.constFind(key);
+        if (it == owner.constEnd()) {
+            owner.insert(key, inputs.at(i));
+            continue;
+        }
+        blockers.insert(inputs.at(i),
+            BatchMode::tr("Output file name collision: this file's output %1 is the same "
+                          "file as the output of %2 — running would silently overwrite "
+                          "that output. Rename one of the inputs, choose a different "
+                          "output folder, or fix the preset's naming template (it needs "
+                          "{basename} or {n} to keep every output distinct).")
+                .arg(QFileInfo(out).fileName(), QFileInfo(it.value()).fileName()));
+    }
+    return blockers;
+}
+
+// The effective redaction pattern list: named-preset regex bodies first
+// (resolved through PatternRedactor::namedPattern — the SAME built-in keys
+// the interactive Redact mode consumes), then the free-form entries.
+// Unresolvable keys produce an invalid regex and are dropped (never the
+// sentinel broken pattern that namedPattern returns for unknown keys);
+// empty and duplicate patterns collapse so one span is never excised twice.
+QStringList BatchMode::effectiveRedactPatterns(const QStringList& presetKeys,
+                                               const QStringList& freeFormPatterns) {
+    QStringList result;
+    auto add = [&result](const QString& pattern) {
+        const QString t = pattern.trimmed();
+        if (!t.isEmpty() && !result.contains(t)) result << t;
+    };
+    for (const QString& key : presetKeys) {
+        const QRegularExpression rx = PatternRedactor::namedPattern(key);
+        if (rx.isValid()) add(rx.pattern());
+    }
+    for (const QString& pattern : freeFormPatterns)
+        add(pattern);
+    return result;
+}
+
+// Keys of the currently checked named-PII preset checkboxes, in panel order.
+QStringList BatchMode::checkedRedactPresetKeys() const {
+    QStringList keys;
+    for (const QCheckBox* chk : m_redactPresets)
+        if (chk && chk->isChecked())
+            keys << chk->property("presetKey").toString();
+    return keys;
+}
+
+// ── R26 (batch-presets P1): named preset surface ──────────────────────────────
+// Presets are data (plan §5.1): the picker lists saved presets with their ops,
+// "Save as preset…" captures the currently configured classic operation, and
+// the step/capability disclosure shows every step with the CapabilityRegistry's
+// answer BEFORE anything runs. The store is file-per-preset JSON under
+// <AppDataLocation>/presets (plan §2.1) — QSettings is never the source of
+// truth; the test seam re-points the root for settings isolation.
+
+QString BatchMode::s_presetStoreDirForTest;
+
+BatchPresetStore BatchMode::presetStore() {
+    // Re-built per call (never a static local): a test may re-point the store
+    // directory between BatchMode construction and use.
+    return BatchPresetStore(s_presetStoreDirForTest);
+}
+
+void BatchMode::setPresetStoreDirForTest(const QString& dir) {
+    s_presetStoreDirForTest = dir;
+}
+
+void BatchMode::buildPresetPanel(QWidget* host) {
+    auto* lay = new QVBoxLayout(host);
+
+    // Broken-file disclosure: a preset file this build refuses to load is
+    // never silently hidden from the user (store honesty surface).
+    m_presetBrokenLabel = new QLabel;
+    m_presetBrokenLabel->setWordWrap(true);
+    m_presetBrokenLabel->setStyleSheet("color:#c8442b; font-size:10px;");
+    m_presetBrokenLabel->hide();
+
+    m_presetCombo = new QComboBox;
+    m_presetCombo->setObjectName(QStringLiteral("batchPresetPicker"));
+
+    m_presetStepsLabel = new QLabel(tr("No preset selected."));
+    m_presetStepsLabel->setObjectName(QStringLiteral("batchPresetStepsLabel"));
+    m_presetStepsLabel->setWordWrap(true);
+    m_presetStepsLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+    m_presetStepsLabel->setStyleSheet("color:#71747a; font-size:10px;");
+
+    auto* btnRow = new QHBoxLayout;
+    auto* saveBtn = new QPushButton(tr("Save as preset…"));
+    saveBtn->setObjectName(QStringLiteral("batchPresetSaveBtn"));
+    saveBtn->setToolTip(tr("Save the currently configured operation as a reusable preset.\n"
+                           "Convert, Merge and OCR runs cannot be saved as presets in this "
+                           "version."));
+    auto* renameBtn = new QPushButton(tr("Rename…"));
+    renameBtn->setObjectName(QStringLiteral("batchPresetRenameBtn"));
+    auto* deleteBtn = new QPushButton(tr("Delete"));
+    deleteBtn->setObjectName(QStringLiteral("batchPresetDeleteBtn"));
+    // R26-P2 U7 (plan §4.9): the manager dialog — duplicate, multi-step
+    // editing, import/export and the broken-file disclosure; on accept the
+    // picker refreshes and re-selects what the manager left selected (Run…
+    // from the manager selects that preset here).
+    auto* manageBtn = new QPushButton(tr("Manage presets…"));
+    manageBtn->setObjectName(QStringLiteral("batchPresetManageBtn"));
+    connect(manageBtn, &QPushButton::clicked, this, [this] {
+        PresetManagerDialog dlg(m_ctx ? m_ctx->capabilities.get() : nullptr, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            const QString id = dlg.selectedIdForTest();
+            refreshPresetPicker(id);
+        }
+    });
+    btnRow->addWidget(saveBtn);
+    btnRow->addWidget(renameBtn);
+    btnRow->addWidget(deleteBtn);
+    btnRow->addWidget(manageBtn);
+    btnRow->addStretch(1);
+
+    lay->addWidget(m_presetBrokenLabel);
+    lay->addWidget(new QLabel(tr("Preset:")));
+    lay->addWidget(m_presetCombo);
+    lay->addWidget(m_presetStepsLabel, 1);
+    lay->addLayout(btnRow);
+
+    lay->addWidget(new QLabel(tr("Output Folder:")));
+    auto* dirRow = new QHBoxLayout;
+    m_presetOutDir = new QLineEdit;
+    m_presetOutDir->setObjectName(QStringLiteral("batchPresetOutDir"));
+    m_presetOutDir->setPlaceholderText(tr("Same folder as source"));
+    auto* pickBtn = new QPushButton(tr("…"));
+    pickBtn->setFixedWidth(28);
+    dirRow->addWidget(m_presetOutDir);
+    dirRow->addWidget(pickBtn);
+    lay->addLayout(dirRow);
+    connect(pickBtn, &QPushButton::clicked, this, [this]() {
+        QString dir = QFileDialog::getExistingDirectory(this, tr("Select Output Folder"));
+        if (!dir.isEmpty()) m_presetOutDir->setText(dir);
+    });
+    lay->addStretch(1);
+
+    connect(m_presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &BatchMode::onPresetSelected);
+    connect(saveBtn,   &QPushButton::clicked, this, &BatchMode::onSaveAsPresetClicked);
+    connect(renameBtn, &QPushButton::clicked, this, &BatchMode::onRenamePresetClicked);
+    connect(deleteBtn, &QPushButton::clicked, this, &BatchMode::onDeletePresetClicked);
+
+    refreshPresetPicker();
+}
+
+void BatchMode::refreshPresetPicker(const QString& selectId) {
+    if (!m_presetCombo)
+        return;
+    QSignalBlocker block(m_presetCombo);
+    m_presetCombo->clear();
+
+    const auto store = presetStore();
+    const auto presets = store.list();
+    for (const BatchPreset& p : presets) {
+        // The picker lists each preset WITH the ops it contains (the honest
+        // "what will this run?" summary at a glance).
+        QStringList ops;
+        for (const BatchPresetStep& s : p.steps)
+            ops << s.op;
+        m_presetCombo->addItem(
+            QStringLiteral("%1 (%2)").arg(p.name, ops.join(QStringLiteral(", "))), p.id);
+    }
+    if (presets.isEmpty()) {
+        // Honest empty state: say HOW a preset is created instead of showing
+        // a dead picker.
+        m_presetCombo->addItem(
+            tr("(no presets saved yet \u2014 configure an operation and choose "
+               "\u201cSave as preset\u2026\u201d)"), QString());
+    }
+
+    const auto broken = store.brokenFiles();
+    if (broken.isEmpty()) {
+        m_presetBrokenLabel->clear();
+        m_presetBrokenLabel->hide();
+    } else {
+        m_presetBrokenLabel->setText(
+            tr("%1 unreadable preset file(s) in the preset store will not run \u2014 delete or "
+               "fix them. First: %2")
+                .arg(broken.size())
+                .arg(QFileInfo(broken.first().path).fileName()
+                     + QStringLiteral(" \u2014 ") + broken.first().error));
+        m_presetBrokenLabel->show();
+    }
+
+    int sel = selectId.isEmpty() ? -1 : m_presetCombo->findData(selectId);
+    if (sel < 0)
+        sel = 0;   // placeholder (empty store) or first preset
+    m_presetCombo->setCurrentIndex(sel);
+    block.unblock();
+    onPresetSelected(m_presetCombo->currentIndex());
+}
+
+void BatchMode::onPresetSelected(int index) {
+    m_presetSelected = false;
+    m_selectedPreset = BatchPreset{};
+    if (!m_presetCombo || !m_presetStepsLabel)
+        return;
+    const QString id = m_presetCombo->itemData(index).toString();
+    if (id.isEmpty()) {
+        m_presetStepsLabel->setText(tr("No preset selected."));
+        return;
+    }
+    BatchPreset p;
+    QString err;
+    if (!presetStore().get(id, &p, &err)) {
+        // The store changed underneath the picker (external delete/corrupt):
+        // disclose, never pretend the preset is runnable.
+        m_presetStepsLabel->setText(tr("Preset could not be loaded: %1").arg(err));
+        return;
+    }
+    m_selectedPreset = p;
+    m_presetSelected = true;
+    m_presetStepsLabel->setText(
+        presetStepsDisplayText(p, m_ctx ? m_ctx->capabilities.get() : nullptr));
+}
+
+QString BatchMode::presetStepsDisplayText(const BatchPreset& preset,
+                                          const gp::CapabilityRegistry* capabilities) {
+    QStringList lines;
+    lines << QObject::tr("Steps (%1):").arg(preset.steps.size());
+    for (int i = 0; i < preset.steps.size(); ++i) {
+        const BatchPresetStep& step = preset.steps.at(i);
+        QString line = QStringLiteral("  %1. %2").arg(i + 1).arg(step.op);
+        if (!step.label.isEmpty())
+            line += QStringLiteral(" \u2014 %1").arg(step.label);
+        lines << line;
+    }
+    // Design-time capability disclosure (plan §5.2): every non-Available step
+    // shows the registry's whyNot + alternative. A disclosed-unavailable step
+    // will refuse to run — the display says so before the user tries.
+    for (int i = 0; i < preset.steps.size(); ++i) {
+        const BatchPresetStep& step = preset.steps.at(i);
+        const Capability c = batchPresetStepCapability(step, capabilities);
+        if (c.status != Availability::Available)
+            lines << QStringLiteral("  \u26A0 %1: %2")
+                         .arg(step.op, CapabilityRegistry::combineWhyNot(c));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString BatchMode::presetRunBlocker() const {
+    if (!m_presetSelected)
+        return tr("Select a preset to run first.");
+    if (m_selectedPreset.steps.isEmpty())
+        return tr("Preset \u201c%1\u201d has no steps \u2014 nothing to run.")
+                   .arg(m_selectedPreset.name);
+    const gp::CapabilityRegistry* caps = m_ctx ? m_ctx->capabilities.get() : nullptr;
+    for (const BatchPresetStep& step : m_selectedPreset.steps) {
+        const Capability c = batchPresetStepCapability(step, caps);
+        if (c.status == Availability::UnavailableRuntime
+            || c.status == Availability::UnavailableBuild)
+            return tr("Step \u201c%1\u201d cannot run: %2")
+                       .arg(step.op, CapabilityRegistry::combineWhyNot(c));
+    }
+    if (!m_selectedPreset.minAppVersion.isEmpty()) {
+        const QString appVersion = QCoreApplication::applicationVersion();
+        if (!appVersion.isEmpty()
+            && BatchPresetSchema::compareVersions(appVersion,
+                                                  m_selectedPreset.minAppVersion) < 0)
+            return tr("This preset requires GlyphPDF %1 or newer (this app reports %2).")
+                       .arg(m_selectedPreset.minAppVersion, appVersion);
+    }
+    return {};
+}
+
+bool BatchMode::captureConfiguredOpAsPreset(const QString& name, QString* err) {
+    const auto failWith = [err](const QString& message) {
+        if (err) *err = message;
+        return false;
+    };
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty())
+        return failWith(tr("Enter a name for the preset."));
+
+    const int opIdx = m_opCombo ? m_opCombo->currentIndex() : 0;
+
+    BatchPreset p;
+    p.name = trimmed;
+    p.created = p.modified = QDateTime::currentDateTimeUtc();
+    if (!QCoreApplication::applicationVersion().isEmpty())
+        p.authorApp = QStringLiteral("GlyphPDF %1")
+                          .arg(QCoreApplication::applicationVersion());
+
+    BatchPresetStep step;
+    switch (opIdx) {
+    case OpCompress: {
+        step.op = QStringLiteral("compress");
+        step.params.insert(QStringLiteral("quality"),
+                           m_qualitySlider ? m_qualitySlider->value() : 75);
+        step.params.insert(QStringLiteral("targetDpi"),
+                           m_dpiSpin ? m_dpiSpin->value() : kDefaultTargetDpi);
+        break;
+    }
+    case OpWatermark: {
+        step.op = QStringLiteral("watermark");
+        const QString text = m_wmTextEdit ? m_wmTextEdit->text().trimmed() : QString();
+        step.params.insert(QStringLiteral("text"),
+                           text.isEmpty() ? QStringLiteral("CONFIDENTIAL") : text);
+        step.params.insert(QStringLiteral("opacity"),
+                           m_wmOpacity ? m_wmOpacity->value() : 30);
+        break;
+    }
+    case OpExportPdfA: {
+        step.op = QStringLiteral("pdfa-export");
+        // The combo's data codes are the engine's conformance codes
+        // (1=1B, 2=2B, 4=2U, 3=3B, 5=3U) — mapped back to the schema strings.
+        static const QHash<int, QString> levelNames = {
+            { 1, QStringLiteral("1b") }, { 2, QStringLiteral("2b") },
+            { 4, QStringLiteral("2u") }, { 3, QStringLiteral("3b") },
+            { 5, QStringLiteral("3u") } };
+        const int code = m_pdfaLevel ? m_pdfaLevel->currentData().toInt() : 2;
+        step.params.insert(QStringLiteral("level"),
+                           levelNames.value(code, QStringLiteral("2b")));
+        break;
+    }
+    case OpRedact: {
+        step.op = QStringLiteral("redact");
+        const QStringList presets = checkedRedactPresetKeys();
+        const QStringList freeForm = m_redactPatterns
+            ? m_redactPatterns->text().split(QLatin1Char(','), Qt::SkipEmptyParts)
+            : QStringList();
+        if (effectiveRedactPatterns(presets, freeForm).isEmpty())
+            return failWith(tr("This redaction configuration has no effective patterns \u2014 "
+                               "check a quick preset or enter a regex before saving it as a "
+                               "preset."));
+        step.params.insert(QStringLiteral("presets"), presets);
+        QStringList trimmedPatterns;
+        for (const QString& pattern : freeForm) {
+            const QString t = pattern.trimmed();
+            if (!t.isEmpty()) trimmedPatterns << t;
+        }
+        step.params.insert(QStringLiteral("patterns"), trimmedPatterns);
+        break;
+    }
+    default:
+        return failWith(tr("Convert, Merge and OCR runs cannot be saved as presets in this "
+                           "version \u2014 only Compress, Watermark, Export PDF/A and Redact."));
+    }
+    p.steps.append(step);
+
+    auto store = presetStore();
+    if (!store.save(&p, err))
+        return false;
+    refreshPresetPicker(p.id);
+    // Switch to the Preset Pipeline showing the fresh preset - the configured
+    // run has been captured; what follows is the preset view of it (and a
+    // following Run would otherwise re-run the captured classic op).
+    m_opCombo->setCurrentIndex(OpPresetPipeline);
+    return true;
+}
+
+void BatchMode::onSaveAsPresetClicked() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Save as Preset"));
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel(tr("Preset name:"), &dlg));
+    auto* edit = new QLineEdit(&dlg);
+    edit->setObjectName(QStringLiteral("presetNameEdit"));
+    lay->addWidget(edit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    lay->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    QString err;
+    if (!captureConfiguredOpAsPreset(edit->text(), &err)) {
+        QMessageBox::warning(this, tr("Save as Preset"), err);
+        return;
+    }
+    appendLog(tr("Preset saved: %1").arg(edit->text().trimmed()), "#5b9bd5");
+}
+
+void BatchMode::onRenamePresetClicked() {
+    if (!m_presetSelected) {
+        QMessageBox::information(this, tr("Rename Preset"),
+            tr("Select a preset to rename first."));
+        return;
+    }
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Rename Preset"));
+    auto* lay = new QVBoxLayout(&dlg);
+    lay->addWidget(new QLabel(tr("New name:"), &dlg));
+    auto* edit = new QLineEdit(m_selectedPreset.name, &dlg);
+    edit->setObjectName(QStringLiteral("presetRenameEdit"));
+    lay->addWidget(edit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    lay->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    if (dlg.exec() != QDialog::Accepted)
+        return;
+    QString err;
+    if (!renamePresetForTest(m_selectedPreset.id, edit->text(), &err)) {
+        QMessageBox::warning(this, tr("Rename Preset"), err);
+        return;
+    }
+    appendLog(tr("Preset renamed: %1").arg(edit->text().trimmed()), "#5b9bd5");
+}
+
+void BatchMode::onDeletePresetClicked() {
+    if (!m_presetSelected) {
+        QMessageBox::information(this, tr("Delete Preset"),
+            tr("Select a preset to delete first."));
+        return;
+    }
+    // Files are user data — deletion is confirmed (default No).
+    const auto btn = QMessageBox::question(this, tr("Delete Preset?"),
+        tr("Delete preset \u201c%1\u201d?\n\nThe preset file will be removed from disk. This "
+           "cannot be undone.").arg(m_selectedPreset.name),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (btn != QMessageBox::Yes)
+        return;
+    QString err;
+    if (!deletePresetForTest(m_selectedPreset.id, &err)) {
+        QMessageBox::warning(this, tr("Delete Preset"), err);
+        return;
+    }
+    appendLog(tr("Preset deleted: %1").arg(m_selectedPreset.name), "#71747a");
+}
+
+bool BatchMode::saveConfiguredOpAsPresetForTest(const QString& name, QString* err) {
+    return captureConfiguredOpAsPreset(name, err);
+}
+
+bool BatchMode::selectPresetForTest(const QString& id) {
+    if (!m_presetCombo)
+        return false;
+    const int idx = m_presetCombo->findData(id);
+    if (idx < 0)
+        return false;
+    m_presetCombo->setCurrentIndex(idx);   // fires onPresetSelected
+    return true;
+}
+
+QString BatchMode::presetStepsDisplayForTest() const {
+    return m_presetStepsLabel ? m_presetStepsLabel->text() : QString();
+}
+
+QStringList BatchMode::presetIdsForTest() const {
+    QStringList ids;
+    if (!m_presetCombo)
+        return ids;
+    for (int i = 0; i < m_presetCombo->count(); ++i) {
+        const QString id = m_presetCombo->itemData(i).toString();
+        if (!id.isEmpty())
+            ids << id;
+    }
+    return ids;
+}
+
+bool BatchMode::renamePresetForTest(const QString& id, const QString& newName, QString* err) {
+    auto store = presetStore();
+    if (!store.rename(id, newName, err))
+        return false;
+    refreshPresetPicker(id);
+    return true;
+}
+
+bool BatchMode::deletePresetForTest(const QString& id, QString* err) {
+    auto store = presetStore();
+    if (!store.remove(id, err))
+        return false;
+    if (m_presetSelected && m_selectedPreset.id == id) {
+        m_presetSelected = false;
+        m_selectedPreset = BatchPreset{};
+    }
+    refreshPresetPicker();
+    return true;
+}
+
+// ── R26-P2 (batch-presets P2) ─────────────────────────────────────────────────
+
+// Lane rule of record (plan §4.2): bates-bearing presets run on the ordered
+// lane — cross-file continuity is a loop invariant there, never an accident
+// of scheduling. Pure function.
+bool BatchMode::presetNeedsOrderedLane(const BatchPreset& preset) {
+    for (const BatchPresetStep& step : preset.steps)
+        if (step.op == QLatin1String("bates"))
+            return true;
+    return false;
+}
+
+// ── U08 pre-flight seams ──────────────────────────────────────────────────────
+
+// Pure function: a non-empty result blocks the file BEFORE any worker runs.
+// Capability answers come from the registry (cached, GUI-thread probed); the
+// input-existence check mirrors the engine's own first validation so a bad
+// path fails at disclosure time instead of inside the pipeline.
+QString BatchMode::preFlightBlocker(int opIndex, const QString& inputPath,
+                                    const gp::CapabilityRegistry* capabilities) {
+    if (!QFileInfo::exists(inputPath))
+        return BatchMode::tr("Input file not found: %1").arg(inputPath);
+
+    if (opIndex == OpOCR && capabilities) {
+        // Batch OCR runs the Tesseract pipeline (PrimaryOnly) — apply the same
+        // honest engine-availability gate the interactive path applies.
+        const gp::Capability tesseract = capabilities->query(gp::CapId::OcrTesseract);
+        if (tesseract.status != gp::Availability::Available)
+            return gp::CapabilityRegistry::combineWhyNot(tesseract);
+    }
+    return QString();
+}
+
+// Pure function of the persisted prefs + capabilities (QSettings read happens
+// on the GUI thread at capture time in onRunClicked). Reports the ONE batch
+// option that intentionally does not apply: the engine selection. Batch OCR
+// always runs Tesseract PrimaryOnly, while the interactive path may use
+// RapidOCR/ensemble (either explicitly, or via "auto" when the PP-OCRv5
+// models are installed).
+QString BatchMode::preFlightReviewNote(int opIndex,
+                                       const gp::CapabilityRegistry* capabilities) {
+    if (opIndex != OpOCR)
+        return QString();
+
+    const QString engineKey = QSettings().value(
+        QStringLiteral("ocr/engine"), QStringLiteral("auto")).toString();
+    const bool autoSelect = engineKey.isEmpty() || engineKey == QStringLiteral("auto");
+    const bool rapidPreferred =
+        engineKey == QStringLiteral("rapidocr")
+        || engineKey == QStringLiteral("ensemble")
+        || (autoSelect && capabilities && capabilities->available(gp::CapId::OcrRapidModels));
+    if (!rapidPreferred)
+        return QString();
+
+    return BatchMode::tr("Batch OCR runs the Tesseract engine only — the "
+                         "RapidOCR/ensemble engine selection is not applied in batch.");
+}
+
 void BatchMode::appendLog(const QString& text, const QString& color) {
     if (color.isEmpty())
         m_logView->append(text);
@@ -1326,19 +3387,42 @@ void BatchMode::appendFileResult(const QString& file, bool success, const QStrin
 }
 
 void BatchMode::showSummary() {
-    int total    = m_successCount + m_failCount;
+    // N3: skipped files are part of the honest total (they WERE looked at and
+    // deliberately left alone), reported in their own bucket.
+    int total    = m_successCount + m_failCount + m_skipCount;
     int warnings = m_errorLog.warningCount();
+    // U08: remaining = files neither succeeded nor failed (mid-run this is the
+    // in-flight tail; after a cancel these were NOT processed — say so).
+    const int remaining = remainingCount();
 
     QString summary = tr("BATCH COMPLETE — %1 of %2 succeeded").arg(m_successCount).arg(total);
     if (m_failCount > 0)
         summary += tr(", %1 failed").arg(m_failCount);
+    if (m_skipCount > 0)
+        summary += tr(", %1 skipped (already contained text)").arg(m_skipCount);
     if (warnings > 0)
         summary += tr(", %1 warnings").arg(warnings);
+    if (remaining > 0)
+        summary += tr(", %1 not processed").arg(remaining);
     if (m_watcher.isCanceled())
         summary += tr(" [CANCELLED]");
 
     appendLog(QString());
     appendLog(summary, m_failCount > 0 ? "#c8442b" : "#4ec96d");
+
+    // F2a-F1 (SWEEP-W3-UX): "BATCH COMPLETE — N of M succeeded" alone never
+    // says WHAT the batch produced. For a merge the ONE thing the user needs
+    // to know is the combined output's location, and the per-input lines only
+    // show input names. Name the output — but only when the merge actually
+    // committed it: the worker publishes successes solely after the save, so
+    // a cancelled or failed merge (successCount 0, no output on disk) is
+    // never dressed up as one that wrote a file.
+    if (!m_mergeOutputPath.isEmpty() && m_successCount > 0) {
+        appendLog(tr("Merged output: %1").arg(QFileInfo(m_mergeOutputPath)
+                                                  .absoluteFilePath()), "#4ec96d");
+        summary += tr(" — merged into %1")
+                       .arg(QFileInfo(m_mergeOutputPath).fileName());
+    }
 
     m_statusLabel->setText(summary);
     m_exportLogBtn->setVisible(m_errorLog.count() > 0);
@@ -1347,6 +3431,21 @@ void BatchMode::showSummary() {
 // ── Export log (D4) ────────────────────────────────────────────────────────────
 
 void BatchMode::onExportLog() {
+    // R26-P2 U5 (plan §3/§4.8): a PRESET run's Export Log exports the per-step
+    // measured-bytes run report (JSON/CSV by extension). Classic runs keep
+    // exporting the error log — nothing about their surface changes.
+    if (m_lastRunWasPreset && !m_lastRunResults.isEmpty()) {
+        QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Run Report"), {},
+            tr("JSON (*.json);;CSV (*.csv);;All Files (*)"));
+        if (path.isEmpty()) return;
+        if (exportRunReport(path))
+            appendLog(tr("Run report exported to %1").arg(path), "#5b9bd5");
+        else
+            appendLog(tr("Failed to export run report to %1").arg(path), "#c8442b");
+        return;
+    }
+
     if (m_errorLog.count() == 0) return;
 
     QString path = QFileDialog::getSaveFileName(
@@ -1362,6 +3461,108 @@ void BatchMode::onExportLog() {
         appendLog(tr("Log exported to %1").arg(path), "#5b9bd5");
     else
         appendLog(tr("Failed to export log to %1").arg(path), "#c8442b");
+}
+
+// ── R26-P2 U5 (plan §3/§4.8): the per-step measured-bytes report ──────────────
+// Pure formatters over the run's per-file results. The artifact carries raw,
+// measured byte counts (M8 readout honesty: verifiable numbers, no estimates,
+// no humanized rounding) and one record per step in chain order.
+
+QByteArray BatchMode::runReportJson(const QList<BatchFileResult>& results) {
+    QJsonArray arr;
+    for (const auto& r : results) {
+        QJsonObject f;
+        f["input"]  = r.inputPath;
+        f["output"] = r.outputPath;
+        f["status"] = r.skipped ? QStringLiteral("skipped")
+                                : (r.success ? QStringLiteral("ok")
+                                             : QStringLiteral("failed"));
+        if (!r.errorMessage.isEmpty())
+            f["error"] = r.errorMessage;
+        if (!r.skipReason.isEmpty())
+            f["skipReason"] = r.skipReason;
+        f["batchScoped"] = r.batchScoped;
+        QJsonArray steps;
+        for (const auto& s : r.steps) {
+            QJsonObject o;
+            o["index"]      = s.stepIndex + 1;   // 1-based, chain order
+            o["op"]         = s.op;
+            o["label"]      = s.label;
+            o["status"]     = runReportStatusString(s.status);
+            // QJsonValue stores numbers as double — exact for file sizes
+            // (well below 2^53).
+            o["bytesIn"]    = static_cast<double>(s.bytesIn);
+            o["bytesOut"]   = static_cast<double>(s.bytesOut);
+            o["durationMs"] = static_cast<double>(s.durationMs);
+            o["firstBates"] = s.firstBates;
+            o["lastBates"]  = s.lastBates;
+            o["detail"]     = s.detail;
+            steps.append(o);
+        }
+        f["steps"] = steps;
+        arr.append(f);
+    }
+    return QJsonDocument(arr).toJson(QJsonDocument::Indented);
+}
+
+QByteArray BatchMode::runReportCsv(const QList<BatchFileResult>& results) {
+    // RFC-4180: CRLF record separators, every field quoted, embedded quotes
+    // doubled. One row per step (chain order); a file without step records
+    // (skipped / not-run) is one row with empty step fields — the
+    // files-not-attempted list rides the artifact.
+    auto esc = [](const QString& s) {
+        QString t = s;
+        t.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+        return QStringLiteral("\"%1\"").arg(t);
+    };
+    const auto num = [](qint64 v) {
+        return v < 0 ? QString() : QString::number(v);
+    };
+    QByteArray out;
+    const auto row = [&](const QStringList& fields) {
+        for (const QString& field : fields)
+            out += esc(field).toUtf8() + ',';
+        out[out.size() - 1] = '\r';
+        out += '\n';
+    };
+    row({ QStringLiteral("File"), QStringLiteral("Output"), QStringLiteral("Status"),
+          QStringLiteral("Step"), QStringLiteral("Op"), QStringLiteral("StepStatus"),
+          QStringLiteral("BytesIn"), QStringLiteral("BytesOut"),
+          QStringLiteral("DurationMs"), QStringLiteral("FirstBates"),
+          QStringLiteral("LastBates"), QStringLiteral("Detail") });
+    for (const auto& r : results) {
+        const QString status = r.skipped ? QStringLiteral("skipped")
+                                         : (r.success ? QStringLiteral("ok")
+                                                      : QStringLiteral("failed"));
+        const QString detail = r.skipped ? r.skipReason : r.errorMessage;
+        if (r.steps.isEmpty()) {
+            row({ r.inputPath, r.outputPath, status, {}, {}, {},
+                  {}, {}, {}, {}, {}, detail });
+            continue;
+        }
+        for (const auto& s : r.steps) {
+            row({ r.inputPath, r.outputPath, status,
+                  QString::number(s.stepIndex + 1), s.op,
+                  runReportStatusString(s.status),
+                  num(s.bytesIn), num(s.bytesOut), num(s.durationMs),
+                  num(s.firstBates), num(s.lastBates),
+                  s.status == BatchStepResult::Status::Skipped ? QString() : s.detail });
+        }
+    }
+    return out;
+}
+
+bool BatchMode::exportRunReport(const QString& path) const {
+    const QByteArray payload = path.endsWith(QLatin1String(".csv"), Qt::CaseInsensitive)
+        ? runReportCsv(m_lastRunResults)
+        : runReportJson(m_lastRunResults);
+    QFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    const qint64 written = f.write(payload);
+    // Verify the full payload was written without an IO error before claiming
+    // success (the ErrorLog::export* discipline).
+    return written == payload.size() && f.error() == QFileDevice::NoError;
 }
 
 } // namespace gp

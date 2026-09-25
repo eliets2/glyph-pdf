@@ -38,6 +38,10 @@ enum class ToolId {
     DarkMode,
     EyeCare,
     RTL,          // AR-8 D6: toggle right-to-left layout direction
+    // Night Mode: content-level colour inversion of the rendered page pixels
+    // (PdfViewerWidget::toggleNightMode) — distinct from DarkMode (application
+    // chrome only) and EyeCare (a sepia tint over a still-white page).
+    NightMode,
 
     // ── Edit ──
     Hand,
@@ -137,6 +141,48 @@ enum class ToolId {
     PatternRedact,
     RegexRedact,
     ExpiryDate,
+
+    // ── T2-6: dynamic stamps + library ──
+    // Appended AFTER ExpiryDate so existing ToolId ordinals stay stable.
+    // Not persisted anywhere (ToolMode ordinals are the persisted ones), but
+    // the append-only rule keeps ToolId.cpp tables reviewable.
+    StampApproved,
+    StampDraft,
+    StampConfidential,
+    StampReceived,
+    StampReviewed,
+    StampLibraryManage,
+
+    // ── T2-9: auto-bookmarks from text styles ──
+    AutoBookmarks,
+
+    // ── R15: promoted planned entries (canonical command identity) ──
+    // Appended AFTER AutoBookmarks so existing ToolId ordinals stay stable
+    // (same append-only rule as the stamp ids above). These ids give the
+    // formerly hidden ribbon entries ONE canonical dispatch/enablement
+    // identity through ToolRegistry + TaskNav.
+    FindReplace,       // T2-2 dialog route (ribbon "findRep" / "regex")
+    Measure,           // T1 measure task panel (ribbon "measure")
+    MeasureDistance,   // ribbon "distance"
+    MeasureArea,       // ribbon "area"
+    OcrVerify,         // OCR Verify screen (ribbon "ocrVerify")
+    OcrLanguage,       // OCR Verify screen language selection (ribbon "ocrLang")
+    PanePages,         // View ▸ Panes: thumbnails (ribbon "thumbs")
+    PaneBookmarks,     // View ▸ Panes: bookmarks panel
+    PaneComments,      // View ▸ Panes: comments review list
+    PaneLayers,        // View ▸ Panes: OCG layer list
+    BatchConvert,      // Batch workspace (ribbon "batchConv")
+    WatchFolder,       // Batch hot-folder section (ribbon "watch")
+
+    // ── N17 (parity 2026-09-14): certificate-encryption recipient picker ──
+    // Appended AFTER WatchFolder so existing ToolId ordinals stay stable
+    // (same append-only rule as the stamp/auto-bookmark ids above).
+    CertEncrypt,       // Protect ▸ Security "Encrypt (Certs)" (ribbon "certEncrypt")
+
+    // ── R26: send-for-signing workflow (single-document request) ───────────
+    // Appended AFTER CertEncrypt so existing ToolId ordinals stay stable
+    // (same append-only rule).
+    PrepareSigningRequest, // Protect ▸ Sign "Prepare Request" (ribbon "prepareSigningReq")
 
     COUNT  // sentinel for array sizing — must be last
 };
