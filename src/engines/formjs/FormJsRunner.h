@@ -107,6 +107,29 @@ public:
                                             const QString& proposedValue,
                                             int eventDeadlineMs = 250);
 
+    // ── CX-05: the commit-phase Keystroke check ──────────────────────────────
+    //
+    // Runs the named field's /AA /K script with event.willCommit=true and
+    // event.value = the FULL proposed value — the commit phase Acrobat fires
+    // when an edit is confirmed. The AF*_Keystroke shims validate the final
+    // value ONLY in this phase (with willCommit=false they are deliberate
+    // no-ops), so a commit path that never runs it silently accepts
+    // unparseable values into /V. Shares ValidateOutcome so the host gates
+    // /K-commit → /V → commit uniformly:
+    //   * no runnable /AA /K (the common case) → ran=false, the proposal
+    //     commits as it always has;
+    //   * ok + rc=true → allowed; valueToCommit carries the script's
+    //     transformed event.value when it set one, otherwise the proposal;
+    //   * rc=false → NOT allowed (kind "rejected") — the proposal must NOT
+    //     be committed; the field keeps its previous /V;
+    //   * any script failure (timeout/memory/syntax/exception) → NOT allowed
+    //     (fail closed): the change is refused and disclosed. Transaction
+    //     policy unchanged: the user's OTHER fields still commit.
+    static ValidateOutcome runKeystrokeCommitCheck(PoDoFo::PdfMemDocument& doc,
+                                                   const QString& name,
+                                                   const QString& proposedValue,
+                                                   int eventDeadlineMs = 250);
+
     // ── P2 (R18f): the Keystroke event — the Qt line-edit layer ──────────────
     //
     // Runs the named field's /AA /K (Keystroke) script for ONE text-changing

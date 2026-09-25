@@ -1,0 +1,16 @@
+********* Start testing of TestFormSafety *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormSafety::initTestCase()
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Added numeric field "cx05_num" on page 0
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Added date field "cx05_date" on page 0
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormSafety-yejxQf/cx05-fill.pdf"
+QWARN  : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() fillForm: keystroke-commit blocked "cx05_num" ( "rejected" ): "the field's Keystroke script set event.rc = false; the value was not committed"
+QWARN  : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() fillForm: keystroke-commit blocked "cx05_date" ( "rejected" ): "the field's Keystroke script set event.rc = false; the value was not committed"
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormSafety-yejxQf/cx05-fill.pdf"
+PASS   : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues()
+QDEBUG : TestFormSafety::numericDateCommitGateGuardsUiApplyValue() Added numeric field "cx05_num" on page 0
+QWARN  : TestFormSafety::numericDateCommitGateGuardsUiApplyValue() applyFieldSnapshot: keystroke-commit blocked "cx05_num" ( "rejected" ): "the field's Keystroke script set event.rc = false; the value was not committed"
+PASS   : TestFormSafety::numericDateCommitGateGuardsUiApplyValue()
+PASS   : TestFormSafety::cleanupTestCase()
+Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 303ms
+********* Finished testing of TestFormSafety *********

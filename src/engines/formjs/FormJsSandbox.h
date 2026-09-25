@@ -120,6 +120,22 @@ public:
                                    int selStart, int selEnd,
                                    int deadlineMs);
 
+    // CX-05: the COMMIT phase of the same /AA /K event. Acrobat fires the
+    // authored Keystroke script a second time when the edit is confirmed —
+    // event.willCommit=true, event.value = the FULL proposed value, no
+    // pending change (AFMergeChange returns event.value as-is). The
+    // AF*_Keystroke shims gate their final-value checks on willCommit: with
+    // the typed-layer runner's hard-coded willCommit=false they are
+    // deliberate no-ops, so an app-authored AFNumber_Keystroke /
+    // AFDate_KeystrokeEx could never reject an unparseable committed value.
+    // Same contract as runEvent: ONE absolute whole-operation deadline
+    // spanning setup, script, exception reads and result collection; zero
+    // I/O; egress verbs recorded.
+    JsEvalResult runKeystrokeCommitEvent(const QString& script,
+                                         const QString& fieldName,
+                                         const QString& proposedValue,
+                                         int deadlineMs);
+
     // Evaluates a snippet in the shim's context and returns its string result
     // (used by tests and by the clock seam; not for authored scripts).
     bool evalHelper(const QString& code, QString* result, QString* error);

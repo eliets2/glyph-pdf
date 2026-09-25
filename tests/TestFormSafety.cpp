@@ -678,7 +678,14 @@ void TestFormSafety::autoDetectPartialFailureCountsAccuratelyAndStaysRecoverable
     // placement through the session's reloadRequested signal (emitted exactly
     // once per successful redo, never on the obsolete failure path), so this
     // handler arms the fault only once the first field is already placed.
+    // ARM AT MOST ONCE: later session writes inside this test (the Undo /
+    // Redo bookkeeping below runs AFTER the seam has been reset) must not
+    // re-arm the global static seam — that leaked an armed fault into every
+    // subsequent test function.
+    bool faultArmed = false;
     QObject::connect(&doc, &DocumentSession::reloadRequested, [&]() {
+        if (faultArmed) return;
+        faultArmed = true;
         FormManager::setSaveFaultForTesting(FormManager::SaveFault::CandidateSave);
     });
 

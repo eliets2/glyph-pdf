@@ -338,6 +338,23 @@ JsEvalResult FormJsSandbox::runKeystrokeEvent(const QString& script,
     return runScriptedEvent(script, fieldName, QStringLiteral("Keystroke"), setup, deadlineMs);
 }
 
+JsEvalResult FormJsSandbox::runKeystrokeCommitEvent(const QString& script,
+                                                    const QString& fieldName,
+                                                    const QString& proposedValue,
+                                                    int deadlineMs)
+{
+    // CX-05: the commit phase of the /AA /K event — willCommit=true and
+    // event.value = the FULL proposed value. No pending change/sel range:
+    // on a commit event AFMergeChange returns event.value itself, which is
+    // exactly the final-value semantics the AF*_Keystroke shims gate on.
+    QJsonObject setup;
+    setup.insert(QStringLiteral("name"), fieldName);
+    setup.insert(QStringLiteral("value"), proposedValue);
+    setup.insert(QStringLiteral("eventKind"), QStringLiteral("Keystroke"));
+    setup.insert(QStringLiteral("willCommit"), true);
+    return runScriptedEvent(script, fieldName, QStringLiteral("Keystroke"), setup, deadlineMs);
+}
+
 JsEvalResult FormJsSandbox::runScriptedEvent(const QString& script,
                                              const QString& fieldName,
                                              const QString& eventKind,
