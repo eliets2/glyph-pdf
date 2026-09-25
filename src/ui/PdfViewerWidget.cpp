@@ -131,6 +131,11 @@ public:
         // annotation layer beneath — the badge layer is paint-only.
         setAttribute(Qt::WA_TransparentForMouseEvents);
         setFocusPolicy(Qt::NoFocus);
+        // The overlay spans the whole viewer and has no Q_OBJECT, so style
+        // sheets treat it as a plain QWidget: the shipped themes' base rule
+        // `QWidget { background-color: … }` painted it opaque over every page
+        // (the blank-canvas P0). Its background must stay see-through.
+        setStyleSheet(QStringLiteral("background: transparent;"));
     }
 
 protected:
