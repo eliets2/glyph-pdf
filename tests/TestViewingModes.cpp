@@ -36,8 +36,10 @@ private slots:
     void readingFiltersAreMutuallyExclusive();
     void nightModeChangesTheRenderedViewer();
     void loadedPageIsVisibleUnderTheShippedStylesheet();
+    void loadingADocumentAnnouncesItsFirstPage();
 
 private:
+    static QString writeOnePagePdf(const QTemporaryDir &dir, const QString &name);
     static QList<QWidget *> surfaces(PdfViewerWidget &viewer);
     static int paperPixels(const QImage &image);
     static bool isSepia(QGraphicsEffect *effect);
@@ -201,6 +203,38 @@ void TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
 
     // Pages render asynchronously: poll the whole viewer until paper shows.
     QTRY_VERIFY_WITH_TIMEOUT(paperPixels(viewer.grab().toImage()) > 5000, 5000);
+}
+
+QString TestViewingModes::writeOnePagePdf(const QTemporaryDir &dir, const QString &name)
+{
+    const QString path = dir.filePath(name);
+    QPdfWriter writer(path);
+    writer.setPageSize(QPageSize(QPageSize::A4));
+    QPainter painter(&writer);
+    painter.drawText(QPointF(600, 600), name);
+    return path;
+}
+
+// The thumbnail rail, comments list, files list, status bar and Measure panel
+// all refresh on pageChanged. QPdfPageNavigator only signals a CHANGE, and
+// page 0 → page 0 across two documents is none — so after an open the rail
+// stayed at "PAGES · 0" and the comments/files panes kept the previous
+// document. A successful load must announce page 1 of the new document.
+void TestViewingModes::loadingADocumentAnnouncesItsFirstPage()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    PdfViewerWidget viewer;
+
+    QSignalSpy spy(&viewer, &PdfViewerWidget::pageChanged);
+    QVERIFY(viewer.loadDocument(writeOnePagePdf(dir, QStringLiteral("a.pdf"))));
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 2000);
+    QCOMPARE(spy.takeFirst(), (QList<QVariant>{ 1, 1 }));
+
+    // A second document on the same page index is still a page change.
+    QVERIFY(viewer.loadDocument(writeOnePagePdf(dir, QStringLiteral("b.pdf"))));
+    QTRY_COMPARE_WITH_TIMEOUT(spy.count(), 1, 2000);
+    QCOMPARE(viewer.filePath(), dir.filePath(QStringLiteral("b.pdf")));
 }
 
 QTEST_MAIN(TestViewingModes)
