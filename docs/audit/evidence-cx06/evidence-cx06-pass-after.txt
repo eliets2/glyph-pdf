@@ -1,0 +1,50 @@
+********* Start testing of TestSecretStore *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSecretStore::initTestCase()
+PASS   : TestSecretStore::testStoreAndReadRoundTrip()
+PASS   : TestSecretStore::testPlaintextNotOnDisk()
+QWARN  : TestSecretStore::testNoSilentFailureOnUnwritablePath() Got unexpected locking error 3
+QWARN  : TestSecretStore::testNoSilentFailureOnUnwritablePath() EncryptedFileSecretStore: store is locked by another GlyphPDF instance; timed out after 30000 ms; secret NOT stored for "Anthropic"
+PASS   : TestSecretStore::testNoSilentFailureOnUnwritablePath()
+PASS   : TestSecretStore::testEmptyInputsRejected()
+QWARN  : TestSecretStore::testWrongKeyCannotDecrypt() EncryptedFileSecretStore: authentication failed for an entry blob (corrupted, wrong key, or a blob moved between entries); refusing to return data
+PASS   : TestSecretStore::testWrongKeyCannotDecrypt()
+QWARN  : TestSecretStore::testTamperDetected() EncryptedFileSecretStore: authentication failed for an entry blob (corrupted, wrong key, or a blob moved between entries); refusing to return data
+PASS   : TestSecretStore::testTamperDetected()
+PASS   : TestSecretStore::testDeleteRemovesSecret()
+PASS   : TestSecretStore::testMultipleServices()
+PASS   : TestSecretStore::concurrentWritersDifferentEntriesBothSurvive()
+PASS   : TestSecretStore::dpapiDefaultPathRoundTrips()
+PASS   : TestSecretStore::dpapiRoundTripSurvivesNewProcess()
+QWARN  : TestSecretStore::corruptDpapiBlobFailsExplicitly() EncryptedFileSecretStore: CryptUnprotectData failed (Win32 error 13 ); the blob does not belong to this entry, belongs to a different user/machine, or is corrupted
+QWARN  : TestSecretStore::corruptDpapiBlobFailsExplicitly() EncryptedFileSecretStore: CryptUnprotectData failed (Win32 error 13 ); the blob does not belong to this entry, belongs to a different user/machine, or is corrupted
+PASS   : TestSecretStore::corruptDpapiBlobFailsExplicitly()
+QWARN  : TestSecretStore::blobSwapBetweenEntriesFailsLoudly() EncryptedFileSecretStore: authentication failed for an entry blob (corrupted, wrong key, or a blob moved between entries); refusing to return data
+QWARN  : TestSecretStore::blobSwapBetweenEntriesFailsLoudly() EncryptedFileSecretStore: authentication failed for an entry blob (corrupted, wrong key, or a blob moved between entries); refusing to return data
+QWARN  : TestSecretStore::blobSwapBetweenEntriesFailsLoudly() EncryptedFileSecretStore: authentication failed for an entry blob (corrupted, wrong key, or a blob moved between entries); refusing to return data
+PASS   : TestSecretStore::blobSwapBetweenEntriesFailsLoudly()
+QWARN  : TestSecretStore::dpapiBlobSwapBetweenEntriesFailsLoudly() EncryptedFileSecretStore: CryptUnprotectData failed (Win32 error 13 ); the blob does not belong to this entry, belongs to a different user/machine, or is corrupted
+QWARN  : TestSecretStore::dpapiBlobSwapBetweenEntriesFailsLoudly() EncryptedFileSecretStore: CryptUnprotectData failed (Win32 error 13 ); the blob does not belong to this entry, belongs to a different user/machine, or is corrupted
+PASS   : TestSecretStore::dpapiBlobSwapBetweenEntriesFailsLoudly()
+QDEBUG : TestSecretStore::dpapiV2LegacyBlobStillReadable() EncryptedFileSecretStore: migrated legacy 0x02 entry "LegacyV2Svc" to the v3 (entry-bound) format
+PASS   : TestSecretStore::dpapiV2LegacyBlobStillReadable()
+QWARN  : TestSecretStore::forgedAesBlobsRejectedOnWindowsDefaultPath() EncryptedFileSecretStore: AES blob found on the Windows default path — this format cannot be produced legitimately there; rejecting a likely forged store entry
+QWARN  : TestSecretStore::forgedAesBlobsRejectedOnWindowsDefaultPath() EncryptedFileSecretStore: AES blob found on the Windows default path — this format cannot be produced legitimately there; rejecting a likely forged store entry
+QWARN  : TestSecretStore::forgedAesBlobsRejectedOnWindowsDefaultPath() EncryptedFileSecretStore: AES blob found on the Windows default path — this format cannot be produced legitimately there; rejecting a likely forged store entry
+QWARN  : TestSecretStore::forgedAesBlobsRejectedOnWindowsDefaultPath() EncryptedFileSecretStore: AES blob found on the Windows default path — this format cannot be produced legitimately there; rejecting a likely forged store entry
+PASS   : TestSecretStore::forgedAesBlobsRejectedOnWindowsDefaultPath()
+QDEBUG : TestSecretStore::dpapiV2LegacyBlobMigratesToV3OnFirstRead() EncryptedFileSecretStore: migrated legacy 0x02 entry "MigSvcA" to the v3 (entry-bound) format
+QDEBUG : TestSecretStore::dpapiV2LegacyBlobMigratesToV3OnFirstRead() EncryptedFileSecretStore: migrated legacy 0x02 entry "MigSvcB" to the v3 (entry-bound) format
+QWARN  : TestSecretStore::dpapiV2LegacyBlobMigratesToV3OnFirstRead() EncryptedFileSecretStore: CryptUnprotectData failed (Win32 error 13 ); the blob does not belong to this entry, belongs to a different user/machine, or is corrupted
+QWARN  : TestSecretStore::dpapiV2LegacyBlobMigratesToV3OnFirstRead() EncryptedFileSecretStore: CryptUnprotectData failed (Win32 error 13 ); the blob does not belong to this entry, belongs to a different user/machine, or is corrupted
+PASS   : TestSecretStore::dpapiV2LegacyBlobMigratesToV3OnFirstRead()
+QDEBUG : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate() EncryptedFileSecretStore: deferring the legacy 0x02 migration of "Cx06UpdateSvc" - the entry changed or vanished under a concurrent writer; not re-wrapping a value this read no longer owns
+QDEBUG : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate() EncryptedFileSecretStore: migrated legacy 0x02 entry "Cx06UpdateSvc" to the v3 (entry-bound) format
+PASS   : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate()
+QDEBUG : TestSecretStore::legacyMigrationDoesNotResurrectDeletedEntry() EncryptedFileSecretStore: deferring the legacy 0x02 migration of "Cx06DeleteSvc" - the entry changed or vanished under a concurrent writer; not re-wrapping a value this read no longer owns
+PASS   : TestSecretStore::legacyMigrationDoesNotResurrectDeletedEntry()
+PASS   : TestSecretStore::credentialPersistIsLocalMachine()
+PASS   : TestSecretStore::aesV1LegacyBlobStillReadable()
+PASS   : TestSecretStore::cleanupTestCase()
+Totals: 23 passed, 0 failed, 0 skipped, 0 blacklisted, 6839ms
+********* Finished testing of TestSecretStore *********

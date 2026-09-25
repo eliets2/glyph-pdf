@@ -1,0 +1,11 @@
+********* Start testing of TestSecretStore *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSecretStore::initTestCase()
+QDEBUG : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate() EncryptedFileSecretStore: deferring the legacy 0x02 migration of "Cx06UpdateSvc" - the entry changed or vanished under a concurrent writer; not re-wrapping a value this read no longer owns
+QDEBUG : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate() EncryptedFileSecretStore: migrated legacy 0x02 entry "Cx06UpdateSvc" to the v3 (entry-bound) format
+PASS   : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate()
+QDEBUG : TestSecretStore::legacyMigrationDoesNotResurrectDeletedEntry() EncryptedFileSecretStore: deferring the legacy 0x02 migration of "Cx06DeleteSvc" - the entry changed or vanished under a concurrent writer; not re-wrapping a value this read no longer owns
+PASS   : TestSecretStore::legacyMigrationDoesNotResurrectDeletedEntry()
+PASS   : TestSecretStore::cleanupTestCase()
+Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 1510ms
+********* Finished testing of TestSecretStore *********

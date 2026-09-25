@@ -1,0 +1,14 @@
+********* Start testing of TestSecretStore *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSecretStore::initTestCase()
+QDEBUG : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate() EncryptedFileSecretStore: migrated legacy 0x02 entry "Cx06UpdateSvc" to the v3 (entry-bound) format
+FAIL!  : TestSecretStore::legacyMigrationDoesNotUndoConcurrentUpdate() Compared values are not the same
+   Actual   (after.readSecret(svc)): "sk-ant-cx06-old-fake-0001"
+   Expected (newSecret)            : "sk-ant-cx06-new-fake-0002"
+D:/pdf/pdf-r15/tests/TestSecretStore.cpp(784) : failure location
+QDEBUG : TestSecretStore::legacyMigrationDoesNotResurrectDeletedEntry() EncryptedFileSecretStore: migrated legacy 0x02 entry "Cx06DeleteSvc" to the v3 (entry-bound) format
+FAIL!  : TestSecretStore::legacyMigrationDoesNotResurrectDeletedEntry() 'after.readSecret(svc).isEmpty()' returned FALSE. (a concurrently deleted entry must not be resurrected by the stale re-wrap)
+D:/pdf/pdf-r15/tests/TestSecretStore.cpp(830) : failure location
+PASS   : TestSecretStore::cleanupTestCase()
+Totals: 2 passed, 2 failed, 0 skipped, 0 blacklisted, 1510ms
+********* Finished testing of TestSecretStore *********
