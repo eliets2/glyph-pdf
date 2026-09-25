@@ -15,10 +15,15 @@
 //      off, and the surfaces always carry the effect of the active filter.
 //   5. The installed effect really changes the viewer's rendered output.
 #include <QtTest/QtTest>
+#include <QApplication>
 #include <QGraphicsColorizeEffect>
 #include <QLabel>
+#include <QPageSize>
+#include <QPainter>
 #include <QPdfView>
+#include <QPdfWriter>
 #include <QScrollArea>
+#include <QTemporaryDir>
 #include "ui/NightModeEffect.h"
 #include "ui/PdfViewerWidget.h"
 
@@ -30,9 +35,11 @@ private slots:
     void eyeCareSurvivesRepeatedToggling();
     void readingFiltersAreMutuallyExclusive();
     void nightModeChangesTheRenderedViewer();
+    void loadedPageIsVisibleUnderTheShippedStylesheet();
 
 private:
     static QList<QWidget *> surfaces(PdfViewerWidget &viewer);
+    static int paperPixels(const QImage &image);
     static bool isSepia(QGraphicsEffect *effect);
     static bool isNight(QGraphicsEffect *effect);
 };
@@ -148,6 +155,52 @@ void TestViewingModes::nightModeChangesTheRenderedViewer()
     viewer.toggleNightMode();
     const QColor night = single->grab().toImage().pixelColor(probe);
     QCOMPARE(night, QColor(255 - plain.red(), 255 - plain.green(), 255 - plain.blue()));
+}
+
+int TestViewingModes::paperPixels(const QImage &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.height(); y += 2)
+        for (int x = 0; x < image.width(); x += 2) {
+            const QRgb c = image.pixel(x, y);
+            if (qRed(c) > 200 && qGreen(c) > 200 && qBlue(c) > 200) ++count;
+        }
+    return count;
+}
+
+// P0 (2026-09-25 live UI check): under the shipped themes' base rule
+// `QWidget { background-color: … }` a loaded document showed an EMPTY canvas.
+// The full-size signature-badge overlay has no Q_OBJECT, so style sheets treat
+// it as a plain QWidget and painted the theme background over every page.
+// Grabbing the inner QPdfView alone bypasses the overlays stacked above it —
+// why nightModeChangesTheRenderedViewer stayed green — so this pin grabs the
+// COMPOSITED viewer.
+void TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
+{
+    struct SheetGuard {
+        QString previous = qApp->styleSheet();
+        ~SheetGuard() { qApp->setStyleSheet(previous); }
+    } guard;
+    qApp->setStyleSheet(QStringLiteral("QWidget { background-color: #1e1f22; }"));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString pdf = dir.filePath(QStringLiteral("page.pdf"));
+    {
+        QPdfWriter writer(pdf);
+        writer.setPageSize(QPageSize(QPageSize::A4));
+        QPainter painter(&writer);
+        painter.drawText(QPointF(600, 600), QStringLiteral("GlyphPDF"));
+    }
+
+    PdfViewerWidget viewer;
+    viewer.resize(640, 480);
+    viewer.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&viewer));
+    QVERIFY(viewer.loadDocument(pdf));
+
+    // Pages render asynchronously: poll the whole viewer until paper shows.
+    QTRY_VERIFY_WITH_TIMEOUT(paperPixels(viewer.grab().toImage()) > 5000, 5000);
 }
 
 QTEST_MAIN(TestViewingModes)
