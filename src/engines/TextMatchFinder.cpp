@@ -4,11 +4,18 @@
 #include <QDebug>
 #include <QElapsedTimer>
 
+#include <QDebug>
+#include <QElapsedTimer>
+#include <QRectF>
+
 #ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_text.h>
+#include <fpdf_edit.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
 #endif
+
+#include "core/ItemSpaceTransform.h"
 
 QRegularExpression TextMatchFinder::buildPattern(const QString& search, bool matchCase,
                                                  bool wholeWords, bool useRegex) {
@@ -51,19 +58,20 @@ namespace {
 // One decoded character of the page text with its geometry + font size.
 struct CharBox {
     QString ch;
-    QRectF bbox;      // Qt top-left user space
+    QRectF bbox;      // Qt top-left DISPLAY space (the viewer's page view)
     double fontSize;  // points; 0 when unknown
 };
 
 // Extract per-character boxes + font sizes for one page of an open document.
-// PGR-37 (D2 delta review 2026-09-23): the boxes are RAW PDF USER space —
-// FPDFText_GetCharBox values taken verbatim, stored y-up (QRectF::y() = the
-// LOWER edge). The former `pageHeight - pdf_top` flip produced viewer-space
-// coordinates only for /Rotate 0 origin-0 pages; the replace pipeline's
-// downstream flip cancelled it only while PoDoFo's rotation-normalized
-// MediaBox height equals PDFium's display height (CropBox≠MediaBox documents
-// shifted the excision). Raw user space is consumed verbatim by
-// PoDoFoBackend::replaceTextRegions.
+// sweep-legacy 5(b) (T2-2, integrated 2026-09-25 over the PGR-37 raw-user
+// design): the boxes are DISPLAY space — each FPDFText_GetCharBox raw-user
+// box is mapped ONCE through gp::ItemSpace::userToViewer with the page
+// geometry from FPDF_GetPageBoundingBox + FPDFPage_GetRotation, so the
+// match rect is what the viewer shows on /Rotate 90/270 and offset-origin
+// pages too (the Find highlight draws where the text is). The other end of
+// the pipeline, PoDoFoBackend::replaceTextRegions, maps the display rect
+// back through gp::PageSpace::viewerToUser — one law, both directions;
+// neither end re-derives a flip locally.
 QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
     QList<CharBox> result;
     const int pageCount = FPDF_GetPageCount(doc);
@@ -72,6 +80,27 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
     FPDF_PAGE page = FPDF_LoadPage(doc, pageIndex);
     if (!page) return result;
 
+    // sweep-legacy 5(b) sibling: FPDFText_GetCharBox reports RAW USER-space
+    // boxes (measured: a 12pt char drawn at user (100,700) on a
+    // /Rotate 270 + offset-origin page reports x 100..139, top 708.6 while
+    // FPDF_GetPageHeightF reports the ROTATED display height 612). The old
+    // flip mixed that rotated display height with the raw user top — garbage
+    // match rects on every rotated or offset-origin page (the on-screen Find
+    // highlight and the replacement spec both consumed them). Map the raw box
+    // through the ONE page-space law instead.
+    FS_RECTF pageBox;
+    double bx = 0, by = 0, bw = 0, bh = 0;
+    if (FPDF_GetPageBoundingBox(page, &pageBox)) {
+        bx = pageBox.left; by = pageBox.bottom;
+        bw = pageBox.right - pageBox.left;
+        bh = pageBox.top - pageBox.bottom;
+    }
+    if (bw <= 0 || bh <= 0) {
+        bw = static_cast<double>(FPDF_GetPageWidthF(page));
+        bh = static_cast<double>(FPDF_GetPageHeightF(page));
+    }
+    const gp::PageSpace::PageGeometry charGeo = gp::PageSpace::pageGeometryFromMediaBox(
+        bx, by, bw, bh, static_cast<int>(FPDFPage_GetRotation(page)) * 90);
     FPDF_TEXTPAGE textPage = FPDFText_LoadPage(page);
     if (!textPage) {
         FPDF_ClosePage(page);
@@ -87,7 +116,9 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
         double size = 0;
         QRectF box;
         if (FPDFText_GetCharBox(textPage, ci, &pdf_left, &pdf_right, &pdf_bottom, &pdf_top)) {
-            box = QRectF(pdf_left, pdf_bottom, pdf_right - pdf_left, pdf_top - pdf_bottom);
+            const QRectF rawBox(QPointF(pdf_left, pdf_bottom),
+                                QPointF(pdf_right, pdf_top));
+            box = gp::ItemSpace::userToViewer(rawBox, charGeo);
         }
         size = FPDFText_GetFontSize(textPage, ci);
         if (size < 0) size = 0;

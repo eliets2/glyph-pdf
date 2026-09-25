@@ -21,6 +21,8 @@
 #include <QFile>
 #include <podofo/podofo.h>
 #include "engines/TextMatchFinder.h"
+#include "core/PageSpaceTransform.h"
+#include "core/ItemSpaceTransform.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "mocks/MockPdfEditorEngine.h"
@@ -381,12 +383,15 @@ private slots:
                                            "supplementary chars shifted the geometry")
                                .arg(rect.height())));
         // And it must be the alpha line (drawn at user y≈700), not the emoji
-        // (≈760) or the omega line (≈640). PGR-37: TextMatch::rect is now RAW
-        // PDF USER space stored y-up (y() = the LOWER edge), so the band is
-        // expressed in user coordinates directly: the box's lower edge must
-        // sit above the omega line and its upper edge below the emoji line —
-        // the same strict band the old top-left convention pinned.
-        QVERIFY2(rect.top() > 640.0 && rect.bottom() < 760.0,
+        // (≈760) or the omega line (≈640). sweep-legacy 5(b) (T2-2,
+        // integrated 2026-09-25 over the PGR-37 raw-user design):
+        // TextMatch::rect is DISPLAY space (top-left, y-down — what the
+        // viewer shows), so on this /Rotate 0 A4 (842pt) page the user
+        // bands map to display: emoji 760→≈70..82, alpha 700→≈133..145,
+        // omega 640→≈190..202. The same strict band, re-expressed: the
+        // box's top edge must sit below the emoji line and its bottom edge
+        // above the omega line.
+        QVERIFY2(rect.top() > 82.0 && rect.bottom() < 190.0,
                  qPrintable(QStringLiteral("match box must sit in the alpha line band, "
                                            "got %1x%2+%3+%4")
                                .arg(rect.width()).arg(rect.height())
@@ -996,6 +1001,139 @@ private slots:
 private:
     static bool page2Contains(PdfiumBackend& reader, const QString& needle) {
         return reader.extractText(2).contains(needle, Qt::CaseInsensitive);
+    }
+
+    // Hand-built one-pager (the buildLabelPdf idiom) with the W2B-1
+    // blind-spot shape: MediaBox [0 200 612 1042] (origin (0,200),
+    // 612x842 page — the W2B-1 shape) + /Rotate
+    // 270, text drawn at user (100, 700). Through the page-space law the
+    // text displays around (342, 512) on the 842x612 displayed page.
+    static QString createRotatedOffsetTextPdf(const QTemporaryDir& dir,
+                                              const QString& name) {
+        const QString path = dir.filePath(name);
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly)) return {};
+        QByteArray out = "%PDF-1.4\n";
+        QList<qint64> off;
+        auto addObj = [&out, &off](const QByteArray& body) {
+            off.append(out.size());
+            out += QByteArray::number(off.size()) + " 0 obj\n" + body
+                   + "\nendobj\n";
+        };
+        addObj("<</Type/Catalog/Pages 2 0 R>>");
+        addObj("<</Type/Pages/Kids[3 0 R]/Count 1>>");
+        addObj("<</Type/Page/Parent 2 0 R/MediaBox[0 200 612 1042]/Rotate 270"
+               "/Contents 4 0 R"
+               "/Resources<</Font<</F1 5 0 R>>>>>>");
+        const QByteArray stream =
+            "BT /F1 12 Tf 100 700 Td (ALPHA) Tj ET\n";
+        addObj("<</Length " + QByteArray::number(stream.size())
+               + ">>stream\n" + stream + "endstream");
+        addObj("<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>");
+        const qint64 xref = out.size();
+        out += QString("xref\n0 %1\n").arg(off.size() + 1).toLatin1();
+        out += "0000000 65535 f \n";
+        for (qint64 o : off)
+            out += QString("%1 00000 n \n").arg(o, 10, 10, QChar('0')).toLatin1();
+        out += QString("trailer<</Size %1/Root 1 0 R>>\nstartxref\n%2\n%%EOF\n")
+                   .arg(off.size() + 1).arg(xref).toLatin1();
+        f.write(out);
+        f.close();
+        return path;
+    }
+
+private slots:
+    // ── T2-2 on a rotated + offset-origin page (sweep-legacy 5b) ────────────
+    //
+    // The matcher is display-space correct (PDFium char boxes are display
+    // space; the flip uses FPDF_GetPageHeightF). replaceTextRegions maps the
+    // match rect into raw user space for the excision + cover + draw. That
+    // mapping pre-fix flipped Y with the rotation-NORMALIZED GetMediaBox()
+    // height — the MediaBox lower-left origin was dropped and /Rotate was
+    // applied by the box swap alone, so on this shape the replacement was
+    // excised/drawn at the wrong spot (or the excise of the WRONG region
+    // honestly aborted the operation). The drawn OMEGA must re-find through
+    // the SAME matcher at the match's display rect.
+    void replaceOnRotatedOffsetPageStaysAtTheMatchedSpot() {
+        const QString src = createRotatedOffsetTextPdf(
+            m_tmpDir, QStringLiteral("rot270_offset_src.pdf"));
+        QVERIFY2(!src.isEmpty(), "rotated fixture build failed");
+        const QString out = m_tmpDir.filePath(QStringLiteral("rot270_offset_out.pdf"));
+
+        const QRegularExpression rx = TextMatchFinder::buildPattern(
+            QStringLiteral("ALPHA"), false, false, false);
+        const QList<TextMatch> matches = TextMatchFinder::findMatches(src, {0}, rx);
+        QCOMPARE(matches.size(), 1);
+        const QRectF matchRect = matches.first().rect;
+        QVERIFY2(matchRect.width() > 1 && matchRect.height() > 1,
+                 "sanity: the matcher must produce a real box");
+        // Absolute matcher pin (independent arithmetic, not computed through
+        // the law): "ALPHA" drawn at user (100,700), 12pt Helvetica. Its raw
+        // user box is (100..139.4, 700..708.6); through the page-space law on
+        // {0,200,612,842, rot 270} that displays at (333.4, 472.6) with the
+        // glyph run VERTICALLY (8.6 wide, 39.4 tall). Pre-fix the matcher
+        // mixed the rotated display height with the raw user top and reported
+        // (100, -96.6, 39.4x8.6) — off-page garbage.
+        QVERIFY2(qAbs(matchRect.left() - 333.4) < 2
+                     && qAbs(matchRect.top() - 472.6) < 2,
+                 qPrintable(QStringLiteral(
+                     "matcher must report the law display position 333.4, "
+                     "472.6 - got %1, %2")
+                     .arg(matchRect.left()).arg(matchRect.top())));
+        QVERIFY2(qAbs(matchRect.width() - 8.6) < 2
+                     && qAbs(matchRect.height() - 39.4) < 2,
+                 qPrintable(QStringLiteral(
+                     "on a /Rotate 270 page the glyph run is transposed on "
+                     "display - 8.6 x 39.4 expected, got %1 x %2")
+                     .arg(matchRect.width()).arg(matchRect.height())));
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(src));
+        QList<TextReplacementSpec> specs;
+        TextReplacementSpec s;
+        s.pageIndex = 0;
+        s.rect = matchRect;
+        s.text = QStringLiteral("OMEGA");
+        s.fontSize = matches.first().fontSize;
+        specs.append(s);
+        QList<double> drawnWidths;
+        QVERIFY2(engine.replaceTextRegions(specs, &drawnWidths),
+                 "replace on a /Rotate 270 + offset page must succeed (the "
+                 "display->user mapping must hit the matched content)");
+        QVERIFY(engine.saveDocument(out));
+
+        PdfiumBackend reader;
+        QVERIFY(reader.loadDocument(out));
+        QVERIFY2(reader.extractText(0).contains(QStringLiteral("OMEGA")),
+                 "replacement text must be present in the saved artifact");
+        QVERIFY2(!reader.extractText(0).contains(QStringLiteral("ALPHA")),
+                 "matched text must be excised from the saved artifact");
+
+        // Re-find the drawn text through the SAME matcher (display-space
+        // oracle, law-correct after the matcher fix above).
+        const QRegularExpression rxOut = TextMatchFinder::buildPattern(
+            QStringLiteral("OMEGA"), false, false, false);
+        const QList<TextMatch> after = TextMatchFinder::findMatches(out, {0}, rxOut);
+        QCOMPARE(after.size(), 1);
+
+        // The decisive geometric pin: the drawn OMEGA starts where ALPHA
+        // started. On a /Rotate 270 page the glyph run is transposed on
+        // display, so the run START is the display rect's BOTTOM edge (and
+        // the left edge is the baseline-anchored face) — invariant under the
+        // honest width change of a different replacement word, wrong by
+        // hundreds of points under the old broken mapping.
+        const QRectF drawn = after.first().rect;
+        QVERIFY2(drawn.intersects(matchRect)
+                     && qAbs(drawn.bottom() - matchRect.bottom()) < 3
+                     && qAbs(drawn.left() - matchRect.left()) < 3,
+                 qPrintable(QStringLiteral(
+                     "T2-2 rotation: OMEGA drawn at %1 %2 %3 %4 but the match "
+                     "was at %5 %6 %7 %8 - the display->user mapping ignored "
+                     "the page shape")
+                     .arg(drawn.left()).arg(drawn.top()).arg(drawn.right())
+                     .arg(drawn.bottom())
+                     .arg(matchRect.left()).arg(matchRect.top())
+                     .arg(matchRect.right()).arg(matchRect.bottom())));
     }
 };
 

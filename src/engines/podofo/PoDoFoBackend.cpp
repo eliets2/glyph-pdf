@@ -3141,20 +3141,43 @@ bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
 
         for (auto it = perPage.constBegin(); it != perPage.constEnd(); ++it) {
             PoDoFo::PdfPage& page = d->document->GetPages().GetPageAt(it.key());
+            // sweep-legacy 5(b): the spec rect is DISPLAY space (the T2
+            // contract); excision, cover and draw all operate in RAW USER
+            // space. Map through the ONE page-space law — the old height-only
+            // flip used the rotation-normalized GetMediaBox().Height, dropping
+            // the MediaBox lower-left origin and the /Rotate swap.
+            //
+            // The display basis must be the box PDFium DISPLAYS — the crop
+            // box when present, else the MediaBox (FPDF_GetPageBoundingBox,
+            // which the matcher used). Mapping display→user through the
+            // MediaBox instead shifts the excision by the crop margin on
+            // CropBox≠MediaBox documents: the excision misses the matched
+            // text while the replace reports success (the PGR-37 crop pin
+            // catches exactly that).
+            PoDoFo::Rect displayBox = page.GetMediaBoxRaw().GetNormalized();
+            const PoDoFo::Rect cropBox = page.GetCropBoxRaw().GetNormalized();
+            if (cropBox.Width > 0 && cropBox.Height > 0) displayBox = cropBox;
+            const gp::PageSpace::PageGeometry pageGeo =
+                gp::PageSpace::pageGeometryFromMediaBox(
+                    displayBox.X, displayBox.Y, displayBox.Width,
+                    displayBox.Height, static_cast<int>(page.GetRotation()));
 
-            // PGR-37 (D2 delta review 2026-09-23): spec->rect is RAW USER space
-            // (TextMatchFinder emits FPDFText_GetCharBox boxes y-up, no viewer
-            // transform) — taken verbatim. The old local `pageHeight - y`
-            // flip was the exact re-derivation PageSpaceTransform.h forbids:
-            // it only cancelled when PoDoFo's (rotation-normalized) MediaBox
-            // height equals PDFium's display height, which breaks on
-            // CropBox≠MediaBox documents — the excision missed the matched
-            // text while the replace reported success.
+            // sweep-legacy 5(b), the matching half (T2-2, integrated
+            // 2026-09-25 over the PGR-37 raw-user design): spec->rect is
+            // DISPLAY space (TextMatchFinder emits the viewer's match rect);
+            // excision, cover and draw map it back through the ONE page-space
+            // law. The pre-PGR-37 local `pageHeight - y` flip was the exact
+            // re-derivation PageSpaceTransform.h forbids: it only cancelled
+            // when PoDoFo's (rotation-normalized) MediaBox height equals
+            // PDFium's display height — broken on CropBox≠MediaBox documents
+            // AND on /Rotate 90/270 + offset-origin pages, where the excision
+            // missed the matched text while the replace reported success.
             std::vector<PoDoFo::Rect> pdfRects;
             pdfRects.reserve(it.value().size());
             for (const auto* spec : it.value()) {
-                const QRectF& r = spec->rect;
-                pdfRects.push_back(PoDoFo::Rect(r.x(), r.y(), r.width(), r.height()));
+                const QRectF user = gp::PageSpace::viewerToUser(spec->rect, pageGeo);
+                pdfRects.push_back(PoDoFo::Rect(user.x(), user.y(),
+                                                user.width(), user.height()));
             }
 
             std::set<int64_t> mcids;
@@ -3175,19 +3198,18 @@ bool PoDoFoBackend::replaceTextRegions(const QList<TextReplacementSpec>& specs,
 
             for (const auto* spec : it.value()) {
                 const double fontSize = spec->fontSize > 0.0 ? spec->fontSize : 12.0;
-                const QRectF& r = spec->rect;
-                // Baseline: the match rect's TOP edge in raw user space (the
-                // QRectF is stored y-up: y() is the LOWER edge) minus an
-                // ascent approximation, so the drawn line sits where the
-                // excised glyphs sat (PDFium boxes span ascender..descender
-                // ink).
-                const double pdfTop = r.y() + r.height();
+                const QRectF user = gp::PageSpace::viewerToUser(spec->rect, pageGeo);
+                // Baseline: the match rect's top edge (user space is y-up:
+                // y()+height()) minus an ascent approximation, so the drawn
+                // line sits where the excised glyphs sat (PDFium boxes span
+                // ascender..descender ink).
+                const double pdfTop = user.y() + user.height();
                 double baseline = pdfTop - fontSize * 0.8;
                 painter.GraphicsState.SetNonStrokingColor(PoDoFo::PdfColor(0.0, 0.0, 0.0));
                 painter.TextState.SetFont(font, fontSize);
                 const QStringList lines = spec->text.split(QLatin1Char('\n'));
                 for (const QString& line : lines) {
-                    painter.DrawText(line.toUtf8().constData(), r.x(), baseline);
+                    painter.DrawText(line.toUtf8().constData(), user.x(), baseline);
                     baseline -= fontSize * 1.2;
                 }
                 if (drawnWidthsOut) {
