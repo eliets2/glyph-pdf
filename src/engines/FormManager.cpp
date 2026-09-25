@@ -320,6 +320,14 @@ bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormField
     }
     QString err;
     QList<FormJsFailure> localJsFailures;
+    // CX-05: what the /V write actually did. The validator below compares
+    // the reopened candidate against THIS (the PRIOR /V stands when the
+    // commit-phase keystroke check rejected the proposal — the panel's
+    // Apply is a fill transaction: the ungated snapshot parts still commit).
+    bool priorValuePresent = false;
+    QString priorValue;
+    bool valueGateRejected = false;
+    QString committedValue;
     const bool ok = runFormSaveTransaction(
         pdfFilePath, outputPath,
         [&](PoDoFo::PdfMemDocument& doc) {
@@ -353,10 +361,44 @@ bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormField
                 switch (field.GetType()) {
                     case PoDoFo::PdfFieldType::TextBox: {
                         if (auto* t = dynamic_cast<PoDoFo::PdfTextBox*>(&field)) {
-                            if (target.valuePresent)
-                                t->SetText(PoDoFo::PdfString(target.value.toStdString()));
-                            else
+                            if (target.valuePresent) {
+                                // CX-05: the commit-phase /AA /K check runs on
+                                // the FULL proposed value with willCommit=true
+                                // BEFORE the /V write (Acrobat order:
+                                // keystroke-commit → commit) — the only phase
+                                // where the app-authored AFNumber_Keystroke /
+                                // AFDate_KeystrokeEx / AFPercent_Keystroke
+                                // shims reject an unparseable final value
+                                // (AFormShim gates them on event.willCommit).
+                                // Rejected → the PRIOR /V stands, disclosed
+                                // field-attributed; the ungated snapshot
+                                // parts (tooltip, required) still commit and
+                                // the validator below compares against what
+                                // ACTUALLY committed.
+                                auto prior = t->GetText(); // nullable: non-const accessors (mirrors the validator's read)
+                                priorValuePresent = prior.has_value();
+                                priorValue = priorValuePresent
+                                    ? QString::fromUtf8(prior.value().GetString().data(),
+                                                        static_cast<qsizetype>(prior.value().GetString().size()))
+                                    : QString();
+                                const auto kr = gp::formjs::FormJsRunner::runKeystrokeCommitCheck(
+                                    doc, target.name, target.value);
+                                if (kr.ran && !kr.allowed) {
+                                    valueGateRejected = true;
+                                    localJsFailures.append(FormJsFailure{ kr.failure.fieldName,
+                                                                          kr.failure.kind,
+                                                                          kr.failure.reason });
+                                    qWarning() << "applyFieldSnapshot: keystroke-commit blocked"
+                                               << target.name
+                                               << "(" << kr.failure.kind << "):" << kr.failure.reason;
+                                    // keep the prior /V — never the blocked value
+                                } else {
+                                    committedValue = kr.ran ? kr.valueToCommit : target.value;
+                                    t->SetText(PoDoFo::PdfString(committedValue.toStdString()));
+                                }
+                            } else {
                                 dict.RemoveKey("V");
+                            }
                         }
                         break;
                     }
@@ -378,8 +420,14 @@ bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormField
                 throw SaveAbort{QStringLiteral("field not found: %1").arg(target.name)};
 
             // Phase-1 form-JS: the committed /V + the /CO cascade persist as
-            // ONE atomic write (same transaction, same candidate).
-            localJsFailures = runInTransactionCalculateCascade(doc);
+            // ONE atomic write (same transaction, same candidate). CX-05: the
+            // commit-phase keystroke refusals recorded in the fill loop above
+            // are PRESERVED alongside the cascade's failures (the same
+            // fill-transaction disclosure policy fillForm applies — an
+            // assignment here would silently wipe them).
+            const QList<FormJsFailure> cascadeFailures = runInTransactionCalculateCascade(doc);
+            for (const FormJsFailure& f : cascadeFailures)
+                localJsFailures.append(f);
         },
         [&](PoDoFo::PdfMemDocument& reopened) {
             const PoDoFo::PdfField* f = findFieldByName(reopened, target.name);
@@ -407,9 +455,19 @@ bool FormManager::applyFieldSnapshot(const QString &pdfFilePath, const FormField
                     if (!t) return false;
                     auto v = t->GetText(); // nullable: non-const accessors
                     if (target.valuePresent) {
-                        if (!v.has_value()
+                        if (valueGateRejected) {
+                            // CX-05: the commit-phase keystroke check refused
+                            // the proposal — the PRIOR /V stands on disk.
+                            if (priorValuePresent) {
+                                if (!v.has_value()
+                                    || std::string(v.value().GetString().data(), v.value().GetString().size())
+                                           != priorValue.toStdString()) return false;
+                            } else if (v.has_value()) {
+                                return false; // no prior /V → /V must stay absent
+                            }
+                        } else if (!v.has_value()
                             || std::string(v.value().GetString().data(), v.value().GetString().size())
-                                   != target.value.toStdString()) return false;
+                                   != committedValue.toStdString()) return false;
                     } else if (v.has_value()) {
                         return false; // /V must be absent
                     }
@@ -593,6 +651,30 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                     case PoDoFo::PdfFieldType::TextBox: {
                         auto* textField = dynamic_cast<PoDoFo::PdfTextBox*>(&field);
                         if (textField) {
+                            // CX-05: the commit-phase /AA /K check runs FIRST
+                            // (Acrobat order: keystroke-commit → validate →
+                            // commit) on the FULL proposed value with
+                            // willCommit=true — the only phase where the
+                            // app-authored AFNumber_Keystroke /
+                            // AFDate_KeystrokeEx / AFPercent_Keystroke shims
+                            // reject an unparseable final value (AFormShim
+                            // gates them on event.willCommit). Blocked
+                            // (rc=false) or failed (fail closed) → the
+                            // previous /V stays and the failure is disclosed
+                            // field-attributed; the user's OTHER fields still
+                            // commit. A script may TRANSFORM event.value —
+                            // the transformed value feeds the validate phase.
+                            const QString proposed = val.toString();
+                            const auto kr = gp::formjs::FormJsRunner::runKeystrokeCommitCheck(doc, name, proposed);
+                            if (kr.ran && !kr.allowed) {
+                                localJsFailures.append(FormJsFailure{ kr.failure.fieldName,
+                                                                      kr.failure.kind,
+                                                                      kr.failure.reason });
+                                qWarning() << "fillForm: keystroke-commit blocked" << name
+                                           << "(" << kr.failure.kind << "):" << kr.failure.reason;
+                                break; // keep the previous /V — never the blocked value
+                            }
+                            const QString kReviewed = kr.ran ? kr.valueToCommit : proposed;
                             // R18(f): the /AA /V Validate event runs INSIDE the
                             // transaction on the PROPOSED value (Acrobat order:
                             // validate → commit) under the caller-owned budget.
@@ -602,8 +684,7 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                             // commit. A script may TRANSFORM event.value
                             // (Acrobat semantics) — the transformed value is
                             // what commits.
-                            const QString proposed = val.toString();
-                            const auto vr = gp::formjs::FormJsRunner::runValidateEvent(doc, name, proposed);
+                            const auto vr = gp::formjs::FormJsRunner::runValidateEvent(doc, name, kReviewed);
                             if (vr.ran && !vr.allowed) {
                                 localJsFailures.append(FormJsFailure{ vr.failure.fieldName,
                                                                       vr.failure.kind,
@@ -612,7 +693,7 @@ bool FormManager::fillForm(const QString &pdfFilePath, const QVariantMap &fieldD
                                            << "(" << vr.failure.kind << "):" << vr.failure.reason;
                                 break; // keep the previous /V — never the blocked value
                             }
-                            const QString committed = vr.ran ? vr.valueToCommit : proposed;
+                            const QString committed = vr.ran ? vr.valueToCommit : kReviewed;
                             textField->SetText(PoDoFo::PdfString(committed.toStdString()));
                         }
                         break;

@@ -1,0 +1,14 @@
+********* Start testing of TestFormSafety *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormSafety::initTestCase()
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Added numeric field "cx05_num" on page 0
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Added date field "cx05_date" on page 0
+QDEBUG : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormSafety-xUUJiD/cx05-fill.pdf"
+FAIL!  : TestFormSafety::numericDateCommitGateBlocksInvalidFillFormValues() 'numNamed' returned FALSE. (the numeric refusal must be disclosed field-attributed)
+D:/pdf/pdf-r15/tests/TestFormSafety.cpp(854) : failure location
+QDEBUG : TestFormSafety::numericDateCommitGateGuardsUiApplyValue() Added numeric field "cx05_num" on page 0
+FAIL!  : TestFormSafety::numericDateCommitGateGuardsUiApplyValue() 'named' returned FALSE. (the refusal must be disclosed field-attributed)
+D:/pdf/pdf-r15/tests/TestFormSafety.cpp(898) : failure location
+PASS   : TestFormSafety::cleanupTestCase()
+Totals: 2 passed, 2 failed, 0 skipped, 0 blacklisted, 203ms
+********* Finished testing of TestFormSafety *********

@@ -522,6 +522,104 @@ FormJsRunner::ValidateOutcome FormJsRunner::runValidateEvent(PoDoFo::PdfMemDocum
     return out;
 }
 
+// ── CX-05: the commit-phase Keystroke check ──────────────────────────────────
+
+FormJsRunner::ValidateOutcome FormJsRunner::runKeystrokeCommitCheck(PoDoFo::PdfMemDocument& doc,
+                                                                    const QString& name,
+                                                                    const QString& proposedValue,
+                                                                    int eventDeadlineMs)
+{
+    // Acrobat fires the authored /AA /K script a SECOND time at commit with
+    // event.willCommit=true and event.value = the full proposed value. The
+    // app-authored AFNumber_Keystroke / AFDate_KeystrokeEx / AFPercent_
+    // Keystroke shims validate the final value ONLY in this phase — the
+    // typed-layer runner runs them with willCommit=false, where they are
+    // deliberate no-ops, so a fill/UI-Apply commit path that never ran the
+    // commit phase silently accepted unparseable values. Same decision table
+    // as runValidateEvent (shared ValidateOutcome shape, so the host gates
+    // /K-commit → /V → commit uniformly):
+    //   * no runnable /AA /K (the common case) → ran=false, the proposal
+    //     commits as it always has;
+    //   * ok + rc=true → allowed; valueToCommit carries the script's
+    //     transformed event.value when it set one, otherwise the proposal;
+    //   * rc=false → NOT allowed (kind "rejected") — the proposal must NOT
+    //     be committed; the field keeps its previous /V;
+    //   * any script failure → NOT allowed (fail closed), field-attributed.
+    ValidateOutcome out;
+    if (!executionEnabledFlag())
+        return out; // no engine: nothing validates; the CapabilityRegistry discloses
+
+    // Locate the field (first full-name match — the same policy as
+    // writeFieldValue / runValidateEvent). Commit-phase scope: TextBox, the
+    // only type the commit gate can honestly review.
+    PoDoFo::PdfField* target = nullptr;
+    try {
+        auto* acroForm = doc.GetAcroForm();
+        if (!acroForm) return out;
+        for (unsigned i = 0; i < acroForm->GetFieldCount(); ++i) {
+            auto& field = acroForm->GetFieldAt(i);
+            if (QString::fromStdString(field.GetFullName()) == name) {
+                target = &field;
+                break;
+            }
+        }
+    } catch (const PoDoFo::PdfError& e) {
+        qWarning() << "FormJsRunner::runKeystrokeCommitCheck:" << e.what();
+        return out;
+    }
+    if (!target || target->GetType() != PoDoFo::PdfFieldType::TextBox)
+        return out;
+
+    QString script;
+    QString why;
+    if (!extractActionScript(*target, 'K', &script, &why)) {
+        Q_UNUSED(why);
+        return out; // no /AA /K — ordinary field, nothing gates the commit
+    }
+    out.ran = true;
+
+    FormJsSandbox sandbox;
+    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
+                                      QStringLiteral("quickjs runtime is unavailable in this build") };
+        return out;
+    }
+    // R05/JS-01: the snapshot install is an engine entry; without it the
+    // commit-phase script would silently compute on missing values.
+    QString snapshotError;
+    if (!sandbox.setFieldValues(collectFieldValues(doc), &snapshotError)) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
+                                      QStringLiteral("the form value snapshot could not be installed: %1")
+                                          .arg(snapshotError) };
+        return out;
+    }
+
+    // event.value = the FULL proposed value; willCommit=true (the commit
+    // phase); the whole operation runs under the caller's budget.
+    const JsEvalResult r = sandbox.runKeystrokeCommitEvent(script, name, proposedValue,
+                                                           eventDeadlineMs);
+    if (!r.ok) {
+        out.allowed = false;
+        // Fail closed: ANY script failure refuses the commit (a partially
+        // validated value must never commit). The field keeps its /V.
+        out.failure = FieldJsFailure{ name, QLatin1String(kindString(r.kind)), r.message };
+        return out;
+    }
+    if (!r.rc) {
+        out.allowed = false;
+        out.failure = FieldJsFailure{ name, QStringLiteral("rejected"),
+                                      QStringLiteral("the field's Keystroke script set event.rc = false; "
+                                                     "the value was not committed") };
+        return out;
+    }
+    // Acrobat's commit-phase semantics: a script may TRANSFORM event.value.
+    out.valueToCommit = r.hasValue ? r.value : proposedValue;
+    out.allowed = true;
+    return out;
+}
+
 // ── P2 (R18f): Keystroke /AA /K — the Qt line-edit layer ─────────────────────
 
 FormJsRunner::KeystrokeOutcome FormJsRunner::runKeystrokeEvent(PoDoFo::PdfMemDocument& doc,
