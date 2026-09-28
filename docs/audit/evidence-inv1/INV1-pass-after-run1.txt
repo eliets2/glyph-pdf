@@ -1,0 +1,372 @@
+********* Start testing of TestSignatureRealCrypto *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSignatureRealCrypto::initTestCase()
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1964
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1964
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testBT_SignAndValidate() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testBT_SignAndValidate()
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() OCSP: no AIA extension in certificate
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1926
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1926
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testBLT_VRIKeyMatchesOpenSSLSha1()
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testBLTA_DocTimestampPresent() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testBLTA_DocTimestampPresent()
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testUntrustedChain_ReportsUntrustedChain()
+QDEBUG : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap() validateSignatures: field "Signature1" ByteRange: 0 1737 1727 653
+QWARN  : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap() SECURITY: Signature ByteRange overlap detected — possible shadow attack
+PASS   : TestSignatureRealCrypto::testOverlappingByteRange_ReportsByteRangeOverlap()
+QDEBUG : TestSignatureRealCrypto::testExpiredCertRejected() validateSignatures: field "Signature1" ByteRange: 0 1741 67279 643
+QDEBUG : TestSignatureRealCrypto::testExpiredCertRejected() CMS DER size: 32768 first 8 bytes: "3082054206092a86"
+QDEBUG : TestSignatureRealCrypto::testExpiredCertRejected() validateSignatures: field "Signature1" ByteRange: 0 1741 67279 643
+QDEBUG : TestSignatureRealCrypto::testExpiredCertRejected() CMS DER size: 32768 first 8 bytes: "3082054206092a86"
+PASS   : TestSignatureRealCrypto::testExpiredCertRejected()
+QWARN  : TestSignatureRealCrypto::testRSA1024Rejected() SignatureManager: Signing rejected — RSA key size 1024 bits < 2048 bits (weak key)
+PASS   : TestSignatureRealCrypto::testRSA1024Rejected()
+SKIP   : TestSignatureRealCrypto::testRevokedCertReportsRevoked() testRevokedCertReportsRevoked requires GLYPH_TESTING (test builds only; never defined in production to keep the crypto path clean of test hooks).
+D:/pdf/pdf-r15/tests/TestSignatureRealCrypto.cpp(465) : failure location
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() CMS_verify integrity failed: error:1700009E:CMS routines::verification failure
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testTamperedPdfInvalid() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testTamperedPdfInvalid()
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 14 0 R"
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected() SECURITY: downgrading trustStatus from "Valid" to ValidWithUnsignedChanges for field "Signature1"
+PASS   : TestSignatureRealCrypto::testUnsignedIncrementalRevisionDetected()
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() S-1: Shadow attack detected: "Shadow attack: unsigned catalog update beyond /DSS — key /OpenAction added"
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded() SECURITY: downgrading trustStatus from "Valid" to ValidWithUnsignedChanges for field "Signature1"
+PASS   : TestSignatureRealCrypto::testUnsignedCatalogOnlyRevisionDowngraded()
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() OCSP: no AIA extension in certificate
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1929
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1929
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded()
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1961
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1961
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testMultipleSignatures() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() validateSignatures: field "Signature2" ByteRange: 0 68365 133903 1771
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1961
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testMultipleSignatures() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() validateSignatures: field "Signature2" ByteRange: 0 68365 133903 1771
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testMultipleSignatures() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testMultipleSignatures()
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testRevokedOcspSigner() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testRevokedOcspSigner()
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() OCSP: no AIA extension in certificate
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() validateSignatures: field "Signature1" ByteRange: 0 1737 67275 643
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testOCSP_NotEmbeddedWithoutVerification()
+QDEBUG : TestSignatureRealCrypto::testCertifyWritesDocMDP() validateSignatures: field "Signature1" ByteRange: 0 514 66052 2111
+QDEBUG : TestSignatureRealCrypto::testCertifyWritesDocMDP() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testCertifyWritesDocMDP() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testCertifyWritesDocMDP() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testCertifyWritesDocMDP() certifyDocument: certification level 9 out of range (expected 1..3) — refusing to certify
+PASS   : TestSignatureRealCrypto::testCertifyWritesDocMDP()
+QDEBUG : TestSignatureRealCrypto::testWriteUpdatePreservesSignature() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1916
+QDEBUG : TestSignatureRealCrypto::testWriteUpdatePreservesSignature() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testWriteUpdatePreservesSignature() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testWriteUpdatePreservesSignature() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testWriteUpdatePreservesSignature()
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() OCSP: no AIA extension in certificate
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOcspCertIdMismatchRejected() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testOcspCertIdMismatchRejected()
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() validateSignatures: field "Signature1" ByteRange: 0 490 66028 2206
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() validateSignatures: field "Signature1" ByteRange: 0 490 66028 2206
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() validateSignatures: field "Signature1" ByteRange: 0 490 66028 2206
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() validateSignatures: field "Signature1" ByteRange: 0 490 66028 2206
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testPartialLtvRetryIsTheSameRequest()
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1922
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1922
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: OCSPs not found or not array
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() SignatureManager: checked replacement of "C:/Users/User/AppData/Local/Temp/TestSignatureRealCrypto-nymMIp/fr_out.pdf" failed — previous output preserved: "injected commit failure (test seam)"
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::testFailedReplacementPreservesPreviousOutput()
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() B-LTA: no TSA URL configured — skipping document timestamp
+QWARN  : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() Found DSS dict. IsRef: false
+QWARN  : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() validateSignatures: field "Signature2" ByteRange: 0 68336 133874 1739
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() extractOcspFromDss: OCSPs not found or not array
+QWARN  : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished() PoDoFo error during signing: PdfErrorCode::IOError, Tried to do something unsupported to an I/O device like seek a non-seekable input device
+Callstack:t#0 Error Source: auxiliary/StreamDevice.cpp(875), Information: Error accessing file C:/Users/User/AppData/Local/Temp/TestSignatureRealCrypto-nymMIp/vanished_source.pdf
+PASS   : TestSignatureRealCrypto::testFailedRetryKeepsOutputWhenSourceVanished()
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() SECURITY: Post-condition validation found NO signature on the signed result — integrity cannot be confirmed; failing.
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::testEmptyPostConditionFailsAndPreservesOutput()
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() validateSignatures: field "Signature2" ByteRange: 0 68325 133863 1739
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() SECURITY: Post-condition validation found NO signature on the signed result — integrity cannot be confirmed; failing.
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::pgr21_failedInPlaceSignPreservesOriginalByteIdentical()
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() validateSignatures: field "Signature2" ByteRange: 0 68336 133874 1741
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1932
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 3 0 R"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() SECURITY: downgrading trustStatus from "Valid" to ValidWithUnsignedChanges for field "Signature1"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() validateSignatures: field "Signature2" ByteRange: 0 68336 133874 1741
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::pgr21_inPlaceSecondSignatureStaysIncrementalAndValid()
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() OCSP: no AIA extension in certificate
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1919
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1919
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::settingsDrivenLevelAttestsItsPieces()
+QWARN  : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() SECURITY: HTTP URLs are forbidden for TSA/OCSP. URL: "http://127.0.0.1:9/"
+QWARN  : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() B-T: TSA returned empty token — signature downgrades to B-B
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() OCSP: no AIA extension in certificate
+QWARN  : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() B-LTA: partial timestamp append discarded — file restored to 71808 bytes
+QWARN  : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() B-LTA timestamp addition failed: PdfErrorCode::InternalLogic, An internal error occurred.
+Callstack:t#0 Error Source: auxiliary/StreamDeviceBase.cpp(47), Information: Mismatch access for this device, requested Read
+QWARN  : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() B-LTA: document timestamp failed — signature bytes written but archival timestamp is MISSING. The caller MUST inform the user that B-LTA archival assurances are not in effect for this document.
+QWARN  : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() B-T: timestamp token missing — signature bytes written but the requested RFC 3161 timestamp could not be embedded (attained B-B). The caller MUST inform the user that timestamped-signature assurances are not in effect.
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1919
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1919
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() Found DSS dict. IsRef: false
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken() extractOcspFromDss: OCSPs not found or not array
+PASS   : TestSignatureRealCrypto::refusedLoopbackTsaAtBLTA_PartialHonestDestinationNeverBroken()
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1942
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() validateSignatures: field "Signature1" ByteRange: 0 514 66052 2084
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::successfulSignLeavesNoCandidate() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestSignatureRealCrypto::successfulSignLeavesNoCandidate()
+PASS   : TestSignatureRealCrypto::cleanupTestCase()
+Totals: 28 passed, 0 failed, 1 skipped, 0 blacklisted, 1560ms
+********* Finished testing of TestSignatureRealCrypto *********

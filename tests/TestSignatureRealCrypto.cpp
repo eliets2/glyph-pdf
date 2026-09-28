@@ -606,6 +606,120 @@ private slots:
     }
 
     // -----------------------------------------------------------------------
+    // INV-1: unsigned incremental update that rewrites ONLY the document
+    // Catalog. The shadow-attack scan (isLegitimateIncrementalAppend) once
+    // allowlisted every /Type /Catalog object found in the trailing bytes
+    // ("allowed for B-LT DSS inclusion"), so ANY unsigned catalog rewrite
+    // passed: an attacker could append an /OpenAction JavaScript action,
+    // /AA, /Names or a /Pages re-pointing using direct objects only, and
+    // the signature still reported Valid / isValid=true.
+    //
+    // The legitimate unsigned catalog update is the PAdES B-LT one: adding
+    // (or refreshing) /DSS and nothing else. This pin uses the validated
+    // end-to-end fixture: the base document is signed with the real test
+    // key and validates clean BEFORE the unsigned append; the append is
+    // exactly what an external incremental-saving-attack tool would write
+    // (PoDoFo SaveUpdate, bypassing every app guard).
+    // -----------------------------------------------------------------------
+    void testUnsignedCatalogOnlyRevisionDowngraded()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString attacked = m_tmpDir.filePath("inv1_catalog_shadow.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, attacked, kP12Path, kP12Pass) == SignOutcome::Success);
+
+        // Baseline (validated fixture): before the append the signature
+        // must verify cryptographically AND be trusted against the test CA.
+        {
+            X509_STORE *store = buildTestStore();
+            QVERIFY(store);
+            mgr.setTrustStoreForTest(store);
+            auto baseline = mgr.validateSignatures(attacked);
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+            QVERIFY2(!baseline.isEmpty(),
+                     "baseline: signed fixture must report a signature");
+            QVERIFY2(baseline.first().trustStatus == QLatin1String("Valid"),
+                     qPrintable(QString("baseline: fixture must validate clean before the "
+                                        "unsigned append, got: %1")
+                                    .arg(baseline.first().trustStatus)));
+            QVERIFY2(baseline.first().isValid,
+                     "baseline: fixture signature must be isValid=true before the append");
+        }
+
+        // The attack: one unsigned incremental revision whose only change
+        // is the Catalog, amended with an /OpenAction JavaScript action.
+        // Everything is a direct object — no new indirect objects, no DSS,
+        // so the trailing-bytes object scan sees only the Catalog itself.
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(attacked.toUtf8().constData());
+            PoDoFo::PdfDictionary action;
+            action.AddKey("S", PoDoFo::PdfName("JavaScript"));
+            action.AddKey("JS", PoDoFo::PdfString("app.alert(\"INV1 shadow\");"));
+            doc.GetCatalog().GetDictionary().AddKey("OpenAction", PoDoFo::PdfObject(action));
+            doc.SaveUpdate(attacked.toUtf8().constData());
+        }
+
+        // The signed bytes are untouched, so the signature still verifies
+        // cryptographically — but the unsigned catalog rewrite must be
+        // surfaced: the status must be downgraded away from Valid and
+        // isValid must be false.
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(attacked);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "Attacked PDF must still report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.trustStatus != QLatin1String("Valid") &&
+                 info.trustStatus != QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("INV-1: unsigned catalog-only revision (OpenAction) must not "
+                                    "validate clean, got: %1").arg(info.trustStatus)));
+        QVERIFY2(!info.isValid,
+                 "isValid must be false when an unsigned catalog rewrite follows the ByteRange");
+    }
+
+    // -----------------------------------------------------------------------
+    // INV-1 companion: the app's OWN B-LT revision (buildDssDictionary —
+    // /DSS added to the Catalog, DSS subtree objects appended) is the
+    // legitimate unsigned catalog update and must keep validating clean.
+    // Guards the catalog allowlist from being tightened into an
+    // over-block that downgrades every legitimately extended document.
+    // -----------------------------------------------------------------------
+    void testOwnBltDssRevisionNotDowngraded()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_LT);
+        QString output = m_tmpDir.filePath("inv1_blt_legit.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "INV1-BLT", "")
+                == SignOutcome::Success);
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(output);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "B_LT document must report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.hasDss, "B_LT: DSS must be present");
+        QVERIFY2(info.trustStatus == QLatin1String("Valid") ||
+                 info.trustStatus == QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("B_LT: the app's own DSS revision must not be treated as an "
+                                    "unsigned-attack revision, got: %1").arg(info.trustStatus)));
+        QVERIFY2(info.isValid,
+                 "B_LT: the app's own DSS revision must keep isValid=true");
+    }
+
+    // -----------------------------------------------------------------------
     // Adversarial Test 11 (M2-P4): Multiple signatures — both must be intact
     // Sign once, then sign the already-signed PDF again.
     // Both signatures must report integrityIntact=true.
