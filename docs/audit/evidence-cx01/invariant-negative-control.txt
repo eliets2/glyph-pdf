@@ -1,0 +1,2 @@
+FAIL!  : TestAccessibilityTagger::inlineImageSurvivesTagging() 'r.ok' returned FALSE. (painting-preservation invariant failed on page 1 — non-text painting content (inline-image bytes or XObject Do) diverged; the original is unchanged)
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 36ms

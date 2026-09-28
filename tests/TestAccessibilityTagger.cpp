@@ -29,6 +29,7 @@
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -41,6 +42,7 @@
 #include "engines/AccessibilityFixes.h"
 #include "engines/SafeSave.h"
 #include "engines/VeraPdfValidator.h"
+#include "engines/pdfium/PdfiumBackend.h"
 
 using PoDoFo::PdfObject;
 using PoDoFo::PdfName;
@@ -446,6 +448,12 @@ private slots:
     // existing signature. A signed fixture is refused at pre-flight AND
     // transaction, byte-identical; the unsigned-field control still tags.
     void signedDocumentTaggingRefusedByteIdentical();
+
+    // CX-01 — tagging must not destroy inline images: the inline dictionary
+    // is emitted as BARE key/value pairs (PDF 32000 §8.9.7), the data bytes
+    // survive byte-for-byte, and PDFium renders the page pixel-identically
+    // before and after (the old text-only invariant never caught this).
+    void inlineImageSurvivesTagging();
 
 private:
     static FixtureOpts headingParagraphFixture() {
@@ -1151,6 +1159,107 @@ void TestAccessibilityTagger::signedDocumentTaggingRefusedByteIdentical() {
              qPrintable(QStringLiteral("an unsigned sig field must not block "
                                       "tagging (message: %1)").arg(okRun.message)));
     QVERIFY(gp::validateTaggedStructureTree(unsignedPdf).isEmpty());
+}
+
+// ── CX-01: tagging must not destroy inline images ────────────────────────────
+// PDF 32000 §8.9.7: between BI and ID the inline-image dictionary is BARE
+// key/value pairs; ID is followed by exactly one whitespace byte, the data
+// bytes, whitespace, then EI. The writer used to re-emit "<< >>" around the
+// pairs, which every renderer treats as unknown keys — a SUCCESSFUL
+// transaction that destroyed every inline image on the page while the
+// text-only invariant still passed. The pin: text + one AHx inline image +
+// one unfiltered binary inline image + one image XObject Do; after tagging
+// the emitted stream carries bare pairs only, both data extents are
+// byte-identical, and PDFium renders the page pixel-identically.
+void TestAccessibilityTagger::inlineImageSurvivesTagging() {
+    FixtureOpts o;
+    o.pages = {QList<TextLine>{{ 700, 10.0, "Inline image survival."}}};
+    o.images = 1;
+    o.drawImages = true;   // the XObject Do — name-preservation half
+    o.extra = {QByteArray(
+        "q\n100 0 0 100 300 40 cm\n"
+        "BI /W 2 /H 2 /CS /RGB /BPC 8 /F /AHx ID "
+        "FF0000FF0000FF0000FF0000> EI\n"
+        "Q\n"
+        "q\n100 0 0 100 300 240 cm\n"
+        "BI /W 2 /H 1 /CS /RGB /BPC 8 ID \x01\x02\x03\x04\x05\x06 EI\n"
+        "Q\n")};
+    const QString pdf = make("inline.pdf", o);
+    QVERIFY(!pdf.isEmpty());
+
+    // Render BEFORE (PDFium): the fixture really paints its inline red ink.
+    PdfiumBackend beforeRenderer;
+    QVERIFY2(beforeRenderer.loadDocument(pdf), "pdfium load (before) failed");
+    const QImage beforeImg = beforeRenderer.renderPage(0, 150);
+    QVERIFY(!beforeImg.isNull());
+    long redInk = 0;
+    for (int y = 0; y < beforeImg.height(); ++y)
+        for (int x = 0; x < beforeImg.width(); ++x) {
+            const QRgb px = beforeImg.pixel(x, y);
+            if (qRed(px) > 200 && qGreen(px) < 80 && qBlue(px) < 80) ++redInk;
+        }
+    QVERIFY2(redInk > 50,
+             "fixture sanity: the inline red image region must render");
+    // Release the pdfium file handle before the tagging transaction commits.
+    beforeRenderer.closeDocument();
+
+    const gp::TaggerReport r = gp::tagDocumentAccessibility(pdf);
+    QVERIFY2(r.ok, qPrintable(r.message));
+    QVERIFY2(gp::validateTaggedStructureTree(pdf).isEmpty(),
+             "the tagged tree must still validate");
+
+    // The tagged page stream: EVERY inline image emits bare pairs only.
+    PoDoFo::PdfMemDocument doc;
+    doc.Load(pdf.toUtf8().constData());
+    auto& page = doc.GetPages().GetPageAt(0);
+    PoDoFo::PdfObject* contents =
+        page.GetDictionary().FindKey(PdfName("Contents"));
+    QVERIFY(contents != nullptr);
+    if (contents->IsReference())
+        contents = &doc.GetObjects().MustGetObject(contents->GetReference());
+    QVERIFY(contents->HasStream());
+    PoDoFo::charbuff buf;
+    contents->GetStream()->CopyTo(buf);
+    const QByteArray out(buf.data(), static_cast<qsizetype>(buf.size()));
+
+    int bi = 0;
+    int inlineCount = 0;
+    QList<QByteArray> dataRegions;
+    while ((bi = out.indexOf("BI\n", bi)) >= 0) {
+        const qsizetype id = out.indexOf("\nID\n", bi);
+        QVERIFY2(id > bi, "every BI must be followed by ID");
+        const QByteArray dictPart = out.mid(bi, static_cast<int>(id - bi));
+        QVERIFY2(!dictPart.contains("<<"),
+                 "CX-01: the inline dictionary must be bare key/value pairs, "
+                 "not << >> delimited");
+        QVERIFY2(!dictPart.contains(">>"),
+                 "CX-01: the inline dictionary must be bare key/value pairs, "
+                 "not << >> delimited");
+        QVERIFY2(dictPart.contains("/W"), "bare keys must survive");
+        const qsizetype ei = out.indexOf("\nEI\n", id);
+        QVERIFY2(ei > id, "every ID must be followed by EI");
+        dataRegions.append(out.mid(static_cast<int>(id) + 4,
+                                   static_cast<int>(ei - id) - 4));
+        ++inlineCount;
+        bi = static_cast<int>(id);
+    }
+    QVERIFY2(inlineCount == 2,
+             qPrintable(QStringLiteral("expected 2 inline images, saw %1")
+                            .arg(inlineCount)));
+    // The exact data bytes survive (AHx hex payload; six raw binary bytes).
+    QVERIFY2(dataRegions[0].contains("FF0000FF0000FF0000FF0000"),
+             "the AHx inline data bytes must be byte-identical");
+    QVERIFY2(dataRegions[1].contains(QByteArray("\x01\x02\x03\x04\x05\x06", 6)),
+             "the unfiltered inline data bytes must be byte-identical");
+
+    // Render AFTER: the whole page — text, inline images, image XObject —
+    // must be pixel-identical (PDFium), so the image region in particular.
+    PdfiumBackend afterRenderer;
+    QVERIFY2(afterRenderer.loadDocument(pdf), "pdfium load (after) failed");
+    const QImage afterImg = afterRenderer.renderPage(0, 150);
+    QVERIFY2(afterImg == beforeImg,
+             "the tagged page must render pixel-identically (CX-01: the "
+             "inline image and every other painting op must survive)");
 }
 
 #include "TestAccessibilityTagger.moc"
