@@ -217,6 +217,10 @@ private slots:
     void inlineImageLengthAndEodExtents();
     void inlineImageRefusesUnknownExtents();
     void opacityReachesTheRealImagePastInlineData();
+
+    // ── Part 6: CX-11 — matrix replacement refuses shared blocks ───────────
+    void replaceImageMatrixRefusesSharedBlocks();
+    void moveImageRefusesASharedBlockKeepsNeighbours();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -1123,6 +1127,83 @@ void TestImageAppearance::opacityReachesTheRealImagePastInlineData()
                  && blended.red() > blended.green() + 40,
              qPrintable(QStringLiteral("the real image must blend at 50%%, got %1")
                             .arg(blended.name())));
+}
+
+// ── Part 6: CX-11 — matrix replacement refuses shared blocks ───────────────
+
+// The target Do must be the only painting operator in its own q..Q block —
+// the same isolation rule restack applies — or the shared cm would carry the
+// neighbours along (Codex: q 100 0 0 100 20 20 cm /ImA Do /ImB Do Q moved
+// BOTH images).
+void TestImageAppearance::replaceImageMatrixRefusesSharedBlocks()
+{
+    QByteArray out;
+
+    // Image + image, target first…
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(
+                 "q 100 0 0 100 20 20 cm /ImA Do /ImB Do Q", "ImA",
+                 "1 0 0 1 50 20", &out),
+             EditResult::SharedBlock);
+    QVERIFY(out.isEmpty());
+    // …and second: no neighbour is moved by proxy either.
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(
+                 "q 100 0 0 100 20 20 cm /ImB Do /ImA Do Q", "ImA",
+                 "1 0 0 1 50 20", &out),
+             EditResult::SharedBlock);
+    QVERIFY(out.isEmpty());
+
+    // Image + text painting in one block.
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(
+                 "q /ImA Do (hello) Tj Q", "ImA", "1 0 0 1 0 0", &out),
+             EditResult::SharedBlock);
+    QVERIFY(out.isEmpty());
+
+    // An isolated placement still rewrites.
+    const QByteArray alone = "q 100 0 0 100 20 20 cm /ImA Do Q";
+    QCOMPARE(gp::content::replaceImageMatrix(alone, "ImA", "1 0 0 1 50 20", &out),
+             EditResult::Changed);
+    QVERIFY(out.contains("1 0 0 1 50 20 cm /ImA Do"));
+}
+
+// The engine-level contract: a move inside a shared block is refused with a
+// byte-identical file — the neighbours' bytes and rendered pixels stay put.
+void TestImageAppearance::moveImageRefusesASharedBlockKeepsNeighbours()
+{
+    // Image + image sharing one q..Q (both at the same rect: ImB covers ImA).
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "sharedII.pdf",
+            "q 200 0 0 200 100 400 cm /ImA Do /ImB Do Q\n");
+        const QByteArray before = fileBytes(f);
+        const QImage renderBefore = renderPage(f);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+
+        QVERIFY2(!engine.moveImage(0, QStringLiteral("ImA"), 20, 0),
+                 "a shared cm must not be rewritten");
+        QCOMPARE(fileBytes(f), before);
+        QCOMPARE(renderPage(f), renderBefore);
+        QCOMPARE(engine.listImages(0).size(), 2);   // both placements intact
+    }
+    // Image + text sharing one q..Q.
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "sharedIT.pdf",
+            "q 200 0 0 200 100 400 cm /ImA Do BT /F1 12 Tf (x) Tj ET Q\n");
+        const QByteArray before = fileBytes(f);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+
+        QVERIFY2(!engine.moveImage(0, QStringLiteral("ImA"), 20, 0),
+                 "a block painting text must not be rewritten either");
+        QCOMPARE(fileBytes(f), before);
+        QCOMPARE(engine.listImages(0).size(), 1);
+    }
 }
 
 QTEST_MAIN(TestImageAppearance)

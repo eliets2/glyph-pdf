@@ -556,17 +556,19 @@ EditResult replaceImageMatrix(const QByteArray &s, const QByteArray &name,
     const int doIdx = findImageDo(toks, name);
     if (doIdx < 0) return EditResult::NotFound;
 
-    int blockOpen = -1;
-    {
-        QVector<int> open;
-        for (int i = 0; i < doIdx; ++i) {
-            if (toks[i].kind != Token::Kind::Operator) continue;
-            if (toks[i].text == "q") open.push_back(i);
-            else if (toks[i].text == "Q") open.pop_back();
-        }
-        if (open.isEmpty()) return EditResult::NotIsolated;
-        blockOpen = open.back();
-    }
+    const int blockOpen = innermostBlockOpen(toks, doIdx);
+    if (blockOpen < 0) return EditResult::NotIsolated;
+
+    // CX-11: restack's isolation rule — the block must paint nothing but
+    // this placement. The cm inside a shared block carries the neighbours'
+    // placement too (q 100 0 0 100 20 20 cm /ImA Do /ImB Do Q moved BOTH
+    // images), so rewriting it is refused, never applied.
+    const QVector<int> match = qMatch(toks);
+    const int blockClose = match[blockOpen];
+    if (blockClose < 0) return EditResult::Malformed;
+    for (int i = blockOpen + 1; i < blockClose; ++i)
+        if (i != doIdx && isPainting(toks[i])) return EditResult::SharedBlock;
+
     // The last cm between the block's q and the Do, at the Do's own depth
     // (a cm inside a nested, already-closed q..Q does not apply to the Do).
     for (int i = doIdx - 1; i > blockOpen; --i) {
