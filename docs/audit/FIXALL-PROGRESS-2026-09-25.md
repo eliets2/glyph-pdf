@@ -212,3 +212,24 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
   E3 PASS (0 purge hits, main ancestor, 0 merges); E4 PASS (166,613 added lines,
   0 secret matches); E5 PASS (0 unexplained + uniq-d = exactly the 12 Phase 0
   sources). E6: final push + PR body update (see handoff).
+
+## Checkpoint CP10 (verification pass, 2026-09-29, second integrator)
+
+- Independent gate verification at the pushed head 12da4e2f. E3/E4/E5 re-run
+  clean (0 purge hits; 0 secret-pattern matches in 152,227 added lines; -x
+  uniq-d = exactly the 12 Phase 0 sources). E1 incremental rebuild 943/943,
+  0 errors on the pristine sources.
+- E2 CORRECTION: a full SERIAL ctest on this machine hit the
+  TestAccessibilityPanel SEGFAULT (99% passed, 1 failed out of 186 — the only
+  failure; TestWelcomeRoutes passed serially). The handoff's "serial 185/185"
+  does not reproduce here; erratum appended to the handoff (§10).
+- Owner item §7.5 amended (handoff §10): the Panel segfault is NOT
+  contention-gated — solo runs 2 crashed / 4 on the pristine head. Forensics:
+  crash inside the queued re-scan delivery after onTagFinished, in
+  repeatApplyRefusedWhileTagRuns' completion QTRY; rip = Qt6Core+0x98ae3
+  (constant), saved return address at [rsp] corrupted (interleaved DWORD,
+  non-canonical); NOT stack size (-Wl,--stack,8388608 still crashed 4/6);
+  passes with the test function run alone. Diagnostic instrumented builds were
+  reverted before this checkpoint (tree clean, no code changes by this pass).
+- Final-head CI 36494056192: Build ✓, content-spans-sanitizer ✓, License Guard
+  ✓; Test 183/186 = exactly the three named items. Nothing new.

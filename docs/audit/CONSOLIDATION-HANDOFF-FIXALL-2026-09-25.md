@@ -293,3 +293,51 @@ git log --format=%B origin/main..HEAD | grep -o \
 3. Merge PR #2 into `main` keeping its commits; refresh the all-refs backup
    bundle; delete the other branches/stale worktrees — as the owner decided.
 4. Take the §7 owner items (Panel race first — it is the only crash).
+
+## 10. ERRATUM — independent verification pass (2026-09-29, second integrator)
+
+A verification pass over the pushed head `12da4e2f` re-ran the gates. Three
+corrections to the claims above, all narrowing to owner item §7.5; everything
+else re-verified clean.
+
+1. **E2 serial is NOT 100% on this machine.** A full serial run
+   (`QT_QPA_PLATFORM=offscreen ctest --test-dir build-final -j1
+   --output-on-failure --timeout 900`) on a pristine incremental rebuild of
+   `12da4e2f` (943/943 ninja steps, 0 errors) gave **99% tests passed, 1 failed
+   out of 186 — the failure is `TestAccessibilityPanel` (SEGFAULT)**;
+   TestWelcomeRoutes PASSED serially (5.27s). §1's "serial: 185/185 = 100%"
+   and §9 step 1's "serial gives 100%" therefore do not reproduce here; treat
+   the Panel segfault as able to fire in ANY run mode, not only under -jN load.
+2. **Owner item §7.5 amended — the Panel segfault is NOT contention-gated.**
+   Solo direct runs on the pristine head: 2 crashed / 4 (50%). Forensics
+   (gdb, instrumented local builds, all reverted after diagnosis):
+   - Crash window: after `AccessibilityPanel::onTagFinished` runs to completion
+     (including the success-path re-scan via `setDocument`) and before
+     `TestAccessibilityPanel::repeatApplyRefusedWhileTagRuns`'s next completion
+     assertion — i.e. during the queued delivery of the re-scan result, inside
+     that test's completion QTRY spin. A return address into
+     `repeatApplyRefusedWhileTagRuns+2925` sits on the captured stack.
+   - Deterministic signature when it fires: faulting thread is the GUI thread;
+     `rip` = Qt6Core.dll+**0x98ae3** (constant RVA across processes), a `ret`;
+     the saved return address at `[rsp]` is corrupted with an interleaved DWORD
+     (qword reads `0x01007fff566ef107` — non-canonical), i.e. stack-adjacent
+     memory corruption, not a depth overflow.
+   - NOT stack size: relinking the suite with `-Wl,--stack,8388608` still
+     crashed 4/6 under gdb (2MB default reserve made no difference).
+   - Not reproduced in isolation: `TestAccessibilityPanel.exe
+     repeatApplyRefusedWhileTagRuns` alone passes; the crash needs the suite's
+     preceding tests (shared process state), consistent with a corruption whose
+     fault surfaces at the tag-completion delivery.
+3. **Final-head CI confirmed.** Run `36494056192` on `12da4e2f`: Build ✓,
+   content-spans-sanitizer ✓, License Guard ✓; Test 183/186 — the reds are
+   exactly the three named items (TestWelcomeRoutes, TestSweepW3UxFlows,
+   TestAccessibilityPanel SEGFAULT). No new failure surfaced.
+
+Re-verified clean at `12da4e2f`: E3 (0 purge hits, main ancestor, 0 merges),
+E5 (`uniq -d` on `-x` trailers = exactly the 12 Phase 0 sources), E4
+(0 private-key-pattern matches in 152,227 added lines of
+`git diff origin/main..HEAD`), E1 (incremental rebuild 943/943, 0 errors).
+E2's touched-suite ×3 evidence and the §4/§5 tables were not re-litigated;
+the serial result above is the only counter-evidence found. Priority of owner
+item §7.5 is unchanged — it remains the only crash and now demonstrably blocks
+"100%" in serial runs too.
