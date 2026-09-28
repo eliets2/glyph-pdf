@@ -8,6 +8,12 @@
 struct PdfImageInfo {
     int pageIndex = 0;
     QString xobjectName;       // e.g., "/Im0" — the resource name on that page
+    // N1: the 0-based occurrence of this placement in stream order among the
+    // placements of the SAME name on this page. One XObject may be drawn any
+    // number of times; every placement then shares xobjectName, and only
+    // (xobjectName, occurrence) addresses ONE of them — addressing by name
+    // alone always hit the first /Do and edited the wrong placement.
+    int occurrence = 0;
     QRectF placement;          // position/size in PDF user-space coords (bottom-left origin)
     double rotation = 0.0;     // degrees, extracted from the CTM
     int widthPx = 0;           // native pixel width of the XObject

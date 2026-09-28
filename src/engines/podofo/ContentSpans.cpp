@@ -308,17 +308,10 @@ bool changesImageState(const QList<Token> &toks, int idx, const QByteArray &src,
     return false;
 }
 
-int findImageDo(const QList<Token> &toks, const QByteArray &name)
-{
-    for (int i = 1; i < toks.size(); ++i) {
-        if (toks[i].kind == Token::Kind::Operator && toks[i].text == "Do"
-            && toks[i - 1].kind == Token::Kind::Name && toks[i - 1].text == name)
-            return i;
-    }
-    return -1;
-}
-
 // The `occurrence`-th (0-based, stream order) "/<name> Do" placement.
+// N1: the only placement lookup — occurrence 0 is the historical first-hit
+// behavior, so name-only callers and (name, occurrence) addressing share one
+// code path and cannot drift.
 int findImageDoNth(const QList<Token> &toks, const QByteArray &name, int occurrence)
 {
     if (occurrence < 0) occurrence = 0;
@@ -495,12 +488,14 @@ bool lex(const QByteArray &s, QList<Token> *tokens)
 }
 
 EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFront,
-                        QByteArray *out, bool colorSensitive)
+                        QByteArray *out, bool colorSensitive, int occurrence)
 {
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
 
-    const int doIdx = findImageDo(toks, name);
+    // N1: address the `occurrence`-th placement — with one XObject drawn
+    // twice, name-only lookup always restacked the FIRST drawing.
+    const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
     // The image's own block (through any gs-only wrapper — CX-10) and the
@@ -572,11 +567,15 @@ EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFron
 }
 
 EditResult wrapImageInExtGState(const QByteArray &s, const QByteArray &name,
-                                const QByteArray &gsName, QByteArray *out)
+                                const QByteArray &gsName, QByteArray *out,
+                                int occurrence)
 {
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
-    const int doIdx = findImageDo(toks, name);
+    // N1: the `occurrence`-th placement, not always the first — an opacity
+    // wrap around the wrong drawing of a twice-drawn XObject faded the wrong
+    // image and reported success.
+    const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
     // Our own earlier wrap: q /<gsName> gs /<name> Do Q
@@ -604,11 +603,15 @@ EditResult wrapImageInExtGState(const QByteArray &s, const QByteArray &name,
 }
 
 EditResult replaceImageMatrix(const QByteArray &s, const QByteArray &name,
-                              const QByteArray &matrix, QByteArray *out)
+                              const QByteArray &matrix, QByteArray *out,
+                              int occurrence)
 {
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
-    const int doIdx = findImageDo(toks, name);
+    // N1: rewrite the cm of the `occurrence`-th placement — a move/resize/
+    // rotate of the second drawing of a twice-drawn XObject must not silently
+    // move the first one (which name-only lookup did).
+    const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
     const QVector<int> match = qMatch(toks);

@@ -316,25 +316,38 @@ public:
 };
 
 /// Embedded-image manipulation and watermarking.
+///
+/// N1: placement-addressing edits take `occurrence` — the 0-based stream-order
+/// index of the placement among the drawings of the same XObject name on the
+/// page (listImages reports it in PdfImageInfo::occurrence). One XObject drawn
+/// twice yields two placements; name-only addressing always edited the FIRST
+/// drawing. The default 0 keeps historical callers on the first placement.
+/// replaceImage stays name-addressed: it rewrites the XObject's pixels, which
+/// every drawing of that name shares.
 class IImageEditor {
 public:
     virtual ~IImageEditor() = default;
     virtual QList<PdfImageInfo> listImages(int pageIndex) = 0;
-    virtual bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) = 0;
-    virtual bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) = 0;
-    virtual bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) = 0;
+    virtual bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy,
+                           int occurrence = 0) = 0;
+    virtual bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight,
+                             int occurrence = 0) = 0;
+    virtual bool rotateImage(int pageIndex, const QString &xobjectName, double degrees,
+                             int occurrence = 0) = 0;
     virtual bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) = 0;
-    virtual bool deleteImage(int pageIndex, const QString &xobjectName) = 0;
+    virtual bool deleteImage(int pageIndex, const QString &xobjectName, int occurrence = 0) = 0;
     /// Stacking order: moves the image's own q..Q block to the end (front) or
     /// start (back) of its parent block — later operators paint on top.
     /// Refuses (false, document untouched) when the image is not isolated in
     /// its own graphics state or the move would cross a cm/gs/clip. Already
     /// front-/backmost is success with nothing changed.
-    virtual bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) = 0;
-    /// Constant opacity (0..1) for the image's first placement: its Do is
-    /// wrapped in "q /GS gs … Q" with an ExtGState (/ca /CA); setting it again
-    /// updates that ExtGState instead of nesting another wrap.
-    virtual bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) = 0;
+    virtual bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront,
+                                int occurrence = 0) = 0;
+    /// Constant opacity (0..1) for the image's `occurrence`-th placement: its
+    /// Do is wrapped in "q /GS gs … Q" with an ExtGState (/ca /CA); setting it
+    /// again updates that ExtGState instead of nesting another wrap.
+    virtual bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity,
+                                 int occurrence = 0) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
 };

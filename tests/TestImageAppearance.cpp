@@ -39,6 +39,13 @@ const char *kTwoImages =
     "q 200 0 0 200 100 400 cm /ImA Do Q\n"
     "q 200 0 0 200 150 450 cm /ImB Do Q\n";
 
+// N1: ONE image XObject drawn TWICE — the same /ImA name owns two placements
+// (at x100..300 y400..600 and x150..350 y450..650). The cm operands differ, so
+// each drawing's block has byte-distinct, byte-exact content.
+const char *kSameImageTwice =
+    "q 200 0 0 200 100 400 cm /ImA Do Q\n"
+    "q 200 0 0 200 150 450 cm /ImA Do Q\n";
+
 QString makeTwoImagePdf(const QString &dir, const QString &name, const QByteArray &content,
                         bool inheritResources = false)
 {
@@ -289,6 +296,14 @@ private slots:
     // ── Part 8: CX-09 — restacking never crosses marked content ────────────
     void restackRefusesToCrossMarkedContent();
     void restackKeepsHiddenAndTaggedImagesInPlace();
+
+    // ── Part 9: N1 — one XObject drawn twice is addressed by occurrence ────
+    void restackTargetsTheOccurrence();
+    void wrapTargetsTheOccurrence();
+    void replaceMatrixTargetsTheOccurrence();
+    void listImagesNumbersTheOccurrences();
+    void editingSecondPlacementLeavesFirstByteIdentical();
+    void opacityTargetsTheOccurrence();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -1515,6 +1530,179 @@ void TestImageAppearance::restackKeepsHiddenAndTaggedImagesInPlace()
         QCOMPARE(fileBytes(f), before);
         QVERIFY(isBlue(pixelAt(f, kOverlap.x(), kOverlap.y())));
     }
+}
+
+// ── Part 9: N1 — one XObject drawn twice is addressed by occurrence ────────
+
+void TestImageAppearance::restackTargetsTheOccurrence()
+{
+    // Occurrence 0 to-front moves the FIRST drawing after the second; the
+    // second block's bytes never change (the removed span's separator newline
+    // stays at the head — everything outside the moved block is verbatim).
+    QByteArray out;
+    QCOMPARE(gp::content::restackImage(kSameImageTwice, "ImA", true, &out, false, 0),
+             EditResult::Changed);
+    QCOMPARE(out,
+             QByteArray("\nq 200 0 0 200 150 450 cm /ImA Do Q\n"
+                        "\nq 200 0 0 200 100 400 cm /ImA Do Q\n"));
+
+    // Out-of-range occurrence is NotFound, out untouched.
+    QByteArray none = QByteArray("untouched");
+    QCOMPARE(gp::content::restackImage(kSameImageTwice, "ImA", true, &none, false, 2),
+             EditResult::NotFound);
+    QCOMPARE(none, QByteArray("untouched"));
+
+    // Occurrence 1 to-back moves the SECOND drawing before the first.
+    QByteArray back;
+    QCOMPARE(gp::content::restackImage(kSameImageTwice, "ImA", false, &back, false, 1),
+             EditResult::Changed);
+    QCOMPARE(back,
+             QByteArray("\nq 200 0 0 200 150 450 cm /ImA Do Q\n"
+                        "q 200 0 0 200 100 400 cm /ImA Do Q\n\n"));
+}
+
+void TestImageAppearance::wrapTargetsTheOccurrence()
+{
+    // Wrapping occurrence 1 wraps the SECOND drawing only; the first block
+    // stays byte-identical and unwrapped.
+    QByteArray out;
+    QCOMPARE(gp::content::wrapImageInExtGState(kSameImageTwice, "ImA", "GSop1", &out, 1),
+             EditResult::Changed);
+    QCOMPARE(out.count("/GSop1 gs"), 1);
+    QVERIFY(out.contains("q 200 0 0 200 100 400 cm /ImA Do Q"));
+    QVERIFY(out.contains("q\n/GSop1 gs\n/ImA Do\nQ"));
+    QVERIFY2(out.indexOf("/GSop1 gs") > out.indexOf("150 450 cm"),
+             "the wrap must sit at the second drawing, not the first");
+
+    // Wrapping occurrence 0 wraps the FIRST drawing instead.
+    QByteArray first;
+    QCOMPARE(gp::content::wrapImageInExtGState(kSameImageTwice, "ImA", "GSop1", &first, 0),
+             EditResult::Changed);
+    QVERIFY(first.contains("q\n/GSop1 gs\n/ImA Do\nQ"));
+    QVERIFY(first.contains("q 200 0 0 200 150 450 cm /ImA Do Q"));
+    QVERIFY2(first.indexOf("/GSop1 gs") < first.indexOf("150 450 cm"),
+             "occurrence 0's wrap must sit at the first drawing");
+
+    // Out of range → NotFound.
+    QByteArray none;
+    QCOMPARE(gp::content::wrapImageInExtGState(kSameImageTwice, "ImA", "GSop1", &none, 2),
+             EditResult::NotFound);
+}
+
+void TestImageAppearance::replaceMatrixTargetsTheOccurrence()
+{
+    // Moving the SECOND drawing +10 in x rewrites only its cm; the first
+    // block stays byte-identical.
+    QByteArray out;
+    QCOMPARE(gp::content::replaceImageMatrix(kSameImageTwice, "ImA",
+                                             "200 0 0 200 160 450", &out, 1),
+             EditResult::Changed);
+    QVERIFY(out.contains("q 200 0 0 200 100 400 cm /ImA Do Q"));
+    QVERIFY(out.contains("q 200 0 0 200 160 450 cm /ImA Do Q"));
+
+    // Occurrence 0 rewrites the FIRST cm; the second is untouched.
+    QByteArray first;
+    QCOMPARE(gp::content::replaceImageMatrix(kSameImageTwice, "ImA",
+                                             "200 0 0 200 110 400", &first, 0),
+             EditResult::Changed);
+    QVERIFY(first.contains("q 200 0 0 200 110 400 cm /ImA Do Q"));
+    QVERIFY(first.contains("q 200 0 0 200 150 450 cm /ImA Do Q"));
+
+    // Out of range → NotFound.
+    QByteArray none;
+    QCOMPARE(gp::content::replaceImageMatrix(kSameImageTwice, "ImA",
+                                             "200 0 0 200 0 0", &none, 2),
+             EditResult::NotFound);
+}
+
+void TestImageAppearance::listImagesNumbersTheOccurrences()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "twice.pdf", kSameImageTwice);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    const auto images = engine.listImages(0);
+    QCOMPARE(images.size(), 2);
+    QVERIFY(images[0].xobjectName == QStringLiteral("ImA")
+            && images[1].xobjectName == QStringLiteral("ImA"));
+    QCOMPARE(images[0].occurrence, 0);
+    QCOMPARE(images[1].occurrence, 1);
+    QCOMPARE(images[0].placement, QRectF(100, 400, 200, 200));
+    QCOMPARE(images[1].placement, QRectF(150, 450, 200, 200));
+}
+
+void TestImageAppearance::editingSecondPlacementLeavesFirstByteIdentical()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "edit2nd.pdf", kSameImageTwice);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    // The headline N1 edit: move the SECOND placement of the twice-drawn
+    // XObject. The first placement must come out byte-identical.
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), 10, 0, /*occurrence=*/1));
+    const QByteArray content = pageContent(f);
+    QVERIFY2(content.contains("q 200 0 0 200 100 400 cm /ImA Do Q"),
+             "the first placement's cm must survive byte-identical");
+    // The rewritten cm carries the rewrite format (six decimals); it must be
+    // the SECOND block's cm that changed.
+    QVERIFY2(content.contains(
+                 "q 200.000000 0.000000 0.000000 200.000000 160.000000 450.000000 cm /ImA Do Q"),
+             "the SECOND placement is the one that must have moved");
+
+    const auto after = engine.listImages(0);
+    QCOMPARE(after.size(), 2);
+    QCOMPARE(after[0].placement, QRectF(100, 400, 200, 200));
+    QCOMPARE(after[1].placement, QRectF(160, 450, 200, 200));
+
+    // Deleting the SECOND placement (fresh fixture) removes that drawing and
+    // leaves the first byte-identical, still listed as occurrence 0.
+    QTemporaryDir dir2;
+    const QString g = makeTwoImagePdf(dir2.path(), "del2nd.pdf", kSameImageTwice);
+    PdfEditorEngine engine2;
+    QVERIFY(engine2.loadDocumentForEditing(g));
+    QVERIFY(engine2.deleteImage(0, QStringLiteral("ImA"), /*occurrence=*/1));
+    const QByteArray afterDelete = pageContent(g);
+    QVERIFY(afterDelete.contains("q 200 0 0 200 100 400 cm /ImA Do Q"));
+    QVERIFY(!afterDelete.contains("150 450 cm"));
+    const auto remaining = engine2.listImages(0);
+    QCOMPARE(remaining.size(), 1);
+    QCOMPARE(remaining[0].occurrence, 0);
+    QCOMPARE(remaining[0].placement, QRectF(100, 400, 200, 200));
+
+    // An out-of-range occurrence refuses and leaves the file byte-identical.
+    const QByteArray beforeRefuse = fileBytes(g);
+    QVERIFY(!engine2.deleteImage(0, QStringLiteral("ImA"), /*occurrence=*/1));
+    QCOMPARE(fileBytes(g), beforeRefuse);
+}
+
+void TestImageAppearance::opacityTargetsTheOccurrence()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "opacity2nd.pdf", kSameImageTwice);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    // Fading the SECOND placement wraps only that drawing; the first block
+    // stays byte-identical and unwrapped.
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.5, /*occurrence=*/1));
+    QByteArray content = pageContent(f);
+    QCOMPARE(content.count(" gs\n"), 1);
+    QVERIFY(content.contains("q 200 0 0 200 100 400 cm /ImA Do Q"));
+    QVERIFY(content.contains("q\n/GSop"));
+
+    // Fading the first placement wraps it separately: two placements, two
+    // ExtGState wraps.
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.5, /*occurrence=*/0));
+    QCOMPARE(pageContent(f).count(" gs\n"), 2);
+
+    // Re-setting the second placement updates ITS wrap in place — no third
+    // wrap, and the first drawing keeps its own wrap around an intact cm.
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.25, /*occurrence=*/1));
+    QCOMPARE(pageContent(f).count(" gs\n"), 2);
+    content = pageContent(f);
+    QVERIFY(content.contains("q 200 0 0 200 100 400 cm \nq\n/GSop"));
 }
 
 QTEST_MAIN(TestImageAppearance)

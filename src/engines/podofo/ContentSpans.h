@@ -37,29 +37,34 @@ enum class EditResult {
     StateInTheWay,      // a cm/gs/clip between the old and new position
 };
 
-// Moves the image's q..Q block to the end (front) or start (back) of its
-// parent block — the whole stream when the block is top level. Refuses
-// (without touching `out`) whenever the move could change what the image
-// looks like: a Do outside any q..Q, a block that also paints other content,
-// or a non-identity cm / gs / clip at the parent level between the two
-// positions. `colorSensitive` (a stencil /ImageMask, which paints with the
-// current fill colour) also refuses a fill-colour change in between.
+// Moves the `occurrence`-th (0-based, stream order — N1) placement of the
+// image's q..Q block to the end (front) or start (back) of its parent block —
+// the whole stream when the block is top level. Refuses (without touching
+// `out`) whenever the move could change what the image looks like: a Do
+// outside any q..Q, a block that also paints other content, or a non-identity
+// cm / gs / clip at the parent level between the two positions.
+// `colorSensitive` (a stencil /ImageMask, which paints with the current fill
+// colour) also refuses a fill-colour change in between.
 EditResult restackImage(const QByteArray &content, const QByteArray &xobjectName,
-                        bool toFront, QByteArray *out, bool colorSensitive = false);
+                        bool toFront, QByteArray *out, bool colorSensitive = false,
+                        int occurrence = 0);
 
-// Wraps the image's first Do in "q /<gsName> gs … Q". Unchanged when that
-// exact wrap is already present (the caller then updates the ExtGState's
-// values in place instead of nesting another wrap).
+// Wraps the `occurrence`-th (0-based, stream order — N1) Do of the image in
+// "q /<gsName> gs … Q". Unchanged when that exact wrap is already present
+// (the caller then updates the ExtGState's values in place instead of nesting
+// another wrap).
 EditResult wrapImageInExtGState(const QByteArray &content, const QByteArray &xobjectName,
-                                const QByteArray &gsName, QByteArray *out);
+                                const QByteArray &gsName, QByteArray *out,
+                                int occurrence = 0);
 
 // Replaces the six operands of the image's placement matrix — the last "cm"
-// inside the image's own q..Q block, before its first Do — with `matrix`
-// (the six numbers, already formatted). Refuses when the image has no block
-// of its own or the block sets no cm: rewriting an outer cm would move other
-// content too.
+// inside the image's own q..Q block, before its `occurrence`-th (0-based,
+// stream order — N1) Do — with `matrix` (the six numbers, already formatted).
+// Refuses when the image has no block of its own or the block sets no cm:
+// rewriting an outer cm would move other content too.
 EditResult replaceImageMatrix(const QByteArray &content, const QByteArray &xobjectName,
-                              const QByteArray &matrix, QByteArray *out);
+                              const QByteArray &matrix, QByteArray *out,
+                              int occurrence = 0);
 
 // Removes the `occurrence`-th placement (0-based, stream order) of the image
 // "/<xobjectName> Do" together with its own q..Q block. The same isolation
