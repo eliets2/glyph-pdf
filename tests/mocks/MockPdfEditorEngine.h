@@ -96,20 +96,22 @@ public:
     bool insertBlankPage(const QString &path, int atIndex) override { return true; }
 
     QList<PdfImageInfo> listImages(int) override { return {}; }
-    bool moveImage(int, const QString &, double, double) override { return true; }
-    bool resizeImage(int, const QString &, double, double) override { return true; }
-    bool rotateImage(int pageIndex, const QString &name, double degrees) override {
+    // N1: the overrides carry the placement's occurrence (default 0 in the
+    // interface); the mocks ignore it except where a test observes it.
+    bool moveImage(int, const QString &, double, double, int) override { return true; }
+    bool resizeImage(int, const QString &, double, double, int) override { return true; }
+    bool rotateImage(int pageIndex, const QString &name, double degrees, int) override {
         m_lastRotatePage = pageIndex; m_lastRotateName = name; m_lastRotateDegrees = degrees;
         ++m_rotateCalls; return true;
     }
-    bool replaceImage(int, const QString &, const QString &) override { return true; }
+    bool replaceImage(int, const QString &, const QString &, int) override { return true; }
     // TestHistoryIntegrity (EC03): the fault engines below subclass this mock;
     // deleteImage is counted so a refusal ("no destructive edit without a
     // restorable backup") is observable.
-    bool deleteImage(int, const QString &) override { ++m_deleteImageCalls; return true; }
+    bool deleteImage(int, const QString &, int) override { ++m_deleteImageCalls; return true; }
     int m_deleteImageCalls = 0;
-    bool setImageZOrder(int, const QString &, bool) override { return true; }
-    bool setImageOpacity(int, const QString &, double) override { return true; }
+    bool setImageZOrder(int, const QString &, bool, int) override { return true; }
+    bool setImageOpacity(int, const QString &, double, int) override { return true; }
     bool applyRedactions(int, const QList<QRectF> &) override { return m_loaded; }
     // T2-2 (ITextReplacer): Find & Replace seam. Deliberately NO `override` —
     // pre-fix baselines (revert verification) have no such virtual; post-fix

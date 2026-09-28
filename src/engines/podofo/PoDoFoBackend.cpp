@@ -446,10 +446,16 @@ public:
         // resident lineage is the same encrypted document.
     }
 
-    PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName, PoDoFoBackend* parent) {
+    // N1: the placement is (name, occurrence) — `occurrence` is the
+    // 0-based stream-order index among the page's placements of this name,
+    // exactly what listImages reports in PdfImageInfo::occurrence. Matching
+    // the name alone always resolved to the first placement, so editing the
+    // second placement of a reused XObject changed the first.
+    PdfImageInfo* findImageByName(int pageIndex, const QString& xobjectName,
+                                  int occurrence, PoDoFoBackend* parent) {
         lastListedImages = parent->listImages(pageIndex);
         for (auto& img : lastListedImages) {
-            if (img.xobjectName == xobjectName) {
+            if (img.xobjectName == xobjectName && img.occurrence == occurrence) {
                 return &img;
             }
         }
@@ -4173,7 +4179,7 @@ int countImagePlacements(const QByteArray &content, const QByteArray &name)
 // from the start of the cm's LINE (deleting a "q" on that line), matched " cm"
 // text inside strings, and wrote through GetOrCreateStream() only (EC03: that
 // throws on an array /Contents).
-bool rewriteImageMatrix(PoDoFo::PdfPage& page, const std::string& xobjName,
+bool rewriteImageMatrix(PoDoFo::PdfPage& page, const std::string& xobjName, int occurrence,
                         double a, double b, double c, double d, double e, double f)
 {
     QByteArray matrix;
@@ -4184,10 +4190,10 @@ bool rewriteImageMatrix(PoDoFo::PdfPage& page, const std::string& xobjName,
     }
     QByteArray edited;
     const auto result = gp::content::replaceImageMatrix(
-        pageContentBytes(page), QByteArray::fromStdString(xobjName), matrix, &edited);
+        pageContentBytes(page), QByteArray::fromStdString(xobjName), matrix, &edited, occurrence);
     if (result != gp::content::EditResult::Changed) {
-        qWarning() << "rewriteImageMatrix refused for" << xobjName.c_str() << "-"
-                   << describeRefusal(result);
+        qWarning() << "rewriteImageMatrix refused for" << xobjName.c_str() << "occurrence"
+                   << occurrence << "-" << describeRefusal(result);
         return false;
     }
     setPageContentBytes(page, edited);
@@ -4250,6 +4256,11 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
         struct CmRecord { int depth; Matrix base; };
         QList<CmRecord> liveCms;
         int qDepth = 0;
+        // N1: stream-order census of the placements drawn so far, per
+        // resource name — the occurrence index each PdfImageInfo carries and
+        // every edit addresses the placement by (with gp::content counting
+        // the same "/<name> Do" tokens in the same order).
+        QMap<QString, int> placementsDrawn;
         // CX-10: blockGsOnly[d] — the block whose INSIDE nesting depth is d
         // has so far only set graphics states (gs operators, and the image
         // Do itself): an opacity wrapper like "q /GSop… gs /ImA Do Q" nested
@@ -4292,6 +4303,7 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                         PdfImageInfo info;
                         info.pageIndex = pageIndex;
                         info.xobjectName = name;
+                        info.occurrence = placementsDrawn[name]++;   // N1
                         double w = std::sqrt(ctm.a * ctm.a + ctm.b * ctm.b);
                         double h = std::sqrt(ctm.c * ctm.c + ctm.d * ctm.d);
                         double rot = std::atan2(ctm.b, ctm.a) * 180.0 / M_PI;
@@ -4368,15 +4380,20 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
     return result;
 }
 
-bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) {
+bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy,
+                              int occurrence) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
 
-        PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, this);
-        if (!target) return false;
+        PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, occurrence, this);
+        if (!target) {
+            qWarning() << "moveImage refused:" << xobjectName << "occurrence" << occurrence
+                       << "- no such placement on this page";
+            return false;
+        }
 
         // CX-02: translate the FULL effective matrix, then solve the new local
         // cm as desired × base⁻¹. Rebuilding the local cm from the page-space
@@ -4400,6 +4417,7 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
 
         bool ok = rewriteImageMatrix(page,
             xobjectName.toStdString(),
+            occurrence,
             local.a, local.b, local.c, local.d, local.e, local.f);
 
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
@@ -4410,15 +4428,20 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
     }
 }
 
-bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) {
+bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, double newWidth,
+                                double newHeight, int occurrence) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
 
-        PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, this);
-        if (!target) return false;
+        PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, occurrence, this);
+        if (!target) {
+            qWarning() << "resizeImage refused:" << xobjectName << "occurrence" << occurrence
+                       << "- no such placement on this page";
+            return false;
+        }
 
         // CX-02: scale the two image axes of the FULL effective matrix to the
         // requested lengths — the columns keep their direction, so rotation,
@@ -4451,6 +4474,7 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
 
         bool ok = rewriteImageMatrix(page,
             xobjectName.toStdString(),
+            occurrence,
             local.a, local.b, local.c, local.d, local.e, local.f);
 
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
@@ -4461,15 +4485,20 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
     }
 }
 
-bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, double degrees) {
+bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, double degrees,
+                                int occurrence) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
 
-        PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, this);
-        if (!target) return false;
+        PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, occurrence, this);
+        if (!target) {
+            qWarning() << "rotateImage refused:" << xobjectName << "occurrence" << occurrence
+                       << "- no such placement on this page";
+            return false;
+        }
 
         // CX-02: rotate the FULL effective matrix about the image's true
         // centre — the image of the unit-square centre, which a skewed or
@@ -4503,6 +4532,7 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
 
         bool ok = rewriteImageMatrix(page,
             xobjectName.toStdString(),
+            occurrence,
             local.a, local.b, local.c, local.d, local.e, local.f);
 
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
@@ -4513,7 +4543,13 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
     }
 }
 
-bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) {
+// N1: `occurrence` addresses the placement, but replaceImage swaps the PIXELS
+// of the shared XObject — every placement of the name shows the new image.
+// The parameter keeps the edit family's addressing uniform; the honest scope
+// (object-level, not placement-level) is documented in the interface.
+bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName,
+                                 const QString &newImagePath, int occurrence) {
+    Q_UNUSED(occurrence);
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
@@ -4571,7 +4607,7 @@ bool PoDoFoBackend::replaceImage(int pageIndex, const QString &xobjectName, cons
     }
 }
 
-bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
+bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName, int occurrence) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
@@ -4590,16 +4626,22 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
         // placement is now found by parsing (so escaped names match and
         // string/inline-image look-alikes do not) and removed as its whole
         // isolated span, under restack's isolation rule.
+        // N1: `occurrence` picks WHICH placement of the name goes — the
+        // census below is the same stream-order count the occurrence indexes.
         const int total = countImagePlacements(before, nameUtf);
         if (total < 0) {
             qWarning() << "deleteImage refused for" << xobjectName
                        << "- the page content could not be parsed safely";
             return false;
         }
-        if (total == 0) return false;               // nothing drawn under this name
+        if (occurrence >= total) {
+            qWarning() << "deleteImage refused for" << xobjectName << "occurrence" << occurrence
+                       << "- the name has" << total << "placement(s) on this page";
+            return false;                        // nothing drawn under this (name, occurrence)
+        }
 
         QByteArray edited;
-        const auto result = gp::content::removeImagePlacement(before, nameUtf, 0, &edited);
+        const auto result = gp::content::removeImagePlacement(before, nameUtf, occurrence, &edited);
         if (result != gp::content::EditResult::Changed) {
             qWarning() << "deleteImage refused for" << xobjectName << "on page"
                        << pageIndex + 1 << "-" << describeRefusal(result);
@@ -4636,7 +4678,8 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
 // it. The Wave 2B original searched for the nearest "q"/"Q" text around the
 // Do, which could carry unrelated drawing along or strip the image's cm.
 
-bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) {
+bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront,
+                                   int occurrence) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0
         || static_cast<unsigned>(pageIndex) >= d->document->GetPages().GetCount())
@@ -4646,9 +4689,10 @@ bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bo
     try {
         auto &page = d->document->GetPages().GetPageAt(pageIndex);
         QByteArray edited;
+        // N1: the occurrence-th placement of the name moves — never the first.
         const auto result = gp::content::restackImage(
             pageContentBytes(page), xobjectName.toUtf8(), bringToFront, &edited,
-            isStencilImage(page, xobjectName));
+            isStencilImage(page, xobjectName), occurrence);
         if (result == gp::content::EditResult::Unchanged)
             return true;                               // already front-/backmost
         if (result != gp::content::EditResult::Changed) {
@@ -4666,7 +4710,8 @@ bool PoDoFoBackend::setImageZOrder(int pageIndex, const QString &xobjectName, bo
     }
 }
 
-bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) {
+bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity,
+                                    int occurrence) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || pageIndex < 0
         || static_cast<unsigned>(pageIndex) >= d->document->GetPages().GetCount()
@@ -4676,17 +4721,23 @@ bool PoDoFoBackend::setImageOpacity(int pageIndex, const QString &xobjectName, d
     bool mutated = false;
     try {
         auto &page = d->document->GetPages().GetPageAt(pageIndex);
-        // One ExtGState per (page object, image): pages that share a
-        // /Resources dictionary never overwrite each other's opacity.
+        // One ExtGState per (page object, image, PLACEMENT — N1): pages that
+        // share a /Resources dictionary never overwrite each other's opacity,
+        // and two placements of one XObject never share a gs either — a
+        // shared name would let one placement's opacity edit retune the
+        // other's appearance.
         const QByteArray key = QByteArray::number(
             page.GetObject().GetIndirectReference().ObjectNumber())
-            + ':' + xobjectName.toUtf8();
+            + ':' + xobjectName.toUtf8() + ':' + QByteArray::number(occurrence);
         const QByteArray gsName = "GSop"
             + QCryptographicHash::hash(key, QCryptographicHash::Sha1).toHex().left(12);
 
         QByteArray edited;
+        // N1: the wrap lands on the occurrence-th placement of the name; the
+        // already-wrapped check is per placement (another placement's wrap
+        // never masks this one).
         const auto result = gp::content::wrapImageInExtGState(
-            pageContentBytes(page), xobjectName.toUtf8(), gsName, &edited);
+            pageContentBytes(page), xobjectName.toUtf8(), gsName, &edited, occurrence);
         if (result != gp::content::EditResult::Changed
             && result != gp::content::EditResult::Unchanged) {
             qWarning() << "setImageOpacity refused for" << xobjectName << "on page"

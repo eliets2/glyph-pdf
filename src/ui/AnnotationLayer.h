@@ -82,9 +82,12 @@ signals:
     void selectionChanged(int index);
     void textEditRequested(int pageIndex, QPointF pos);
     void eraseRequested(int pageIndex, QPointF pos);
-    void imageSelected(const QString &xobjectName, const QRectF &placement);
-    void imageMoved(const QString &xobjectName, double dx, double dy);
-    void imageResized(const QString &xobjectName, double newW, double newH);
+    // N1: `occurrence` identifies WHICH placement of the XObject the user
+    // selected/dragged — a reused image XObject is drawn several times, and
+    // the overlays are per placement.
+    void imageSelected(const QString &xobjectName, const QRectF &placement, int occurrence);
+    void imageMoved(const QString &xobjectName, double dx, double dy, int occurrence);
+    void imageResized(const QString &xobjectName, double newW, double newH, int occurrence);
 
     // T1: live calibrated readout while dragging a measurement (already
     // formatted, honest about calibration state); empty when no draft is live.
@@ -116,6 +119,9 @@ private:
     std::function<int(QPoint)> m_pageAtCallback;
     QList<PdfImageInfo> m_imageOverlays;
     QString m_selectedImageName;
+    // N1: the selected overlay is (name, occurrence) — a name alone matches
+    // the first placement of a reused XObject, not the one the user clicked.
+    int m_selectedImageOccurrence = 0;
     int m_resizeHandle = -1;  // -1=none, 0-3=corners, 4-7=edges
     QPointF m_originalImagePos;
     // AR-7 D5: overlay image (e.g. pixel-diff from CompareMode).

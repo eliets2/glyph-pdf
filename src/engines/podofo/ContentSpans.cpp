@@ -308,17 +308,9 @@ bool changesImageState(const QList<Token> &toks, int idx, const QByteArray &src,
     return false;
 }
 
-int findImageDo(const QList<Token> &toks, const QByteArray &name)
-{
-    for (int i = 1; i < toks.size(); ++i) {
-        if (toks[i].kind == Token::Kind::Operator && toks[i].text == "Do"
-            && toks[i - 1].kind == Token::Kind::Name && toks[i - 1].text == name)
-            return i;
-    }
-    return -1;
-}
-
-// The `occurrence`-th (0-based, stream order) "/<name> Do" placement.
+// The `occurrence`-th (0-based, stream order) "/<name> Do" placement. N1:
+// this is the ONLY Do selector — a name-only lookup ("first Do wins") made
+// every edit of a reused XObject land on its first placement.
 int findImageDoNth(const QList<Token> &toks, const QByteArray &name, int occurrence)
 {
     if (occurrence < 0) occurrence = 0;
@@ -495,12 +487,12 @@ bool lex(const QByteArray &s, QList<Token> *tokens)
 }
 
 EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFront,
-                        QByteArray *out, bool colorSensitive)
+                        QByteArray *out, bool colorSensitive, int occurrence)
 {
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
 
-    const int doIdx = findImageDo(toks, name);
+    const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
     // The image's own block (through any gs-only wrapper — CX-10) and the
@@ -572,14 +564,15 @@ EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFron
 }
 
 EditResult wrapImageInExtGState(const QByteArray &s, const QByteArray &name,
-                                const QByteArray &gsName, QByteArray *out)
+                                const QByteArray &gsName, QByteArray *out, int occurrence)
 {
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
-    const int doIdx = findImageDo(toks, name);
+    const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
-    // Our own earlier wrap: q /<gsName> gs /<name> Do Q
+    // Our own earlier wrap: q /<gsName> gs /<name> Do Q — looked up around
+    // THIS placement's Do only (N1): another placement's wrap never masks it.
     const auto op = [&](int i, const char *kw) {
         return i >= 0 && i < toks.size() && toks[i].kind == Token::Kind::Operator
             && toks[i].text == kw;
@@ -604,11 +597,11 @@ EditResult wrapImageInExtGState(const QByteArray &s, const QByteArray &name,
 }
 
 EditResult replaceImageMatrix(const QByteArray &s, const QByteArray &name,
-                              const QByteArray &matrix, QByteArray *out)
+                              const QByteArray &matrix, QByteArray *out, int occurrence)
 {
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
-    const int doIdx = findImageDo(toks, name);
+    const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
     const QVector<int> match = qMatch(toks);

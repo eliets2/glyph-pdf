@@ -99,15 +99,21 @@ public:
     bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options) override;
     bool applyBatesNumbering(const QString &path, const BatesNumberingOptions &options, int *lastNumberOut) override;
 
-    // Image operations
+    // Image operations — N1: each edit addresses a placement by occurrence.
     QList<PdfImageInfo> listImages(int pageIndex) override;
-    bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy) override;
-    bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight) override;
-    bool rotateImage(int pageIndex, const QString &xobjectName, double degrees) override;
-    bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath) override;
-    bool deleteImage(int pageIndex, const QString &xobjectName) override;
-    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront) override;
-    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity) override;
+    bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy,
+                   int occurrence = 0) override;
+    bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth,
+                     double newHeight, int occurrence = 0) override;
+    bool rotateImage(int pageIndex, const QString &xobjectName, double degrees,
+                     int occurrence = 0) override;
+    bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath,
+                      int occurrence = 0) override;
+    bool deleteImage(int pageIndex, const QString &xobjectName, int occurrence = 0) override;
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront,
+                        int occurrence = 0) override;
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity,
+                         int occurrence = 0) override;
     bool applyRedactions(int pageIndex, const QList<QRectF> &rects) override;
     bool applyMarkRedactions(const QList<AnnotationItem>& marks) override;
     // T2-2 (ITextReplacer): Find & Replace engine seam — see ITextReplacer.

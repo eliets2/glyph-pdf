@@ -15,11 +15,13 @@ class ImageAppearanceCommand : public CheckedUndoCommand {
 public:
     enum class Kind { BringToFront, SendToBack, Opacity };
 
+    // N1: `occurrence` addresses the placement (see MoveImageCommand).
     ImageAppearanceCommand(IPdfEditorEngine* engine, DocumentSession* doc,
                            int pageIndex, const QString& xobjectName, Kind kind,
-                           double opacity, const QByteArray& pageBackup)
+                           double opacity, const QByteArray& pageBackup,
+                           int occurrence = 0)
         : m_engine(engine), m_doc(doc), m_page(pageIndex), m_name(xobjectName),
-          m_kind(kind), m_opacity(opacity), m_backup(pageBackup) {
+          m_occurrence(occurrence), m_kind(kind), m_opacity(opacity), m_backup(pageBackup) {
         switch (kind) {
         case Kind::BringToFront:
             setText(QObject::tr("Bring image %1 to front").arg(xobjectName));
@@ -86,6 +88,7 @@ private:
     DocumentSession* m_doc;
     int m_page;
     QString m_name;
+    int m_occurrence;
     Kind m_kind;
     double m_opacity;
     QByteArray m_backup;
@@ -116,8 +119,8 @@ private:
             return false;
         }
         const bool ok = m_kind == Kind::Opacity
-            ? m_engine->setImageOpacity(m_page, m_name, m_opacity)
-            : m_engine->setImageZOrder(m_page, m_name, m_kind == Kind::BringToFront);
+            ? m_engine->setImageOpacity(m_page, m_name, m_opacity, m_occurrence)
+            : m_engine->setImageZOrder(m_page, m_name, m_kind == Kind::BringToFront, m_occurrence);
         if (!ok) {
             if (err) {
                 const QString why = m_engine->lastError().userMessage;

@@ -1303,8 +1303,9 @@ void EditController::enterImageEditMode() {
         tr("Image Edit Mode. %1 images found. Click to select.").arg(images.size()), 5000);
 }
 
-void EditController::onImageSelected(const QString &name, const QRectF &placement) {
+void EditController::onImageSelected(const QString &name, const QRectF &placement, int occurrence) {
     _selectedImageName = name;
+    _selectedImageOccurrence = occurrence;
     _mainWindow->statusBar()->showMessage(
         tr("Selected: %1 (%2x%3 at %4,%5) — use the floating menu to edit.")
             .arg(name)
@@ -1355,7 +1356,8 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
         }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new RotateImageCommand(
-            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, degrees));
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, degrees,
+            _selectedImageOccurrence));
     } else if (chosen == frontAct || chosen == backAct || chosen == opacityAct) {
         double opacity = 1.0;
         if (chosen == opacityAct) {
@@ -1381,7 +1383,8 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
                                              : ImageAppearanceCommand::Kind::Opacity;
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new ImageAppearanceCommand(
-            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, kind, opacity, backup));
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, kind, opacity,
+            backup, _selectedImageOccurrence));
     } else if (chosen == replaceAct) {
         const QString newPath = QFileDialog::getOpenFileName(
             _mainWindow, tr("Replacement Image"), QString(),
@@ -1404,7 +1407,8 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
         }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new ReplaceImageCommand(
-            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, newPath, backup));
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, newPath, backup,
+            _selectedImageOccurrence));
     } else if (chosen == deleteAct) {
         const auto reply = QMessageBox::question(
             _mainWindow, tr("Delete Image"),
@@ -1424,25 +1428,28 @@ void EditController::onImageSelected(const QString &name, const QRectF &placemen
         }
         _ctx->document->setPath(viewer->filePath());
         _ctx->undoStack->push(new DeleteImageCommand(
-            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, backup));
+            _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, backup,
+            _selectedImageOccurrence));
     }
 }
 
-void EditController::onImageMoved(const QString &name, double dx, double dy) {
+void EditController::onImageMoved(const QString &name, double dx, double dy, int occurrence) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
     _ctx->document->setPath(viewer->filePath());
     _ctx->undoStack->push(new MoveImageCommand(
-        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, dx, dy));
+        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, dx, dy, occurrence));
 }
 
-void EditController::onImageResized(const QString &name, double newW, double newH) {
+void EditController::onImageResized(const QString &name, double newW, double newH, int occurrence) {
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || !_ctx->pdfEditor || _imageEditPage < 0) return;
     auto images = _ctx->pdfEditor->listImages(_imageEditPage);
     double oldW = newW, oldH = newH;
     for (const auto& img : images) {
-        if (img.xobjectName == name) {
+        // N1: the undo sizes come from THIS placement, not the first sharing
+        // the name.
+        if (img.xobjectName == name && img.occurrence == occurrence) {
             oldW = img.placement.width();
             oldH = img.placement.height();
             break;
@@ -1450,7 +1457,8 @@ void EditController::onImageResized(const QString &name, double newW, double new
     }
     _ctx->document->setPath(viewer->filePath());
     _ctx->undoStack->push(new ResizeImageCommand(
-        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, oldW, oldH, newW, newH));
+        _ctx->pdfEditor.get(), _ctx->document.get(), _imageEditPage, name, oldW, oldH, newW,
+        newH, occurrence));
 }
 
 // §9.2 P0: minimal clipboard support — Copy places a raster snapshot of the

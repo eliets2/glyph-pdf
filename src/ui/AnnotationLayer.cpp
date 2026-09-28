@@ -264,6 +264,7 @@ void AnnotationLayer::setImageOverlays(const QList<PdfImageInfo> &images)
 void AnnotationLayer::setSelectedImageName(const QString &name)
 {
     m_selectedImageName = name;
+    m_selectedImageOccurrence = 0;   // name-only addressing means the first placement
     update();
 }
 
@@ -537,7 +538,8 @@ void AnnotationLayer::paintEvent(QPaintEvent *event)
         for (const auto& img : m_imageOverlays) {
             QRectF r = img.placement;
             
-            bool selected = (img.xobjectName == m_selectedImageName);
+            bool selected = (img.xobjectName == m_selectedImageName
+                             && img.occurrence == m_selectedImageOccurrence);
             
             // Draw border — T-10: use system Highlight palette role for
             // the selected image border so it is visible in High-Contrast theme.
@@ -631,7 +633,8 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
         // Check resize handles first (if an image is selected)
         if (!m_selectedImageName.isEmpty()) {
             for (const auto& img : m_imageOverlays) {
-                if (img.xobjectName != m_selectedImageName) continue;
+                if (img.xobjectName != m_selectedImageName
+                    || img.occurrence != m_selectedImageOccurrence) continue;
                 QRectF r = img.placement;
                 constexpr double hs = 8.0;
                 
@@ -650,19 +653,25 @@ void AnnotationLayer::mousePressEvent(QMouseEvent *event)
             }
         }
         
-        // Hit-test images for selection
+        // Hit-test images for selection. N1: the hit overlay is remembered
+        // as (name, occurrence) — the first placement sharing the name is
+        // not "the" match, or clicking the second placement of a reused
+        // XObject would select (and every edit would move) the first.
         QString found;
+        int foundOccurrence = 0;
         for (int i = m_imageOverlays.size() - 1; i >= 0; --i) {
             if (m_imageOverlays[i].placement.contains(pos)) {
                 found = m_imageOverlays[i].xobjectName;
+                foundOccurrence = m_imageOverlays[i].occurrence;
                 break;
             }
         }
         m_selectedImageName = found;
+        m_selectedImageOccurrence = foundOccurrence;
         if (!found.isEmpty()) {
             for (const auto& img : m_imageOverlays) {
-                if (img.xobjectName == found) {
-                    emit imageSelected(found, img.placement);
+                if (img.xobjectName == found && img.occurrence == foundOccurrence) {
+                    emit imageSelected(found, img.placement, img.occurrence);
                     m_originalImagePos = img.placement.topLeft();
                     break;
                 }
@@ -768,7 +777,8 @@ void AnnotationLayer::mouseMoveEvent(QMouseEvent *event)
     if (m_currentMode == ToolMode::EditImage && m_resizeHandle != -1 && !m_selectedImageName.isEmpty()) {
         QPointF delta = pos - m_lastDragPos;
         for (auto& img : m_imageOverlays) {
-            if (img.xobjectName != m_selectedImageName) continue;
+            if (img.xobjectName != m_selectedImageName
+                || img.occurrence != m_selectedImageOccurrence) continue;
             QRectF& r = img.placement;
             switch (m_resizeHandle) {
                 case 0: r.setTopLeft(r.topLeft() + delta); break;
@@ -790,7 +800,8 @@ void AnnotationLayer::mouseMoveEvent(QMouseEvent *event)
     if (m_currentMode == ToolMode::EditImage && m_isMoving && !m_selectedImageName.isEmpty()) {
         QPointF delta = pos - m_lastDragPos;
         for (auto& img : m_imageOverlays) {
-            if (img.xobjectName == m_selectedImageName) {
+            if (img.xobjectName == m_selectedImageName
+                && img.occurrence == m_selectedImageOccurrence) {
                 img.placement.translate(delta);
                 break;
             }
@@ -848,8 +859,10 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
         if (m_resizeHandle != -1) {
             m_resizeHandle = -1;
             for (const auto& img : m_imageOverlays) {
-                if (img.xobjectName == m_selectedImageName) {
-                    emit imageResized(m_selectedImageName, img.placement.width(), img.placement.height());
+                if (img.xobjectName == m_selectedImageName
+                    && img.occurrence == m_selectedImageOccurrence) {
+                    emit imageResized(m_selectedImageName, img.placement.width(),
+                                      img.placement.height(), img.occurrence);
                     break;
                 }
             }
@@ -858,9 +871,11 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
         if (m_isMoving && !m_selectedImageName.isEmpty()) {
             m_isMoving = false;
             for (const auto& img : m_imageOverlays) {
-                if (img.xobjectName == m_selectedImageName) {
+                if (img.xobjectName == m_selectedImageName
+                    && img.occurrence == m_selectedImageOccurrence) {
                     QPointF totalDelta = img.placement.topLeft() - m_originalImagePos;
-                    emit imageMoved(m_selectedImageName, totalDelta.x(), totalDelta.y());
+                    emit imageMoved(m_selectedImageName, totalDelta.x(), totalDelta.y(),
+                                    img.occurrence);
                     break;
                 }
             }

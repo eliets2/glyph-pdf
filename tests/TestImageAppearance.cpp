@@ -18,6 +18,7 @@
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QSet>
 #include <QUndoStack>
 #include <QPdfDocument>
 #include <podofo/podofo.h>
@@ -38,6 +39,17 @@ namespace {
 const char *kTwoImages =
     "q 200 0 0 200 100 400 cm /ImA Do Q\n"
     "q 200 0 0 200 150 450 cm /ImB Do Q\n";
+
+// N1: the SAME image XObject (/ImA) drawn TWICE — two placements, one name —
+// plus an /ImB neighbour. The first /ImA sits at x100..300 y400..600, the
+// second at x320..420 y120..220 (disjoint from the first and from /ImB at
+// x150..350 y450..650), so each placement has pixels of its own.
+const char *kTwiceImA =
+    "q 200 0 0 200 100 400 cm /ImA Do Q\n"
+    "q 100 0 0 100 320 120 cm /ImA Do Q\n"
+    "q 200 0 0 200 150 450 cm /ImB Do Q\n";
+const char *kBlockImA0 = "q 200 0 0 200 100 400 cm /ImA Do Q";
+const char *kBlockImA1 = "q 100 0 0 100 320 120 cm /ImA Do Q";
 
 QString makeTwoImagePdf(const QString &dir, const QString &name, const QByteArray &content,
                         bool inheritResources = false)
@@ -129,17 +141,22 @@ QImage renderPage(const QString &path)
 // The six numbers of the image's own cm — the bytes move/resize/rotate
 // actually rewrite — read back from the page content with the gp::content
 // lexer, under the same rule replaceImageMatrix uses (the last cm at the Do's
-// own depth, inside its own q..Q block). Empty when the placement sets no cm.
-QList<double> localCmNumbers(const QString &path, const QByteArray &name)
+// own depth, inside its own q..Q block). `occurrence` picks which placement
+// of the name (0-based, stream order — N1). Empty when the placement sets no cm.
+QList<double> localCmNumbers(const QString &path, const QByteArray &name, int occurrence = 0)
 {
     const QByteArray content = pageContent(path);
     QList<gp::content::Token> toks;
     if (!gp::content::lex(content, &toks)) return {};
     int doIdx = -1;
+    int seen = 0;
     for (int i = 1; i < toks.size(); ++i) {
         if (toks[i].kind == gp::content::Token::Kind::Operator && toks[i].text == "Do"
             && toks[i - 1].kind == gp::content::Token::Kind::Name
-            && toks[i - 1].text == name) { doIdx = i; break; }
+            && toks[i - 1].text == name) {
+            if (seen == occurrence) { doIdx = i; break; }
+            ++seen;
+        }
     }
     if (doIdx < 0) return {};
     int closed = 0;   // Q..q pairs between the Do and the current token
@@ -289,6 +306,14 @@ private slots:
     // ── Part 8: CX-09 — restacking never crosses marked content ────────────
     void restackRefusesToCrossMarkedContent();
     void restackKeepsHiddenAndTaggedImagesInPlace();
+
+    // ── Part 9: N1 — a placement is addressed by occurrence index ──────────
+    void restackByOccurrence();
+    void wrapAndReplaceMatrixByOccurrence();
+    void listImagesReportsPlacementOccurrences();
+    void editingTheSecondOccurrenceLeavesTheFirstByteIdentical();
+    void deleteTargetsItsOccurrence();
+    void opacityTargetsItsOccurrence();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -1515,6 +1540,232 @@ void TestImageAppearance::restackKeepsHiddenAndTaggedImagesInPlace()
         QCOMPARE(fileBytes(f), before);
         QVERIFY(isBlue(pixelAt(f, kOverlap.x(), kOverlap.y())));
     }
+}
+
+// ── Part 9: N1 — a placement is addressed by occurrence index ──────────────
+
+// N1 at the byte level: with the same name drawn twice, the occurrence picks
+// which placement restack moves — the other placement's bytes survive
+// verbatim, in place.
+void TestImageAppearance::restackByOccurrence()
+{
+    const QByteArray first = "q 1 0 0 1 5 5 cm /ImA Do Q\n";
+    const QByteArray second = "q 2 0 0 2 9 9 cm /ImA Do Q\n";
+    const QByteArray neighbour = "q 3 0 0 3 4 4 cm /ImB Do Q\n";
+    const QByteArray three = first + second + neighbour;
+    QByteArray out;
+
+    // The second occurrence goes to the front; the first placement's bytes
+    // must hold still, ahead of everything else.
+    QCOMPARE(gp::content::restackImage(three, "ImA", true, &out, false, 1),
+             EditResult::Changed);
+    QVERIFY2(out.indexOf(first) == 0,
+             qPrintable(QStringLiteral("moving the second occurrence must leave the first "
+                                      "byte-identical and in place, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+    QVERIFY(out.indexOf(second) > out.indexOf(neighbour));
+    QCOMPARE(out.count(first), 1);                      // moved, not copied
+
+    // Occurrence 0: the second placement keeps its bytes and its position.
+    out.clear();
+    QCOMPARE(gp::content::restackImage(three, "ImA", true, &out, false, 0),
+             EditResult::Changed);
+    QVERIFY(out.indexOf(second) >= 0 && out.indexOf(second) < out.indexOf(neighbour));
+    QVERIFY(out.indexOf(first) > out.indexOf(neighbour));   // the first moved last
+    QCOMPARE(out.count(second), 1);
+
+    // There is no third placement of the name — refused, `out` untouched.
+    out.clear();
+    QCOMPARE(gp::content::restackImage(three, "ImA", true, &out, false, 2),
+             EditResult::NotFound);
+    QVERIFY(out.isEmpty());
+}
+
+// N1 at the byte level: the opacity wrap and the matrix rewrite land on the
+// occurrence's placement — the other placement is byte-identical.
+void TestImageAppearance::wrapAndReplaceMatrixByOccurrence()
+{
+    const QByteArray first = "q 1 0 0 1 5 5 cm /ImA Do Q\n";
+    const QByteArray second = "q 2 0 0 2 9 9 cm /ImA Do Q\n";
+    const QByteArray two = first + second;
+    QByteArray out;
+
+    // Wrapping the SECOND occurrence: the first placement keeps its exact
+    // bytes, and the wrap sits after it (before the second's Do).
+    QCOMPARE(gp::content::wrapImageInExtGState(two, "ImA", "GSop1", &out, 1),
+             EditResult::Changed);
+    QVERIFY2(out.contains(first),
+             qPrintable(QStringLiteral("wrapping the second occurrence must leave the first "
+                                      "byte-identical, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+    QVERIFY(out.contains("q\n/GSop1 gs\n/ImA Do\nQ"));
+    QVERIFY(out.indexOf("/GSop1 gs") > out.indexOf(first));
+
+    // One placement's wrap is recognised as its own earlier wrap even though
+    // the other placement is wrapped too — and the other placement's wrap is
+    // never mistaken for this one's.
+    QByteArray again;
+    QCOMPARE(gp::content::wrapImageInExtGState(out, "ImA", "GSop1", &again, 1),
+             EditResult::Unchanged);
+
+    // Wrapping the FIRST occurrence: the second stays byte-identical.
+    QByteArray out0;
+    QCOMPARE(gp::content::wrapImageInExtGState(two, "ImA", "GSop1", &out0, 0),
+             EditResult::Changed);
+    QVERIFY(out0.contains(second));
+    QVERIFY(out0.indexOf("/GSop1 gs") < out0.indexOf(second));
+
+    // The matrix rewrite addresses its occurrence the same way.
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(two, "ImA", "4 0 0 4 1 1", &out, 1),
+             EditResult::Changed);
+    QVERIFY(out.contains(first));                       // byte-identical
+    QVERIFY(!out.contains(second));                     // its cm was rewritten
+    QVERIFY(out.contains("4 0 0 4 1 1 cm /ImA Do"));
+
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(two, "ImA", "4 0 0 4 1 1", &out, 0),
+             EditResult::Changed);
+    QVERIFY(out.contains(second));                      // byte-identical
+
+    // No third placement — refused, `out` untouched.
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(two, "ImA", "4 0 0 4 1 1", &out, 2),
+             EditResult::NotFound);
+    QVERIFY(out.isEmpty());
+}
+
+// The spec's N1 probe: an image drawn twice — editing the SECOND occurrence
+// must leave the first placement byte-identical. The name-only addressing
+// fixed here landed EVERY edit on the first placement.
+void TestImageAppearance::editingTheSecondOccurrenceLeavesTheFirstByteIdentical()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "n1move.pdf", kTwiceImA);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    const double unchanged[6] = {200, 0, 0, 200, 100, 400};
+
+    // Move the placement the user selected — the second, at x320..420 —
+    // +25 in x. The first placement's cm bytes must not move.
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), 25.0, 0.0, 1));
+    const QList<double> cm0 = localCmNumbers(f, "ImA");
+    QCOMPARE(cm0.size(), 6);
+    for (int k = 0; k < 6; ++k)
+        QVERIFY2(closeTo(cm0[k], unchanged[k]),
+                 qPrintable(QStringLiteral("editing the second occurrence must leave the first "
+                                           "placement byte-identical — coefficient %0 changed")
+                                .arg(k)));
+    const QList<double> cm1 = localCmNumbers(f, "ImA", 1);
+    QCOMPARE(cm1.size(), 6);
+    QVERIFY2(closeTo(cm1[4], 345.0) && closeTo(cm1[5], 120.0),
+             "the second placement is the one that must move");
+    QVERIFY(isRed(pixelAt(f, kOnlyA.x(), kOnlyA.y())));      // first still paints
+    QVERIFY(!isRed(pixelAt(f, 330, 130)));                   // second really moved
+
+    // Resize and rotate address their occurrence the same way.
+    QVERIFY(engine.resizeImage(0, QStringLiteral("ImA"), 50.0, 50.0, 1));
+    const QList<double> cmR = localCmNumbers(f, "ImA");
+    for (int k = 0; k < 6; ++k)
+        QVERIFY2(closeTo(cmR[k], unchanged[k]), "resize of the second must keep the first byte-identical");
+    QVERIFY(!isRed(pixelAt(f, 400, 200)));                   // shrunk away from there
+
+    QVERIFY(engine.rotateImage(0, QStringLiteral("ImA"), 90.0, 1));
+    const QList<double> cmRot = localCmNumbers(f, "ImA");
+    for (int k = 0; k < 6; ++k)
+        QVERIFY2(closeTo(cmRot[k], unchanged[k]), "rotate of the second must keep the first byte-identical");
+
+    // An occurrence beyond the placement count is refused, file untouched.
+    const QByteArray before = fileBytes(f);
+    QVERIFY2(!engine.moveImage(0, QStringLiteral("ImA"), 5.0, 5.0, 9),
+             "an occurrence past the placements must be refused");
+    QCOMPARE(fileBytes(f), before);
+}
+
+// listImages must tell the placements of a reused XObject apart: stream
+// order, 0-based, counted per name — the index every edit addresses the
+// placement by (N1).
+void TestImageAppearance::listImagesReportsPlacementOccurrences()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "occ.pdf", kTwiceImA);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    const auto images = engine.listImages(0);
+    QCOMPARE(images.size(), 3);
+    QCOMPARE(images[0].xobjectName, QStringLiteral("ImA"));
+    QCOMPARE(images[0].occurrence, 0);
+    QCOMPARE(images[0].placement, QRectF(100, 400, 200, 200));
+    QCOMPARE(images[1].xobjectName, QStringLiteral("ImA"));
+    QCOMPARE(images[1].occurrence, 1);
+    QCOMPARE(images[1].placement, QRectF(320, 120, 100, 100));
+    QCOMPARE(images[2].xobjectName, QStringLiteral("ImB"));
+    QCOMPARE(images[2].occurrence, 0);
+}
+
+// Deleting the second occurrence takes only the second placement's span; the
+// first placement — and the neighbour — keep their exact bytes.
+void TestImageAppearance::deleteTargetsItsOccurrence()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "n1del.pdf", kTwiceImA);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    QVERIFY(engine.deleteImage(0, QStringLiteral("ImA"), 1));
+    const QByteArray content = pageContent(f);
+    QCOMPARE(content.count("/ImA Do"), 1);
+    QVERIFY2(content.contains(kBlockImA0),
+             "the first placement must survive the second occurrence's delete byte-identical");
+    QVERIFY(content.contains("/ImB Do"));
+    QVERIFY(isRed(pixelAt(f, kOnlyA.x(), kOnlyA.y())));      // first still paints
+    QVERIFY(!isRed(pixelAt(f, 400, 200)));                   // the second is gone
+
+    // Occurrence 0 deletes the first and keeps the second.
+    QTemporaryDir dir2;
+    const QString f2 = makeTwoImagePdf(dir2.path(), "n1del0.pdf", kTwiceImA);
+    PdfEditorEngine engine2;
+    QVERIFY(engine2.loadDocumentForEditing(f2));
+    QVERIFY(engine2.deleteImage(0, QStringLiteral("ImA"), 0));
+    const QByteArray c2 = pageContent(f2);
+    QCOMPARE(c2.count("/ImA Do"), 1);
+    QVERIFY(!c2.contains(kBlockImA0));
+    QVERIFY(c2.contains(kBlockImA1));
+
+    // A missing occurrence is refused with the file byte-identical.
+    QTemporaryDir dir3;
+    const QString f3 = makeTwoImagePdf(dir3.path(), "n1del9.pdf", kTwiceImA);
+    PdfEditorEngine engine3;
+    QVERIFY(engine3.loadDocumentForEditing(f3));
+    const QByteArray before = fileBytes(f3);
+    QVERIFY2(!engine3.deleteImage(0, QStringLiteral("ImA"), 5),
+             "an occurrence past the placements must be refused");
+    QCOMPARE(fileBytes(f3), before);
+}
+
+// Opacity is per placement too: each occurrence gets its own ExtGState, so
+// one placement's opacity edit cannot retune the other's appearance.
+void TestImageAppearance::opacityTargetsItsOccurrence()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "n1op.pdf", kTwiceImA);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.5, 0));
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.2, 1));
+
+    const QByteArray content = pageContent(f);
+    // Two independent ExtGStates — one per placement, not one per name.
+    QSet<QByteArray> gsNames;
+    for (qsizetype at = content.indexOf("/GSop"); at >= 0;
+         at = content.indexOf("/GSop", at + 1))
+        gsNames.insert(content.mid(at, 17));
+    QCOMPARE(gsNames.size(), 2);
+    // Each wrap sits directly around its own placement's Do.
+    QCOMPARE(content.count(" gs\n/ImA Do\nQ"), 2);
+    // The shared XObject survived and all three placements are still listed.
+    QCOMPARE(engine.listImages(0).size(), 3);
 }
 
 QTEST_MAIN(TestImageAppearance)
