@@ -1,0 +1,16 @@
+CX-11 pass-after — restack's isolation rule in replaceImageMatrix (SharedBlock on any second painting operator)
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe
+
+PASS   : TestImageAppearance::replaceImageMatrixRefusesSharedBlocks()
+PASS   : TestImageAppearance::moveImageRefusesASharedBlockKeepsNeighbours()
+Totals: 37 passed, 0 failed, 0 skipped, 0 blacklisted, 594ms
+
+Touched suites (sequential):
+TestImageEditWiring: Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 1ms
+TestImageDedup: Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 24ms
+TestCheckedMutationCoverage: Totals: 13 passed, 0 failed, 0 skipped, 0 blacklisted, 187ms
+TestHistoryIntegrity: Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 611ms
+
+CX-15 sanitizer harness (local compile; CI runs clang+ASan+UBSan):
+ContentSpansAdversarial: 319967 checks, 0 failures
+harness exit=0

@@ -1,0 +1,8 @@
+CX-11 fail-before — the CX-11 tests against HEAD's replaceImageMatrix (no shared-paint check; 5e8e3ff3):
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe (ContentSpans.cpp temporarily reverted to HEAD; test file at its new state)
+
+FAIL!  : TestImageAppearance::replaceImageMatrixRefusesSharedBlocks() Compared values are not the same
+FAIL!  : TestImageAppearance::moveImageRefusesASharedBlockKeepsNeighbours() '!engine.moveImage(0, QStringLiteral("ImA"), 20, 0)' returned FALSE. (a shared cm must not be rewritten)
+Totals: 35 passed, 2 failed, 0 skipped, 0 blacklisted, 691ms
+
+Reading: replaceImageMatrix rewrote the shared cm (both placements moved — Codex's q 100 0 0 100 20 20 cm /ImA Do /ImB Do Q became 50 20 for BOTH), so the pure SharedBlock pin failed and the engine moveImage 'succeeded' with the file changed.
