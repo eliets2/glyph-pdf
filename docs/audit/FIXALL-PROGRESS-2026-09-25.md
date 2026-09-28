@@ -115,3 +115,45 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
   build 0 errors; TestImageAppearance 41P/0F (new CX-08..12 pins included),
   image-filter ctest 3/3. Lane agent stopped before N1 (occurrence-index
   addressing) — N1 finisher dispatched. Still open: N1, PGR-46.
+
+## Session resume — Phases 3-5 (2026-09-29, successor integrator)
+
+- Resume verified: HEAD = f4b9ccb8 = origin/review/consolidated-parity (the branch
+  was detached and restored; tip blob matches). Worktree clean. Disk OK (388G).
+- NOTE: the announced .context/integrator-p345-wip.md does not exist; the prior
+  integrator's handoff is .context/integrator-fixall-wip.md (Phases 1-2) + this file.
+- feat/final-pgr-closers audited (R13): its 4 fix commits are byte-identical
+  (patch-id) to commits ALREADY on the PR — 5e81a0fa≡6600a429 (PGR-37),
+  629b5749≡f90b4c71 (PGR-35), 4aa8cb81≡1d59f241 (PGR-36), 9aa576bf≡ddef6a8f
+  (PGR-38) — PRESENT, do not pick (R13 no-double-pick). Its 68bc917e (wip pgr-23
+  nested-container sweep) SUPERSEDED by 6841247d already on the PR: same problem
+  (R13 overlapping-fixes rule); PR version is a superset (nested-PDF recursion with
+  decoded streams + PDFium text extraction, depth 3; ZIP/OOXML/GZIP/7z/RAR/XZ/BZIP2
+  refusal; unparseable-PDF refusal; 4 pins + fail-before/NC/pass-after evidence)
+  vs the WIP (strings+decoded-streams recursion, ZIP/OOXML/gzip/7z/RAR/OLE refusal,
+  2 pins). WIP's only non-subset content: the OLE compound signature
+  \xD0\xCF\x11\xE0 — recorded as a residual (WIP has no OLE pin either). Proven by
+  running TestRedactionProof on the PR head (see Phase 3).
+- Cherry-pick of 68bc917e attempted per instruction, conflicted against
+  6841247d/3fb0b8c2 (expected: parallel implementations of PGR-23 on a pre-fix
+  base), aborted cleanly per R13.
+
+## Checkpoint CP8 (redaction lane, 2026-09-29)
+
+- CP8 (redaction lane landed, 2 commits): a76b728d (PGR-46 CRITICAL-class FIXED —
+  6600a429 fixed only excision/overlay/proof boundaries, NOT mark placement; its own
+  comment recorded placement as "approximate on /Rotate≠0 pages". Fail-before:
+  TestRedactMarkAll 18P/3F — rot90/rot270 marks at negative viewer Y, offset-origin
+  marks shifted by exactly the MediaBox origin. Fix: placement through the one shared
+  law (userToViewer + pageGeometry); PoDoFo re-parse failure degrades to old placement
+  while excision refuses — no false success. Pass-after: TestRedactMarkAll 21P/0F,
+  TestPgr37PageSpaceLaw 9P/0F), efd3f8ae (PGR-23: 68bc917e code SUPERSEDED by 6841247d
+  already on the PR — further-developed nested sweep incl. nested-PDFium text
+  extraction; only the WIP's 2 test pins ported, both PASS with no WIP code:
+  TestRedactionProof 35P/0F. DO NOT FOLD 68bc917e. Observation: 6841247d lacks the
+  WIP's OLE-compound container signature — legacy .doc/.xls attachments treated as
+  plain payload; flagged as integrator observation, not ported without its own
+  fail-before evidence). R14 on PR head: build 0 errors; redaction trio 3/3 via ctest.
+- Note: the redaction lane observed the N1 finisher's edits appearing in the pdf-inst
+  worktree (worktree mixup by that agent, not the integrator's doing) — to be verified
+  and picked from wherever the work actually landed when the N1 agent reports.
