@@ -6,12 +6,15 @@
 #include "ui/PdfViewerWidget.h"
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "core/PageSpaceTransform.h"
+#include "core/ItemSpaceTransform.h"
 #include "engines/PatternRedactor.h"
 #include "modes/PagesMode.h"
 #include <podofo/podofo.h>
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDebug>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFrame>
@@ -666,25 +669,61 @@ void RedactMode::onMarkAllOccurrences() {
     }
 
     const auto matches = PatternRedactor::findMatches(path, pages, rx);
+
+    // PGR-46 (09-24 handoff §9): PatternRedactor rects are RAW USER space
+    // (y-up, /Rotate never applied — PGR-37's producer contract); the placed
+    // annotation marks are VIEWER space (top-origin, displayed dims). The old
+    // boundary flip `viewerY = displayHeight − (userY + height)` is exact only
+    // for /Rotate 0 origin-0 pages: on /Rotate 90/270 it ignores the axis
+    // swap (the mark lands transposed — fail-before probe: a NEGATIVE viewer
+    // Y, the excision missing the secret entirely while reporting success)
+    // and on offset-origin MediaBoxes it drops the lower-left origin (the
+    // mark shifted by exactly that offset). A mark that misses the text the
+    // user matched is CRITICAL-class: Apply excises the wrong region and the
+    // secret survives the committed file. The ONE shared page-space law
+    // (gp::ItemSpace::userToViewer — the pinned inverse of the law the
+    // excision, overlay burn-in and proof attribution all consume) is the
+    // placement now, per page, from the same raw MediaBox + /Rotate accessor
+    // (PageSpace::pageGeometry) the apply path uses.
+    QHash<int, PageSpace::PageGeometry> geometries;
+    bool geometryOk = true;
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        auto& pdfPages = doc.GetPages();
+        for (auto it = matches.constBegin(); it != matches.constEnd(); ++it) {
+            if (it.key() < 0 || it.key() >= static_cast<int>(pdfPages.GetCount())) {
+                continue; // PatternRedactor never yields out-of-range pages
+            }
+            geometries.insert(it.key(),
+                              PageSpace::pageGeometry(pdfPages.GetPageAt(it.key())));
+        }
+    } catch (const std::exception& e) {
+        // The file the viewer has open failed a read-only re-parse; degrade to
+        // the historical placement rather than refusing to mark at all (the
+        // excision boundary would hit the same parse failure and refuse the
+        // whole apply, so no silent false success is possible from this).
+        geometryOk = false;
+        qWarning() << "RedactMode: mark-all could not read the page geometry —"
+                   << "falling back to the unrotated placement:" << e.what();
+    }
+
     QList<AnnotationItem> annos = m_viewer->annotations();
     int placed = 0;
     for (auto it = matches.constBegin(); it != matches.constEnd(); ++it) {
-        // PGR-37 (D2 delta review 2026-09-23): PatternRedactor rects are RAW
-        // USER space (y-up); annotation marks are VIEWER space (top-origin).
-        // Convert at this boundary: viewerY = displayHeight − (userY +
-        // height). Exact for /Rotate 0; on /Rotate≠0 pages the placement is
-        // approximate (recorded limitation — the excision itself is exact,
-        // and any mark the user reviews still excises what it covers).
-        const double displayH = m_viewer->document()
-            ? m_viewer->document()->pagePointSize(it.key()).height()
-            : 0.0;
+        const PageSpace::PageGeometry geo = geometries.value(it.key());
         for (const QRectF& r : it.value()) {
             AnnotationItem a;
             a.mode = ToolMode::Redact;
             a.pageIndex = it.key();
-            a.rect = QRectF(r.x(),
-                            displayH > 0.0 ? displayH - (r.y() + r.height()) : r.y(),
-                            r.width(), r.height());
+            a.rect = (geometryOk && geo.width > 0.0)
+                ? ItemSpace::userToViewer(r, geo)
+                : QRectF(r.x(),
+                         m_viewer->document()
+                             ? m_viewer->document()->pagePointSize(it.key()).height()
+                                   - (r.y() + r.height())
+                             : r.y(),
+                         r.width(), r.height());
             annos.append(a);
             ++placed;
         }

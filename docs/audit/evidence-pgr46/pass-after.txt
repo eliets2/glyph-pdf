@@ -1,0 +1,25 @@
+PGR-46 pass-after — same suite after the fix: RedactMode::onMarkAllOccurrences places the marks through gp::ItemSpace::userToViewer with gp::PageSpace::pageGeometry (the ONE shared page-space law; the pinned inverse of the transform the excision, overlay burn-in and proof attribution consume).
+Command: PATH=third_party/pdfium/bin:$PATH QT_QPA_PLATFORM=offscreen ./build-final/TestRedactMarkAll.exe
+
+PASS   : TestRedactMarkAll::initTestCase()
+PASS   : TestRedactMarkAll::markAllPlacesMatchRects()
+PASS   : TestRedactMarkAll::markRegionSetsRedactToolMode()
+PASS   : TestRedactMarkAll::rangeMarksExactlyTheListedPages()
+PASS   : TestRedactMarkAll::invalidRangeMarksNothing()
+PASS   : TestRedactMarkAll::sanitizeCopyCheckboxProducesCleanOutput()
+PASS   : TestRedactMarkAll::redactPanelShowsLocalClaim()
+PASS   : TestRedactMarkAll::sanitizeUncheckedKeepsMetadata()
+PASS   : TestRedactMarkAll::redactOperationIsDeletedAfterCompletion()
+PASS   : TestRedactMarkAll::cancelControlEmitsExitRequestedAndKeepsMarks()
+PASS   : TestRedactMarkAll::exitRequestedDisarmsMarkingToolAndKeepsMarks()
+PASS   : TestRedactMarkAll::sharedPlanConversionCarriesEveryDialogField()
+PASS   : TestRedactMarkAll::applyDialogOverlayTextIsBurnedIntoSavedPdf()
+PASS   : TestRedactMarkAll::wordListImportBuildsEscapedAlternation()
+PASS   : TestRedactMarkAll::wordListImportRefusesOversizedFile()
+PASS   : TestRedactMarkAll::importListButtonSitsNextToRegexEdit()
+PASS   : TestRedactMarkAll::defaultSanitizePolicyIsSharedAndOn()
+PASS   : TestRedactMarkAll::markAllCoversMatchAndProofsOnRotate90Page()
+PASS   : TestRedactMarkAll::markAllCoversMatchAndProofsOnRotate270Page()
+PASS   : TestRedactMarkAll::markAllCoversMatchAndProofsOnOffsetOriginPage()
+PASS   : TestRedactMarkAll::cleanupTestCase()
+Totals: 21 passed, 0 failed, 0 skipped, 0 blacklisted, 834ms

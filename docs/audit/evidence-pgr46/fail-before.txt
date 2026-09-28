@@ -1,0 +1,10 @@
+PGR-46 fail-before â€” the three page-shape probes against HEAD (f4b9ccb8: mark-all places viewer marks through the naive displayHeight flip; 6600a429 fixed only the excision/proof boundary and records the placement as approximate on /Rotate!=0 pages, dropping the /Rotate axis swap and the MediaBox lower-left origin).
+Command: PATH=third_party/pdfium/bin:$PATH QT_QPA_PLATFORM=offscreen ./build-final/TestRedactMarkAll.exe (test file at its new state; RedactMode.cpp still at HEAD)
+
+FAIL!  : TestRedactMarkAll::markAllCoversMatchAndProofsOnRotate90Page() 'coverage.contains(matches.first())' returned FALSE. (rot90: mark at viewer (95.192, -113.832, 50.232 x 10.476) maps to user (-113.832, 95.192, 10.476 x 50.232) which does not cover the match at (95.192, 698.356, 50.232 x 10.476) — the excision would miss the secret)
+D:/pdf/pdf-inst/tests/TestRedactMarkAll.cpp(901) : failure location
+FAIL!  : TestRedactMarkAll::markAllCoversMatchAndProofsOnRotate270Page() 'coverage.contains(matches.first())' returned FALSE. (rot270: mark at viewer (95.192, -113.832, 50.232 x 10.476) maps to user (698.356, 696.576, 10.476 x 50.232) which does not cover the match at (95.192, 698.356, 50.232 x 10.476) — the excision would miss the secret)
+D:/pdf/pdf-inst/tests/TestRedactMarkAll.cpp(901) : failure location
+FAIL!  : TestRedactMarkAll::markAllCoversMatchAndProofsOnOffsetOriginPage() 'coverage.contains(matches.first())' returned FALSE. (offset: mark at viewer (195.192, 83.168, 50.232 x 10.476) maps to user (295.192, 798.356, 50.232 x 10.476) which does not cover the match at (195.192, 748.356, 50.232 x 10.476) — the excision would miss the secret)
+D:/pdf/pdf-inst/tests/TestRedactMarkAll.cpp(901) : failure location
+Totals: 18 passed, 3 failed, 0 skipped, 0 blacklisted, 1502ms
