@@ -602,13 +602,23 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
     const QString outDir = outInfo.absolutePath();
     QDir().mkpath(outDir);
 
+    // CX-03: the converter runs into a FRESH PRIVATE temp folder — never the
+    // destination's own folder. LibreOffice ALWAYS writes <input-basename>.pdf
+    // into --outdir: with --outdir = the destination's folder it overwrote any
+    // existing sibling of that name (even when the conversion itself
+    // succeeded), and when it produced nothing the pre-existing sibling was
+    // mistaken for the product — committed to the destination, then deleted.
+    // In a fresh private folder, "a product exists" can only mean "the
+    // converter created it".
+    const QString productDir = TempFileManager::instance().createTempDir("glyphpdf-convert");
+
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start(sofficePath, {
         "--env:UserInstallation=" + profileUri,
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
-        "--outdir", outDir,
+        "--outdir", productDir,
         officePath
     });
 
@@ -635,48 +645,56 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
         return false;
     }
 
-    // LibreOffice writes <basename>.pdf into outDir. sweep-legacy: validate the
-    // converter's product BEFORE touching the caller's destination, then commit
-    // it through the SafeSave atomic replace. The previous tail removed the
-    // destination FIRST and renamed second — a failed rename after the remove
-    // (converter exit-0-but-no-output, an open handle on the source, a
-    // cross-volume move) DESTROYED the previous output while reporting failure:
-    // the exact destructive class WP-R04 (A03) fixed for the encrypted-package
-    // flow. commitFileToDestination never removes or truncates the destination
-    // before the atomic commit; a failed run leaves it byte-identical.
-    const QString expectedOut = QDir(outDir).filePath(inInfo.completeBaseName() + ".pdf");
-    const bool samePath = QFileInfo(expectedOut).canonicalFilePath()
-                          == QFileInfo(outputPath).canonicalFilePath();
-    if (!samePath) {
-        QFile candidate(expectedOut);
-        if (!candidate.open(QIODevice::ReadOnly)) {
-            qWarning() << "convertOfficeToPdf: converter produced no readable output:"
-                       << expectedOut;
-            return false;
-        }
-        const QByteArray head = candidate.read(5);
-        candidate.close();
-        if (head != "%PDF-") {
-            qWarning() << "convertOfficeToPdf: converter output is not a PDF:" << expectedOut;
-            QFile::remove(expectedOut);   // our candidate: cleaned up
-            return false;
-        }
-
-        QString commitErr;
-        if (!gp::SafeSave::commitFileToDestination(expectedOut, outputPath, &commitErr)) {
-            qWarning() << "convertOfficeToPdf: committing converted PDF failed:"
-                       << commitErr;
-            QFile::remove(expectedOut);   // the candidate is ours: removed on EVERY outcome
-            return false;
-        }
-        QFile::remove(expectedOut);       // consumed by the commit — no stray copy
-    } else {
-        // In-place: soffice already wrote the caller's exact path; validate it.
-        if (!QFileInfo(outputPath).exists() || QFileInfo(outputPath).size() == 0) {
-            qWarning() << "convertOfficeToPdf: output PDF is empty or missing:" << outputPath;
+    // LibreOffice writes <basename>.pdf into the (private) product dir. The
+    // converter's product is validated BEFORE touching the caller's
+    // destination, then committed through the SafeSave atomic replace (the
+    // previous tail removed the destination FIRST and renamed second — a
+    // failed rename after the remove DESTROYED the previous output while
+    // reporting failure: the exact destructive class WP-R04 (A03) fixed for
+    // the encrypted-package flow). commitFileToDestination never removes or
+    // truncates the destination before the atomic commit; a failed run leaves
+    // it byte-identical.
+    //
+    // CX-03: the product ALWAYS comes from the private folder — the old
+    // equal-path branch (which "validated" the destination merely by
+    // existence + non-zero size, so a no-op converter reported success on
+    // whatever already sat there) is gone. The commit replaces the
+    // destination atomically whatever it held, including the equal-path case.
+    const QString expectedOut = QDir(productDir).filePath(inInfo.completeBaseName() + ".pdf");
+    QFile candidate(expectedOut);
+    if (!candidate.open(QIODevice::ReadOnly)) {
+        qWarning() << "convertOfficeToPdf: converter produced no readable output:"
+                   << expectedOut;
+        return false;
+    }
+    const QByteArray head = candidate.read(5);
+    candidate.close();
+    if (head != "%PDF-") {
+        qWarning() << "convertOfficeToPdf: converter output is not a PDF:" << expectedOut;
+        QFile::remove(expectedOut);   // our candidate: cleaned up
+        return false;
+    }
+    {
+        // CX-03: the 5-byte head alone accepted truncated/hostile output that
+        // merely STARTS like a PDF. The product must LOAD before it may
+        // replace anything the user already had.
+        PdfiumBackend product;
+        if (!product.loadDocument(expectedOut)) {
+            qWarning() << "convertOfficeToPdf: converter output does not load "
+                          "as a PDF:" << expectedOut;
+            QFile::remove(expectedOut);
             return false;
         }
     }
+
+    QString commitErr;
+    if (!gp::SafeSave::commitFileToDestination(expectedOut, outputPath, &commitErr)) {
+        qWarning() << "convertOfficeToPdf: committing converted PDF failed:"
+                   << commitErr;
+        QFile::remove(expectedOut);   // the candidate is ours: removed on EVERY outcome
+        return false;
+    }
+    QFile::remove(expectedOut);       // consumed by the commit — no stray copy
     return true;
 }
 #include <zip.h>
