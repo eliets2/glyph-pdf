@@ -106,3 +106,12 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
   and restored (pick supplies it).
 - R13 helper: .context/r13-check.sh (trailer grep + cached patch-id index /tmp/pid.txt;
   rebuild index after each pick batch).
+
+## Checkpoint CP7 (images lane, 2026-09-29)
+
+- CP7 (images lane landed, 6 commits): be7654b0 (CX-02 HIGH), d976f9cd (CX-12),
+  5e8e3ff3 (CX-08), 049edcaa (CX-11), 8e91bdf1 (CX-10), 5989adcc (CX-09) —
+  evidence committed per fix (docs/audit/evidence-cx08..cx12/). R14 on PR head:
+  build 0 errors; TestImageAppearance 41P/0F (new CX-08..12 pins included),
+  image-filter ctest 3/3. Lane agent stopped before N1 (occurrence-index
+  addressing) — N1 finisher dispatched. Still open: N1, PGR-46.
