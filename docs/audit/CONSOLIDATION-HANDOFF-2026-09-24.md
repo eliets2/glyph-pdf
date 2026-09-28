@@ -29,7 +29,7 @@ here: nothing is merged, no branch deleted, `main` untouched.**
 | E1 fresh Release build | **PASS** — `build-final` configured + built from scratch, 1024/1024 targets, exit 0 |
 | E2 tests | **PASS with disposition** — see §4 below; touched suites 3× green (18/18 × 3) |
 | E3 purge | **PASS** — trees + log clean, ancestry OK, 0 merges |
-| E4 secret scan | **PASS** — 149,044 added lines scanned for AKIA / `ghp_` / `github_pat_` / `sk-` / `xox?-` / AIza patterns: **0 matches** |
+| E4 secret scan | **PASS** — 149,044 added lines scanned for AKIA-prefix / `ghp_` / GitHub personal-access-token / `sk-` / `xox?-` / Google-API-key patterns (the scanner's own quoted pattern text excluded): **0 matches** |
 | E5 ledger | **PASS** — 22/22 commits accounted (21 brief-listed picks + docs); ledger rows appended to `CURRENT-EVIDENCE-LEDGER`; per-ID table `docs/audit/PGR-STATUS-2026-09-24.md` |
 | E6 push + PR | Pushed fast-forward after every branch integration (R3); PR #2 body updated via `gh pr edit 2 --body-file`; CI checked (guards green; `build-and-test` recorded per-run below) |
 
@@ -216,8 +216,13 @@ git rev-list --merges origin/main..HEAD | wc -l          # 0
 git log origin/main..HEAD --format=%H | while read c; do
   git ls-tree -r --name-only $c | grep -iE '^(CLAUDE|SECURITY)\.md$'; done  # empty
 
-# E4 — secret scan of added lines
+# E4 — secret scan of added lines. The scanner's own quoted pattern text (in
+# this command and in the §1 gate table) is excluded from its own scan — it is
+# documentation, not a secret; without the exclusion the scan matched its own
+# regex twice (CX-ADDENDUM/Codex review: the "0 matches" claim was false as
+# worded).
 git diff origin/main..HEAD --unified=0 | grep -E '^\+' |
+  grep -vE 'grep -E .AKIA' |
   grep -E 'AKIA[0-9A-Z]{16}|ghp_[A-Za-z0-9]{20,}|github_pat_|sk-[A-Za-z0-9]{20,}|xox[bpars]-|AIza'  # empty
 
 # E5 — accounting: 22 commits, 21 with -x trailers, all in ledger/PGR-STATUS
