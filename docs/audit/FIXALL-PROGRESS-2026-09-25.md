@@ -54,6 +54,25 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
 | F1 | bd9b66bc | fixall-forms2 | PORTED as f6ef7d68 | f6ef7d68 | TestSecretStore 23P/0F | CX-06 MED: legacy 0x02 migration re-wraps only the entry it read (fail-before/pass-after/nc-reverted/restored evidence in docs/audit/evidence-cx06/) |
 | F2 | (lane) | fixall-forms2 | PORTED as cabf7c15 | cabf7c15 | TestFormSafety 14P/0F | CX-05 HIGH: fillForm + UI-Apply gated through commit-phase /AA /K willCommit=true BEFORE /V; fail-before/pass-after/nc/restored evidence (relocated to docs/audit/evidence-cx05/ by 476d163b) |
 
+## CI/TESTS lane (feat/fixall-ci2, base = PR head 220b5f2b)
+
+Worktree D:/pdf/pdf-keyC. Commits handed to the integrator (oldest first):
+
+| # | Commit | Item | Evidence |
+|---|---|---|---|
+| 1 | 36251f03 | CX-16 | test(stamps): copies the placed AnnotationItem instead of binding a ref into a temporary QList. Fail-before = GCC -Wdangling-reference on the exact line; pass-after = clean + suite 10P/0F. docs/audit/evidence-cx16/ |
+| 2 | 118368ee | CX-17 | test(ocr): real persistence cycle (clear→true→contains+true→reconstruct→off→false; restore slot now stores TRUE). NC: writers disconnected → old test STILL PASSED 5P/0F (vacuous), new test FAILS 4P/1F, restored 5P/0F. docs/audit/evidence-cx17/ |
+| 3 | 30e3d4b7 | small items | PoDoFo vendored build pinned to SHA 712fb0e80e0e9404525d8db54fa0baa4ae469963 (= refs/tags/1.1.0, lightweight tag; verified via git ls-remote), SHA in the cache key. E4 wording: gate-table row no longer quotes self-matching literals; recorded scan excludes the scanner's own regex text. Fail-before 2 self-matches → pass-after 0 (filtered). |
+| 4 | 789a24d6 | NEW finding (CX-15 gate find) | fix(engines): wrapImageInExtGState glued its inserted "q" onto a preceding regular char ("5 5 cm/ImA Do Q" is legal PDF) → corrupt, unlexable output. Fail-before 11 failures / pass-after 278895 checks 0F via the CX-15 harness; TestImageAppearance 20P/0F. docs/audit/evidence-cx15/ |
+| 5 | c8c860d5 | CX-14 | Per-test QtTest capture: add_test override appends `-o -,txt -o <dir>/<name>.txt,txt -o <dir>/<name>.junit,junitxml` to every Qt6::Test-linked test when GLYPHPDF_QTTEST_CAPTURE_DIR is set (CI-only; default off locally). ci.yml uploads test-results/ + LastTest.log with if: always(); Test step keeps failing exit status. Fontconfig theory DISPROVED: "Fontconfig error: Cannot load default config file" prints even on a PASSING local TestSweepW3UxFlows (14P/0F), and TestWelcomeRoutes passes 20/20 with FONTCONFIG_FILE=/nonexistent; captured local flake instead: imagesRouteProducesAndOpensTheOutput QFileInfo::exists(out) FALSE at :498 (1/20, green on rerun). docs/audit/evidence-cx14/ |
+| 6 | c7392e2e | CX-15 | content-spans-sanitizer job (ubuntu-24.04): clang + QtCore-only harness tests/sanitizers/ContentSpansAdversarial.cpp over the CX-08..12 adversarial shapes with -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer. Negative control recorded once: injected OOB read fails (local approximation: -fsanitize-trap=undefined, SIGILL exit 132 — MSYS2 has no libasan; the job's ASan heap variant runs on first CI dispatch). Coverage thresholds DEFERRED (R10) with plan: llvm-cov/gcovr line+branch baseline for ContentSpans/PoDoFoBackend suites, thresholds set FROM the baseline. |
+| 7 | 8b4d9b58 | CX-13 | glyphpdf-fuzz.yml redaction-oracles job now provisions the full ci.yml dep set (podofo SHA-pin bootstrap + shared cache key, ONNX 1.17.3, PDFium DLL, clang, quickjs sync); path filter widened to src/engines/**, src/core/Redaction*, src/pdfws_djot/**, fuzz/**; timeout 60m. Local proof: driver builds against build-final, campaign 6/6 CLEAN exit 0; broken harness (applyRedactions skipped, scratch patch kept as evidence) → all cases ORACLE FAILED rc=3, exit 1; restored → 6/6 CLEAN exit 0. docs/audit/evidence-cx13/. ACCEPTANCE (post-push, integrator): `gh workflow run glyphpdf-fuzz.yml --ref review/consolidated-parity` on the final SHA, then `gh run watch` — step "Run P1/P2 oracle matrix" must show the per-case CLEAN lines. |
+
+Touched-suite reruns (R16, sequential): TestDynamicStamps 10P/0F ×3,
+TestOcrPreprocessPrefs 5P/0F ×3, TestImageAppearance 20P/0F ×2, TestSweepW3UxFlows
+14P/0F (fontconfig probe run), TestWelcomeRoutes 20P/0F (probe rerun). Full build
+1050/1050 then 386 dependent steps after the ContentSpans fix, 0 errors.
+
 ## Checkpoint pushes
 
 - CP1 (Phase 1 pr-review-fixes cluster): 1fcaa500, 75e7507e, 1919d0e6, 8d3f6d0f —
