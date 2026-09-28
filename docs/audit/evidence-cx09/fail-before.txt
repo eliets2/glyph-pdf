@@ -1,0 +1,10 @@
+CX-09 fail-before — the CX-09 tests against HEAD (8e91bdf1: restack crosses BDC/BMC/EMC, only q/Q bound the move):
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe (ContentSpans.cpp temporarily reverted to HEAD; test file at its new state)
+
+FAIL!  : TestImageAppearance::restackRefusesToCrossMarkedContent() Compared values are not the same
+FAIL!  : TestImageAppearance::restackKeepsHiddenAndTaggedImagesInPlace() '!engine.setImageZOrder(0, QStringLiteral("ImA"), true)' returned FALSE. (bringing a hidden-layer image to the front must refuse)
+Totals: 39 passed, 2 failed, 0 skipped, 0 blacklisted, 650ms
+
+Reading:
+- restackRefusesToCrossMarkedContent: the hidden-OCG bring-to-front MOVED the q..Q block past the EMC (Codex's exact escape: a sampled pixel went transparent -> red); the tagged and unbalanced-span cases crossed the same way.
+- restackKeepsHiddenAndTaggedImagesInPlace: the engine restack 'succeeded' on the hidden layer — the file changed and the hidden image would repaint.

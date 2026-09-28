@@ -189,20 +189,11 @@ static void restackMarkedContent()
         "/P BDC\n(hello) Tj\nEMC\n";
 
     QByteArray out;
+    // CX-09 (the fix): bringing the image to the front would drag its block
+    // past the EMC — out of the marked region — so the restack refuses.
     const EditResult r = gp::content::restackImage(s, "ImA", true, &out);
-    CHECK(r == EditResult::Changed || r == EditResult::StateInTheWay
-          || r == EditResult::SharedBlock || r == EditResult::NotIsolated);
-    if (r == EditResult::Changed) {
-        checkStreamStaysLexable(s, out);
-        // Byte-exactness: the edit only relocates the block, so the output
-        // must still contain the marked-content sequence verbatim.
-        CHECK(out.contains("/P BDC"));
-        CHECK(out.contains("(hello) Tj"));
-        CHECK(out.contains("EMC"));
-        CHECK(out.contains("/ImA Do"));
-    } else {
-        CHECK(out.isEmpty());            // a refusal must not touch `out`
-    }
+    CHECK(r == EditResult::StateInTheWay);
+    CHECK(out.isEmpty());
 
     // Unbalanced marked content around the image block: whatever the engine
     // decides, it may not crash and a Changed stream stays lexable.

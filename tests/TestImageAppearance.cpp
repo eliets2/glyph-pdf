@@ -170,6 +170,66 @@ bool closeTo(double a, double b, double eps = 1e-6)
     return qAbs(a - b) < eps;
 }
 
+// Two images where /ImA sits inside the /Layer1 marked-content region and
+// Layer1 is OFF in /OCProperties — the hidden-layer shape CX-09 guards.
+// /ImA stays visible-in-principle (its rect overlaps ImB's only partially).
+QString makeHiddenLayerPdf(const QString &dir, const QString &name)
+{
+    const QString path = dir + QLatin1Char('/') + name;
+    PoDoFo::PdfMemDocument doc;
+    auto makeImage = [&](char r, char g, char b) -> PoDoFo::PdfObject & {
+        std::string px;
+        for (int i = 0; i < 16; ++i) { px.push_back(r); px.push_back(g); px.push_back(b); }
+        auto &img = doc.GetObjects().CreateDictionaryObject();
+        img.GetDictionary().AddKey("Type", PoDoFo::PdfName("XObject"));
+        img.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Image"));
+        img.GetDictionary().AddKey("Width", static_cast<int64_t>(4));
+        img.GetDictionary().AddKey("Height", static_cast<int64_t>(4));
+        img.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceRGB"));
+        img.GetDictionary().AddKey("BitsPerComponent", static_cast<int64_t>(8));
+        img.GetOrCreateStream().SetData(PoDoFo::bufferview(px));
+        return img;
+    };
+    auto &imA = makeImage(char(0xC8), char(0x1E), char(0x1E));
+    auto &imB = makeImage(char(0x1E), char(0x1E), char(0xC8));
+    auto &ocg = doc.GetObjects().CreateDictionaryObject();
+    ocg.GetDictionary().AddKey("Type", PoDoFo::PdfName("OCG"));
+    ocg.GetDictionary().AddKey("Name", PoDoFo::PdfName("Layer1"));
+
+    auto &page = doc.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    PoDoFo::PdfDictionary xobjects;
+    xobjects.AddKey(PoDoFo::PdfName("ImA"), PoDoFo::PdfObject(imA.GetIndirectReference()));
+    xobjects.AddKey(PoDoFo::PdfName("ImB"), PoDoFo::PdfObject(imB.GetIndirectReference()));
+    PoDoFo::PdfDictionary properties;
+    properties.AddKey(PoDoFo::PdfName("Layer1"), PoDoFo::PdfObject(ocg.GetIndirectReference()));
+    PoDoFo::PdfDictionary res;
+    res.AddKey("XObject", PoDoFo::PdfObject(xobjects));
+    res.AddKey("Properties", PoDoFo::PdfObject(properties));
+    page.GetDictionary().AddKey("Resources", PoDoFo::PdfObject(res));
+
+    const std::string data(
+        "/OC /Layer1 BDC\n"
+        "q 200 0 0 200 100 400 cm /ImA Do Q\n"
+        "EMC\n"
+        "q 200 0 0 200 150 450 cm /ImB Do Q\n");
+    page.GetOrCreateContents().CreateStreamForAppending().SetData(PoDoFo::bufferview(data));
+
+    PoDoFo::PdfArray ocgArr;
+    ocgArr.Add(ocg.GetIndirectReference());
+    PoDoFo::PdfArray offArr;
+    offArr.Add(ocg.GetIndirectReference());
+    PoDoFo::PdfDictionary dDict;
+    dDict.AddKey("OFF", PoDoFo::PdfObject(offArr));
+    PoDoFo::PdfDictionary ocProps;
+    ocProps.AddKey("OCGs", PoDoFo::PdfObject(ocgArr));
+    ocProps.AddKey("D", PoDoFo::PdfObject(dDict));
+    doc.GetCatalog().GetDictionary().AddKey("OCProperties", PoDoFo::PdfObject(ocProps));
+
+    doc.Save(path.toStdString());
+    return path;
+}
+
 } // namespace
 
 class TestImageAppearance : public QObject {
@@ -225,6 +285,10 @@ private slots:
     // ── Part 7: CX-10 — a gs-only opacity wrapper is part of the own block ─
     void gsWrapperIsPartOfTheOwnBlock();
     void opacityThenEditsComposeAndUndo();
+
+    // ── Part 8: CX-09 — restacking never crosses marked content ────────────
+    void restackRefusesToCrossMarkedContent();
+    void restackKeepsHiddenAndTaggedImagesInPlace();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -1358,6 +1422,99 @@ void TestImageAppearance::opacityThenEditsComposeAndUndo()
                  && again.blue() > 100 && again.blue() < 150,
              qPrintable(QStringLiteral("redo must re-front the wrapped image, got %1")
                             .arg(again.name())));
+}
+
+// ── Part 8: CX-09 — restacking never crosses marked content ────────────────
+
+void TestImageAppearance::restackRefusesToCrossMarkedContent()
+{
+    QByteArray out;
+
+    // The hidden-layer shape from the finding: bring-to-front dragged the
+    // q..Q block past the EMC, out of its /Layer1 region. Both directions
+    // must refuse — a marked-content operator lies on the way.
+    const QByteArray hidden =
+        "/OC /Layer1 BDC\n"
+        "q 100 0 0 100 20 20 cm /ImA Do Q\n"
+        "EMC\n"
+        "q 200 0 0 200 150 450 cm /ImB Do Q\n";
+    out.clear();
+    QCOMPARE(gp::content::restackImage(hidden, "ImA", true, &out),
+             EditResult::StateInTheWay);
+    QVERIFY(out.isEmpty());
+    out.clear();
+    QCOMPARE(gp::content::restackImage(hidden, "ImA", false, &out),
+             EditResult::StateInTheWay);
+    QVERIFY(out.isEmpty());
+
+    // A tagged placement: same refusals — an MCID must not be detached.
+    const QByteArray tagged =
+        "/P << /MCID 0 >> BDC\nq 100 0 0 100 20 20 cm /ImA Do Q\nEMC\n1 js\n";
+    QCOMPARE(gp::content::restackImage(tagged, "ImA", true, &out),
+             EditResult::StateInTheWay);
+    QCOMPARE(gp::content::restackImage(tagged, "ImA", false, &out),
+             EditResult::StateInTheWay);
+    QVERIFY(out.isEmpty());
+
+    // An unbalanced span — a region opened inside the block and never closed
+    // — is refused in both directions as well.
+    const QByteArray unbalanced = "q /P BDC /ImA Do Q\n1 js\n";
+    QCOMPARE(gp::content::restackImage(unbalanced, "ImA", true, &out),
+             EditResult::StateInTheWay);
+    QCOMPARE(gp::content::restackImage(unbalanced, "ImA", false, &out),
+             EditResult::StateInTheWay);
+    // A stray EMC inside the span closes a region opened before it.
+    const QByteArray stray = "q /ImA Do EMC Q\n1 js\n";
+    QCOMPARE(gp::content::restackImage(stray, "ImA", false, &out),
+             EditResult::StateInTheWay);
+    QVERIFY(out.isEmpty());
+
+    // A balanced whole-owner span — the region opens and closes inside the
+    // image's own block — moves together with its region.
+    const QByteArray owner = "q /OC /L1 BDC /ImA Do EMC Q\nq /ImB Do Q\n";
+    QCOMPARE(gp::content::restackImage(owner, "ImA", true, &out),
+             EditResult::Changed);
+    QVERIFY2(out.indexOf("/ImB Do") < out.indexOf("/L1 BDC"),
+             "the whole owner region must move behind /ImB");
+    QVERIFY(out.contains("q /OC /L1 BDC /ImA Do EMC Q"));
+}
+
+// The engine-level CX-09: restacking a hidden-OCG or tagged image is refused
+// with a byte-identical file, and the hidden image stays hidden.
+void TestImageAppearance::restackKeepsHiddenAndTaggedImagesInPlace()
+{
+    // Hidden optional-content layer, OFF in /OCProperties.
+    {
+        QTemporaryDir dir;
+        const QString f = makeHiddenLayerPdf(dir.path(), "oc.pdf");
+        QVERIFY(!isRed(pixelAt(f, 120, 420)));   // the layer hides /ImA
+        const QByteArray before = fileBytes(f);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+
+        QVERIFY2(!engine.setImageZOrder(0, QStringLiteral("ImA"), true),
+                 "bringing a hidden-layer image to the front must refuse");
+        QCOMPARE(fileBytes(f), before);
+        QVERIFY2(!isRed(pixelAt(f, 120, 420)),
+                 "the refused edit must not reveal the hidden image");
+        QCOMPARE(engine.listImages(0).size(), 2);   // both placements listed
+    }
+    // A tagged placement: bring-to-front is refused, file untouched.
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "tagged.pdf",
+            "/P << /MCID 0 >> BDC\nq 200 0 0 200 100 400 cm /ImA Do Q\nEMC\n"
+            "q 200 0 0 200 150 450 cm /ImB Do Q\n");
+        const QByteArray before = fileBytes(f);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+
+        QVERIFY2(!engine.setImageZOrder(0, QStringLiteral("ImA"), true),
+                 "bringing a tagged image to the front must refuse");
+        QCOMPARE(fileBytes(f), before);
+        QVERIFY(isBlue(pixelAt(f, kOverlap.x(), kOverlap.y())));
+    }
 }
 
 QTEST_MAIN(TestImageAppearance)
