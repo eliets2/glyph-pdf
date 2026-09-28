@@ -357,3 +357,105 @@ If any of 1–12 fails, the plan is not executable without the corresponding ame
 - This critique is committed on `feat/consolidation-critique` (worktree `D:/pdf/pdf-conscritic`),
   based on `review/consolidated-parity` @ `12da4e2f` — the survivor per A2 — so the file lands in the
   PR's `docs/audit/` tree; cherry-pick to the plan branch is trivial (docs-only, no conflicts).
+
+---
+
+## 7. Critique of the LANDED plan (`745f2649` + script `3a0c485b`, branch `feat/consolidation-action-plan`)
+
+The plan text landed during this critique and was reviewed in full. **Verdict: sound architecture,
+executable after the fixes in §7.2; none of the found errors changes the survivor decision, the fold
+order, or the phase sequence.** The plan correctly supersedes the 09-20 lineage: survivor =
+`review/consolidated-parity` @ `12da4e2f`, FF to main, two fold candidates, verify-pin-and-archive
+for everything else, per-class proofs, phase-0 bundle + tag push.
+
+### 7.1 Independently VERIFIED correct (measured, not trusted)
+
+- **Survivor + FF topology** (§1.2): main = `2b715f47` has **0** commits not in the PR (ancestry and
+  patch-id both) — the FF push precondition holds.
+- **§4.2(a) name-set superset**: `feat/consolidated` **and** `feat/parity-glm` both have **0 files**
+  the PR lacks (the plan's command only tests fc; I ran pg too — it passes).
+- **§4.2(c)**: all 6 named docs blob-identical pg↔PR. **§4.2(b)** numstat walk is aimed at the true
+  loss direction.
+- **§3.4 fold-lane table**: every patch-unique count matches my independent census exactly
+  (pgr-c4=2, fixall-redaction=1, fixall-forms=11, fixall-forms2=1, fixall-ci2=1, pr-review-fixes=4,
+  batch-presets-p2=3, residual-exec=1, all others=0).
+- **Phase 0** (final `--all` bundle + new archive tags + **pushing all archive tags**) resolves this
+  critique's F1: the tag push gives origin a second copy of pg's unpushed tail before any deletion.
+- HOLD set, 06:01-automation pause, DRYRUN/CONSENT script skeleton: all present and right.
+
+### 7.2 Errors to fix BEFORE execution (E1–E11)
+
+- **E1 — wrong unpushed-tail number (§1.1, §9.7):** `origin/feat/parity-glm..feat/parity-glm` =
+  **585 commits (523 non-merge)**, not "176 behind". Bigger exposure than stated; the phase-0 tag
+  push covers it, but the risk statement must carry the real number.
+- **E2 — §4.3's proof command is false as written:** with the documented limit
+  (`merge-base(f4750af5, pg)` = `f4750af5`) it returns **907 `+`**, not 0. With the intended limit
+  (`feat/consolidated`) it returns **3 `+`** — `14d69ce9`, `983dd81d`, `4e70217e` — not 0. All three
+  are ledger-dispositioned (09-24 ledger B1 picks-with-resolution / B2 row-union supersession), so
+  the CONCLUSION stands, but the plan must state: "3 patch-uniques, each carrying a named ledger
+  disposition" — not "git cherry = 0 unique".
+- **E3 — §2.4's claude/modest disposition is false as proven:** the branch's
+  `docs/planning/AUDIT-2026-06-16-REMEDIATION.md` blob is `accc2cc1`; the PR's is `989c0f72`;
+  delta **579+/661−** — roughly 661 lines of the branch's copy are NOT in the PR (the doc was
+  rewritten on the PR after the 09-24 ledger's "content-identical" check). Downgrade to
+  **ARCHIVE-CONTAINED** (`archive/branch/claude/…` tag exists; bundle covers it), or re-derive
+  content containment line-by-line. The plan's "blob-verified 2026-09-29" must be corrected.
+- **E4 — the plan violates its own reject-rule #14:** that rule requires tag AND bundle AND proof
+  for every deleted branch, but §3.5's tag list omits all fold-lane tips (`fixall-*`, `pgr-*`,
+  `pr-review-fixes`, `batch-presets-p2`, `residual-exec`, `fix/p0-blank-viewer`, …). The
+  supersession-class deletions (fixall-forms' 11 never-landed reverts, fixall-redaction
+  `5461b72d`, final-pgr-closers `68bc917e`) delete never-landed content on judgment alone. Add
+  `archive/branch/*` tags for the fold-lane tips in phase 0 (cheap; satisfies the rule).
+- **E5 — `5461b72d` supersession is asserted, not proven (the plan's own §5 item 3; I ran it):**
+  vs the PR, the branch carries **62 lines the PR lacks** on the image surface alone (21 files,
+  +345/−469 vs `2ead0b17`, including its own TestImageAppearance variant). SUPERSEDED is plausible
+  (the PR's N1 is the gates-verified one) but requires a line-level disposition of those 62 lines
+  BEFORE `feat/fixall-redaction` is deletable. Until then "0 unexplained" is provisional (this
+  critique's F3, now measured).
+- **E6 — script (`3a0c485b`) fail-closed holes:** (i) line 33's containment check is a **no-op**
+  (`… = 0 ] && : || true` swallows both outcomes) — with the default `pin=true`, a deletion entry
+  has NO containment proof at all, only tip-pin + bundle; (ii) line 39 likewise; (iii) no
+  patch-level (cherry) check implemented; (iv) no checked-out-in-worktree pre-check and
+  `push --delete` runs BEFORE `branch -d` — a checked-out branch yields a half-deleted state
+  (origin gone, local kept); sequence worktree-release → local `-d` → remote delete; (v) line 60
+  uses `git tag -f` (force-overwrites tags on re-run — against the plan's own no-force order);
+  (vi) line 52's drift gate diffs against `.context/consplan/sweep-plan.txt`, which the script
+  never creates and which lives in unstaged scratch — commit the baseline (e.g. hash the §3 table
+  into the plan doc); (vii) phase 2 (FOLD-2 owner gate) is absent from the script; (viii)
+  `ARCHIVE_FINAL` default embeds a literal `<date>`.
+- **E7 — classification arithmetic does not sum:** §3's table totals 146 local (claims 158) and 91
+  remote (claims 90); §2.3 says 116/74 united-line ancestors vs §3's 108/70 (measured: **116**
+  local is right — 158 minus the 42 uPG>0); remote fold-lane twins measure **9**, not 11; and
+  `fix/p0-blank-viewer` (uPG=107 — it rides the PR line) is placed in the united-line-ancestor
+  class (its disposition TEXT is correct). The phase-0 sweep re-derives, but a plan that is meant
+  to be the authority must sum.
+- **E8 — two real-world hazards absent from the plan:** (a) the local `main` worktree
+  `D:/pdf/pdf` is **dirty** (tracked mod of `docs/audit/PARITY-GLM-REVIEW-2026-09-13-FINDINGS.md`
+  + an uncommitted `docs/audit/SECURITY-QUALITY-REVIEW-parity-glm.md`) — the plan never updates
+  local `main` after the FF push nor dispositions that dirty file (a later `pull --ff-only` there
+  will refuse or entangle); (b) the five antigravity worktrees hold ~703 STAGED files each,
+  **including `tests/fixtures/signing/ca.key`, `signer.key`, `test_signer.p12`** — §9.6 retires
+  them post-pass with no quarantine warning; any `add`/`commit`/`stash` sweep there poisons the
+  freshly consolidated history. Both need explicit rows (do-not-touch + owner security item).
+- **E9 — rollback table row 2 is technically wrong:** pushing an older SHA to a moved `main` is a
+  **non-fast-forward (rejected)**, not "a fast-forward backwards". The only sanctioned undo is
+  `git revert` (the row's own honest path) or force (forbidden). Fix the row before an operator
+  tries the impossible path.
+- **E10 — §4.6 checks `git merge-base --is-ancestor d03d6e94 main` against LOCAL `main`**, which
+  the plan never moves — trivially true, proves nothing; check `origin/main`.
+- **E11 — minor:** §1.1 "the only line fully pushed" — `feat/consolidated` (`eb0efa21`) is also
+  pushed (`origin/feat/consolidated` = local, verified); §5 item 7 contains an unresolved
+  mid-sentence self-correction ("— wait, it IS on the PR (verify…)") — clean up.
+
+### 7.3 Amendments to the amendments (reconciling §3 of this critique with the landed plan)
+
+The landed plan already satisfies A2 (survivor named), A3 (per-class proofs — fix E2's command),
+A6 (picks-only; purge named as a merge-forbidden reason in §2.3(b)), A8 (freeze + sweep re-run),
+A9 (July archive-only + missing tags listed), A12 (united-line deletions gated on PR-merged),
+A14 (full enumeration intent; fix E7's sums). Still to adopt: **A1's restore drill** (§7 has
+recipes, never rehearsed — add a phase-0 `git clone <bundle>` into scratch + tip/blob spot-checks
+with a committed transcript), **A4's ledger-union proof** (the plan's §5 item 2 assigns it to the
+critique — this critique confirms the delta is real: blobs `2fc16ace` vs `9c006e93`, 392/265 vs
+438/276 rows; the union proof itself remains owed), **A10's at-T unreviewed-map re-run** (the
+name-set superset proven in §7.1 covers FILE presence for all 348 mapped files; a carrier-level
+re-run stays recommended-cheap, not blocking), and **E4's fold-lane tags**.
