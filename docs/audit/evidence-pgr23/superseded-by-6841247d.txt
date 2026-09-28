@@ -1,0 +1,31 @@
+PGR-23 disposition of 68bc917e (feat/final-pgr-closers WIP) — SUPERSEDED by 6841247d, pins ported
+
+R13 finding: the PR already contains a further-developed nested-container sweep — 6841247d
+(recurse into embedded PDFs: object strings incl. object streams, decoded streams with the
+stricter non-media refusal, PLUS decode-level PDFium text extraction of nested PDFs (absent
+from the WIP), own-attachment recursion depth 3, ZIP/OOXML/GZIP/7z/RAR/XZ/BZIP2 refusal).
+Cherry-picking 68bc917e conflicts in src/core/RedactionProof.cpp + tests/TestRedactionProof.cpp
+(6+3 hunks) — the same problem, fixed twice. R13: never pick both.
+
+Section-4 supersession procedure: applied ONLY the WIP's two test pins onto the PR head
+(a76b728d) and ran them against 6841247d's implementation, no WIP code:
+
+  proofFailsOnSecretInsideNestedCompressedAttachmentPdf  PASS
+    (nested FlateDecode content stream; also covers the nested sweep's DECODED-STREAM tier,
+     which no existing pin hits directly — 6841247d's own nested pin is caught by the text-
+     extraction tier because its subset-font glyph-ID encoding is invisible to the literal tiers)
+  proofFailsOnUndecodableZipAttachment  PASS
+    (zero-CRC ZIP with a DEFLATE'd secret; container refused by signature, Unswept never Clean)
+
+Command: PATH=third_party/pdfium/bin:$PATH QT_QPA_PLATFORM=offscreen ./build-final/TestRedactionProof.exe
+
+Totals: 35 passed, 0 failed, 0 skipped, 0 blacklisted, 1711ms
+
+Baseline before the probe pins (PR head a76b728d): 33 passed, 0 failed.
+With the two ported pins: 35 passed, 0 failed. All four PGR-23 pins green:
+PASS   : TestRedactionProof::proofFailsOnNestedFlatePdfAttachmentSurvivor()
+PASS   : TestRedactionProof::proofFailsOnCompressedArchiveAttachment()
+PASS   : TestRedactionProof::proofFailsOnUnparseablePdfAttachment()
+PASS   : TestRedactionProof::proofPassesWithCleanNestedPdfAttachment()
+PASS   : TestRedactionProof::proofFailsOnSecretInsideNestedCompressedAttachmentPdf()
+PASS   : TestRedactionProof::proofFailsOnUndecodableZipAttachment()
