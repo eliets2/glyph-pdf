@@ -60,3 +60,20 @@ SUPERSEDED / FOLDED / PORTED / PRESENT / PENDING-VERIFICATION / OUT-OF-SCOPE-own
 contained-by-ancestry). The single PENDING-VERIFICATION item (`68bc917e`) is tracked
 to a named owner (redaction lane) and converts to FOLDED or stays recorded at the
 gates.
+
+## 5. Gates-era delta (2026-09-29, Phases 3-5) — closes §4's lane round
+
+| Item | Disposition | Evidence |
+|---|---|---|
+| `68bc917e` (was PENDING-VERIFICATION) | **SUPERSEDED** (code) + **PORTED** (tests only) | Parallel implementation of PGR-23; PR's `6841247d` already landed the same fix with a superset of its container refusals (ZIP/OOXML/GZIP/7z/RAR/XZ/BZIP2 + unparseable-PDF; nested-PDF recursion with decoded streams + PDFium text extraction, depth 3) and fail-before/NC/pass-after evidence. Only the WIP's 2 test pins were ported — `06ce3ae4` (tests-only, both pass with NO WIP code: TestRedactionProof 35P/0F ×3 on the PR head). The WIP's one non-subset content item, the OLE compound signature `\xD0\xCF\x11\xE0`, is recorded as a residual (not ported without its own fail-before evidence — R7). |
+| `feat/final-pgr-closers` 4 fix commits | **PRESENT** (byte-identical patch-ids, already on the PR) | `5e81a0fa`≡`6600a429` (PGR-37), `629b5749`≡`f90b4c71` (PGR-35), `4aa8cb81`≡`1d59f241` (PGR-36), `9aa576bf`≡`ddef6a8f` (PGR-38). Re-picking them would violate R13. |
+| `feat/fixall-redaction` `a76b728d` (PGR-46 CRITICAL-class) | **FOLDED** → `99dd7b67` (`-x`, R13-clean) | Fail-before TestRedactMarkAll 18P/3F, pass-after 21P/0F ×3 on the PR head (plus TestPatternRedact 15P, TestPgr37PageSpaceLaw 9P, redaction cluster green ×3). Evidence: `docs/audit/evidence-pgr46/`. |
+| `feat/fixall-redaction` `efd3f8ae` (PGR-23 pins port) | **FOLDED** → `06ce3ae4` (`-x`, R13-clean) | See `68bc917e` row; TestRedactionProof 35P/0F ×3. |
+| N1 (occurrence-index addressing), finished on `feat/fixall-images` | **FOLDED** → `2ead0b17` (`-x`, R13-clean) | Source `d63ed76e` ("placements are addressed by occurrence index, not name"). Fold race with a concurrent lane pick resolved by squashing the two partial applications into ONE commit whose union diff was first proven byte-identical to the source diff (content applied exactly once; 23 files, 704+/158−). Fail-before TestImageAppearance 41P/4F, pass-after 47P/0F (evidence `docs/audit/evidence-n1/`); 3× green on the PR head recorded in the Phase 3 log. Process deviation recorded: lane agents cherry-picked into the integrator worktree/branch concurrently (see handoff §Deviations). |
+| Lane-side docs checkpoints (`590c6c27` on `feat/fixall-ci2`, siblings on other lane branches) | **LANE-SIDE CHECKPOINTS** | Content carried by the integrator's progress-doc commits on the PR (CP5-CP8). Not picked (docs-only, lane-local). |
+| `72069bd8` (consolidate/all et al., 2026-09-21) | **Pre-cutoff** | Predates the 09-24 ledger (its subject matter); that ledger's branch verdicts (0 unexplained) cover the consolidated-era universe. Not re-dispositioned. |
+
+E5 re-verified at the gates head: no source SHA appears in two `-x` trailers in
+`origin/main..HEAD` except exactly the 12 Phase 0 revert sources.
+
+Unexplained commits (fixall era, all refs): **0**.
