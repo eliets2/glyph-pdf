@@ -360,6 +360,53 @@ int innermostBlockOpen(const QList<Token> &toks, int at)
     return open.isEmpty() ? -1 : open.back();
 }
 
+// The q..Q blocks around the token at `at`, outermost first (the last entry
+// is the innermost block).
+QVector<int> enclosingOpens(const QList<Token> &toks, int at)
+{
+    QVector<int> open;
+    for (int i = 0; i < at; ++i) {
+        if (toks[i].kind != Token::Kind::Operator) continue;
+        if (toks[i].text == "q") open.push_back(i);
+        else if (toks[i].text == "Q" && !open.isEmpty()) open.pop_back();
+    }
+    return open;
+}
+
+// CX-10: the image's OWN block. After wrapImageInExtGState the Do sits in a
+// gs-only wrapper ("q /GSop… gs /ImA Do Q") nested inside the placement
+// block ("q cm … Q"). A level counts as a wrapper — and is stepped out of —
+// only when it contains a gs operator and nothing else but the Do: a plain
+// "q /ImA Do Q" inside a placement block keeps the innermost-block semantics
+// (restacking within the parent must not escape it). The innermost
+// non-wrapper block wins; when every enclosing level is a wrapper, their
+// outermost is the image's own block. Returns the block's open index and its
+// parent block's open index (-1 when the block is at stream level).
+struct OwnBlock { int open; int parentOpen; };
+OwnBlock ownBlockOf(const QList<Token> &toks, int doIdx, const QVector<int> &match,
+                    const QVector<int> &enclosing)
+{
+    OwnBlock outermost{-1, -1};
+    for (int k = int(enclosing.size()) - 1; k >= 0; --k) {
+        const int open = enclosing[k];
+        const int close = match[open];
+        const int parentOpen = k > 0 ? enclosing[k - 1] : -1;
+        if (close < 0) return { open, parentOpen };
+        bool hasGs = false, onlyGs = true;
+        for (int i = open + 1; i < close; ++i) {
+            if (i == doIdx) continue;
+            if (toks[i].kind != Token::Kind::Operator) continue;
+            if (toks[i].text == "gs") { hasGs = true; continue; }
+            onlyGs = false;
+            break;
+        }
+        if (!hasGs || !onlyGs)
+            return { open, parentOpen };
+        outermost = { open, parentOpen };
+    }
+    return outermost;
+}
+
 } // namespace
 
 bool lex(const QByteArray &s, QList<Token> *tokens)
@@ -453,33 +500,15 @@ EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFron
     QList<Token> toks;
     if (!lex(s, &toks)) return EditResult::Malformed;
 
-    // match[i]: for a q token, the index of its Q (lex() guaranteed balance).
-    QVector<int> match(toks.size(), -1);
-    {
-        QVector<int> open;
-        for (int i = 0; i < toks.size(); ++i) {
-            if (toks[i].kind != Token::Kind::Operator) continue;
-            if (toks[i].text == "q") open.push_back(i);
-            else if (toks[i].text == "Q") match[open.takeLast()] = i;
-        }
-    }
-
     const int doIdx = findImageDo(toks, name);
     if (doIdx < 0) return EditResult::NotFound;
 
-    // The innermost q..Q around the Do (the image's own block) and the block
-    // around that (its parent; none = the whole stream).
-    int blockOpen = -1, parentOpen = -1;
-    {
-        QVector<int> open;
-        for (int i = 0; i < doIdx; ++i) {
-            if (toks[i].kind != Token::Kind::Operator) continue;
-            if (toks[i].text == "q") open.push_back(i);
-            else if (toks[i].text == "Q") open.pop_back();
-        }
-        if (!open.isEmpty()) blockOpen = open.back();
-        if (open.size() >= 2) parentOpen = open[open.size() - 2];
-    }
+    // The image's own block (through any gs-only wrapper — CX-10) and the
+    // block around that (its parent; none = the whole stream).
+    const QVector<int> match = qMatch(toks);
+    const QVector<int> enclosing = enclosingOpens(toks, doIdx);
+    const OwnBlock own = ownBlockOf(toks, doIdx, match, enclosing);
+    const int blockOpen = own.open, parentOpen = own.parentOpen;
     if (blockOpen < 0) return EditResult::NotIsolated;
     const int blockClose = match[blockOpen];
     for (int i = blockOpen + 1; i < blockClose; ++i) {
@@ -556,24 +585,29 @@ EditResult replaceImageMatrix(const QByteArray &s, const QByteArray &name,
     const int doIdx = findImageDo(toks, name);
     if (doIdx < 0) return EditResult::NotFound;
 
-    const int blockOpen = innermostBlockOpen(toks, doIdx);
+    const QVector<int> match = qMatch(toks);
+    const QVector<int> enclosing = enclosingOpens(toks, doIdx);
+    const OwnBlock own = ownBlockOf(toks, doIdx, match, enclosing);
+    const int blockOpen = own.open;
     if (blockOpen < 0) return EditResult::NotIsolated;
 
     // CX-11: restack's isolation rule — the block must paint nothing but
     // this placement. The cm inside a shared block carries the neighbours'
     // placement too (q 100 0 0 100 20 20 cm /ImA Do /ImB Do Q moved BOTH
     // images), so rewriting it is refused, never applied.
-    const QVector<int> match = qMatch(toks);
     const int blockClose = match[blockOpen];
     if (blockClose < 0) return EditResult::Malformed;
     for (int i = blockOpen + 1; i < blockClose; ++i)
         if (i != doIdx && isPainting(toks[i])) return EditResult::SharedBlock;
 
-    // The last cm between the block's q and the Do, at the Do's own depth
-    // (a cm inside a nested, already-closed q..Q does not apply to the Do).
+    // The last cm between the block's q and the Do, at the block's own
+    // nesting level (direct children of the q): a cm inside a nested,
+    // already-closed q..Q does not apply to the Do, and through a gs-only
+    // wrapper (CX-10) the owning cm sits one level above the Do.
     for (int i = doIdx - 1; i > blockOpen; --i) {
         const Token &t = toks[i];
-        if (t.depth != toks[doIdx].depth || t.kind != Token::Kind::Operator || t.text != "cm")
+        if (t.depth != toks[blockOpen].depth + 1
+            || t.kind != Token::Kind::Operator || t.text != "cm")
             continue;
         if (i - 6 <= blockOpen) return EditResult::Malformed;
         for (int k = i - 6; k < i; ++k)
@@ -595,13 +629,16 @@ EditResult removeImagePlacement(const QByteArray &s, const QByteArray &name,
     const int doIdx = findImageDoNth(toks, name, occurrence);
     if (doIdx < 0) return EditResult::NotFound;
 
-    // The image's own block: the innermost q..Q around the Do. A placement
+    // The image's own block (through any gs-only wrapper — CX-10, so an
+    // opacity-wrapped image's delete takes the wrapper with it). A placement
     // outside every block is refused — erasing the bare "name Do" would leave
     // its cm/gs/clip in force for whatever content follows.
-    const int blockOpen = innermostBlockOpen(toks, doIdx);
+    const QVector<int> match = qMatch(toks);
+    const QVector<int> enclosing = enclosingOpens(toks, doIdx);
+    const OwnBlock own = ownBlockOf(toks, doIdx, match, enclosing);
+    const int blockOpen = own.open;
     if (blockOpen < 0) return EditResult::NotIsolated;
 
-    const QVector<int> match = qMatch(toks);
     const int blockClose = match[blockOpen];
     // restack's isolation rule: the block must paint nothing but this
     // placement, or the removal would take the neighbours with it.

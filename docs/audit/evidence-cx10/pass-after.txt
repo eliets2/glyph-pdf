@@ -1,0 +1,16 @@
+CX-10 pass-after — gs-only wrappers are part of the image's own block (gp::content ownBlockOf + listImages wrapper walk)
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe
+
+PASS   : TestImageAppearance::gsWrapperIsPartOfTheOwnBlock()
+PASS   : TestImageAppearance::opacityThenEditsComposeAndUndo()
+Totals: 39 passed, 0 failed, 0 skipped, 0 blacklisted, 598ms
+
+Touched suites (sequential):
+TestImageEditWiring: Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 1ms
+TestImageDedup: Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 23ms
+TestCheckedMutationCoverage: Totals: 13 passed, 0 failed, 0 skipped, 0 blacklisted, 200ms
+TestHistoryIntegrity: Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 525ms
+
+CX-15 sanitizer harness (local compile; CI runs clang+ASan+UBSan):
+ContentSpansAdversarial: 319967 checks, 0 failures
+harness exit=0

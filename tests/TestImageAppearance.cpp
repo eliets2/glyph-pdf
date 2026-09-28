@@ -221,6 +221,10 @@ private slots:
     // ── Part 6: CX-11 — matrix replacement refuses shared blocks ───────────
     void replaceImageMatrixRefusesSharedBlocks();
     void moveImageRefusesASharedBlockKeepsNeighbours();
+
+    // ── Part 7: CX-10 — a gs-only opacity wrapper is part of the own block ─
+    void gsWrapperIsPartOfTheOwnBlock();
+    void opacityThenEditsComposeAndUndo();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -1204,6 +1208,156 @@ void TestImageAppearance::moveImageRefusesASharedBlockKeepsNeighbours()
         QCOMPARE(fileBytes(f), before);
         QCOMPARE(engine.listImages(0).size(), 1);
     }
+}
+
+// ── Part 7: CX-10 — a gs-only opacity wrapper is part of the own block ─────
+
+namespace {
+// The wrapper setImageOpacity produces: "q /GSop… gs /ImA Do Q" nested
+// inside the placement block.
+const char *kWrappedBlock =
+    "q 100 0 0 100 20 20 cm q /GSop1a2b3c gs /ImA Do Q Q";
+} // namespace
+
+void TestImageAppearance::gsWrapperIsPartOfTheOwnBlock()
+{
+    QByteArray out;
+
+    // The placement cm is reachable through the wrapper: the rewrite hits
+    // the block's cm, never the wrapper (which has none).
+    QCOMPARE(gp::content::replaceImageMatrix(QByteArray(kWrappedBlock), "ImA",
+                                             "1 0 0 1 30 40", &out),
+             EditResult::Changed);
+    QVERIFY2(out.contains("1 0 0 1 30 40 cm q /GSop1a2b3c gs"),
+             qPrintable(QStringLiteral("the block's cm must be rewritten, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+
+    // Restacking moves wrapper + placement together: the whole block (cm and
+    // wrapper) relocates past /ImB.
+    const QByteArray stream =
+        "0 js\n" + QByteArray(kWrappedBlock) + "\n"
+        + "q 200 0 0 200 150 450 cm /ImB Do Q\n";
+    out.clear();
+    QCOMPARE(gp::content::restackImage(stream, "ImA", true, &out),
+             EditResult::Changed);
+    QVERIFY2(out.indexOf("/ImB Do") < out.indexOf("/GSop1a2b3c gs"),
+             "the wrapped placement must move as a whole past /ImB");
+    QVERIFY2(out.contains("cm q /GSop1a2b3c gs /ImA Do Q Q"),
+             "the cm must travel inside the moved span");
+    QVERIFY(out.startsWith("0 js\n"));              // the other bytes stay put
+
+    // Already front-most (wrapper and all): Unchanged — honest now.
+    out.clear();
+    const QByteArray frontmost =
+        "q 200 0 0 200 150 450 cm /ImB Do Q\n" + QByteArray(kWrappedBlock) + "\n";
+    QCOMPARE(gp::content::restackImage(frontmost, "ImA", true, &out),
+             EditResult::Unchanged);
+    QVERIFY(out.isEmpty());
+
+    // Deleting a wrapped placement takes the wrapper with it.
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement(QByteArray(kWrappedBlock), "ImA",
+                                               0, &out),
+             EditResult::Changed);
+    QVERIFY2(QString::fromLatin1(out).trimmed().isEmpty(),
+             qPrintable(QStringLiteral("wrapper + placement go together, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+
+    // A wrapper that carries real content of its own (a cm) is NOT unwrapped:
+    // that innermost block IS the image's own placement block — its cm is
+    // the one rewritten, the outer cm stays verbatim.
+    const QByteArray cmWrapper =
+        "q 100 0 0 100 20 20 cm q 200 0 0 200 0 0 cm /ImA Do Q Q";
+    out.clear();
+    QCOMPARE(gp::content::replaceImageMatrix(cmWrapper, "ImA", "3 0 0 3 0 0", &out),
+             EditResult::Changed);
+    QVERIFY2(out.contains("3 0 0 3 0 0 cm /ImA Do"),
+             qPrintable(QStringLiteral("the innermost placement cm wins, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+    QVERIFY2(out.contains("q 100 0 0 100 20 20 cm"),
+             "the outer cm must stay untouched");
+}
+
+// CX-10's engine contract: after an opacity wrap every later image edit
+// composes with the wrapped placement, the front command really moves the
+// image, and undo restores only the front — judged by rendered pixels.
+void TestImageAppearance::opacityThenEditsComposeAndUndo()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "opaften.pdf", kTwoImages);
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    DocumentSession doc;
+    doc.beginDocument(f);
+    QUndoStack stack;
+
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.5));
+
+    // MOVE: NotIsolated before CX-10; now the wrapped placement moves.
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), 30, 0));
+    QVERIFY2(pixelAt(f, 115, 420).alpha() < 60, "the old position must be empty");
+    const QColor movedNew = pixelAt(f, 145, 420);
+    QVERIFY2(movedNew.alphaF() > 0.4 && movedNew.alphaF() < 0.6
+                 && movedNew.red() > movedNew.green() + 40,
+             qPrintable(QStringLiteral("the moved image paints at its half opacity, got %1")
+                            .arg(movedNew.name())));
+
+    // ROTATE: the wrapper must not stop the rotation either.
+    QVERIFY(engine.rotateImage(0, QStringLiteral("ImA"), 90));
+    bool found = false;
+    for (const auto &img : engine.listImages(0)) {
+        if (img.xobjectName != QLatin1String("ImA")) continue;
+        found = true;
+        QVERIFY(closeTo(img.rotation, 90.0, 1e-5));
+    }
+    QVERIFY(found);
+
+    // RESIZE: the square shrinks to 100x100 from the fixed corner.
+    QVERIFY(engine.resizeImage(0, QStringLiteral("ImA"), 100, 100));
+    for (const auto &img : engine.listImages(0)) {
+        if (img.xobjectName != QLatin1String("ImA")) continue;
+        QVERIFY(closeTo(img.placement.width(), 100.0, 1e-4));
+        QVERIFY(closeTo(img.placement.height(), 100.0, 1e-4));
+    }
+
+    // FRONT: pushed as the command (redo applies it) — the overlap flips
+    // from opaque ImB-blue to a 50/50 ImA/ImB blend. Resizing the 90°-rotated
+    // placement scales its matrix columns with the translation fixed, so the
+    // drawn rect is (230..330, 400..500); the probe sits inside that and
+    // inside ImB (150..350, 450..650). Over an OPAQUE backdrop the composited
+    // pixel stays opaque (αout = ½·1 + ½·1): the blend shows in the channels.
+    const QPointF probe(300, 470);
+    QVERIFY(isBlue(pixelAt(f, probe.x(), probe.y())));
+    const QByteArray backup = engine.extractPageAsBytes(f, 0);
+    QVERIFY(!backup.isEmpty());
+    stack.push(new ImageAppearanceCommand(&engine, &doc, 0, QStringLiteral("ImA"),
+                                          ImageAppearanceCommand::Kind::BringToFront,
+                                          1.0, backup));
+    const QColor over = pixelAt(f, probe.x(), probe.y());
+    QVERIFY2(over.red() > 100 && over.red() < 150
+                 && over.blue() > 100 && over.blue() < 150
+                 && over.green() < 80,
+             qPrintable(QStringLiteral("ImA must blend 50/50 with ImB, got %1")
+                            .arg(over.name())));
+
+    // UNDO restores the pre-front stacking but keeps the earlier edits.
+    QVERIFY(CheckedHistory::undo(&stack));
+    QVERIFY(isBlue(pixelAt(f, probe.x(), probe.y())));
+    bool kept = false;
+    for (const auto &img : engine.listImages(0)) {
+        if (img.xobjectName != QLatin1String("ImA")) continue;
+        kept = true;
+        QVERIFY(closeTo(img.placement.width(), 100.0, 1e-4));
+        QVERIFY(closeTo(img.rotation, 90.0, 1e-5));
+    }
+    QVERIFY(kept);
+
+    QVERIFY(CheckedHistory::redo(&stack));
+    const QColor again = pixelAt(f, probe.x(), probe.y());
+    QVERIFY2(again.red() > 100 && again.red() < 150
+                 && again.blue() > 100 && again.blue() < 150,
+             qPrintable(QStringLiteral("redo must re-front the wrapped image, got %1")
+                            .arg(again.name())));
 }
 
 QTEST_MAIN(TestImageAppearance)
