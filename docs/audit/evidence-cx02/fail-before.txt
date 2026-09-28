@@ -1,0 +1,37 @@
+********* Start testing of TestImageAppearance *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestImageAppearance::initTestCase()
+PASS   : TestImageAppearance::lexerSkipsStringsCommentsAndInlineImages()
+PASS   : TestImageAppearance::lexerRejectsUnbalancedOrUnterminatedContent()
+PASS   : TestImageAppearance::restackMovesOnlyTheImageBlock()
+PASS   : TestImageAppearance::restackWithinTheParentBlock()
+PASS   : TestImageAppearance::restackRefusesWhenTheImageWouldChange()
+PASS   : TestImageAppearance::restackIsUnchangedWhenAlreadyInPlace()
+PASS   : TestImageAppearance::wrapIsInsertedOnceAndRecognised()
+PASS   : TestImageAppearance::escapedNamesMatch()
+PASS   : TestImageAppearance::bringToFrontChangesTheVisibleImageAndPersists()
+PASS   : TestImageAppearance::sendToBackChangesTheVisibleImage()
+QWARN  : TestImageAppearance::refusedRestackLeavesTheFileUntouched() setImageZOrder refused for "ImA" on page 1 - the image shares its graphics state with other content
+PASS   : TestImageAppearance::refusedRestackLeavesTheFileUntouched()
+PASS   : TestImageAppearance::opacityBlendsAndUpdatesInPlace()
+PASS   : TestImageAppearance::opacityOnInheritedResourcesKeepsImagesVisible()
+PASS   : TestImageAppearance::commandUndoRestoresTheStacking()
+PASS   : TestImageAppearance::customAngleRotationUndoesExactly()
+PASS   : TestImageAppearance::moveResizeRotateReachTheRealImage()
+PASS   : TestImageAppearance::listImagesReportsThePlacementMatrix()
+PASS   : TestImageAppearance::matrixRewriteKeepsTheBlockBalanced()
+FAIL!  : TestImageAppearance::moveUnderOuterScaleDoesNotDouble() 'imageA().placement == QRectF(30, 40, 200, 200)' returned FALSE. (move +10 under a 2x outer scale gave 60 80 400x400)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(570) : failure location
+FAIL!  : TestImageAppearance::movePlusUndoRestoresAllSixCoefficients() 'closeTo(local[k], expected[k])' returned FALSE. (local cm coefficient 0: 400 != 100)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(604) : failure location
+FAIL!  : TestImageAppearance::zeroMoveKeepsSkewAndReflectionPixelIdentical() 'closeTo(local[k], expected[k])' returned FALSE. (local cm coefficient 0: 120 != 80)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(636) : failure location
+FAIL!  : TestImageAppearance::moveKeepsAPreRotatedPlacement() 'closeTo(imageA().placement.x(), 30.0) && closeTo(imageA().placement.y(), 40.0)' returned FALSE. (position 60,80 after +10,0)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(662) : failure location
+FAIL!  : TestImageAppearance::resizeUnderOuterScaleSetsTheExactSize() 'img.placement == QRectF(20, 40, 100, 50)' returned FALSE. (resized to 40 80 200x100)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(687) : failure location
+FAIL!  : TestImageAppearance::rotateUnderOuterScaleKeepsTheDrawnRect() 'isRed(pixelAt(f, 25, 45))' returned FALSE. ()
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(716) : failure location
+PASS   : TestImageAppearance::cleanupTestCase()
+Totals: 20 passed, 6 failed, 0 skipped, 0 blacklisted, 1703ms
+********* Finished testing of TestImageAppearance *********

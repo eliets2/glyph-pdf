@@ -13,4 +13,18 @@ struct PdfImageInfo {
     int widthPx = 0;           // native pixel width of the XObject
     int heightPx = 0;          // native pixel height of the XObject
     QImage thumbnail;          // rendered preview for the overlay
+
+    // CX-02: the placement geometry kept as all six affine coefficients —
+    // never a (w, h, rotation) breakdown, which drops skew and reflection.
+    // matrix is the effective matrix at the image's Do (image space → page
+    // space). baseMatrix is the CTM in force just before the image's own last
+    // cm, so an edit can write desired × base⁻¹ as the new local cm instead
+    // of letting every enclosing transform apply twice. hasLocalMatrix is
+    // false when the placement sets no cm of its own (nothing to rewrite);
+    // baseInvertible is false when the enclosing CTM is singular (edits are
+    // refused — a compensating local cm does not exist).
+    double matrix[6] = {1, 0, 0, 1, 0, 0};
+    double baseMatrix[6] = {1, 0, 0, 1, 0, 0};
+    bool hasLocalMatrix = false;
+    bool baseInvertible = false;
 };
