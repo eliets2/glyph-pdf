@@ -132,8 +132,19 @@ jobs:
           Remove-Item pdfium.tgz; Remove-Item -Recurse -Force pdfium-extract
           Write-Host "pdfium.dll staged at third_party/pdfium/bin/"
 
+      # CX-14: point every QtTest at a per-test artifact directory. The
+      # CMake add_test override (see CMakeLists.txt "CX-14") then appends
+      # `-o -,txt -o <abs>/<name>.txt,txt -o <abs>/<name>.junit,junitxml`
+      # to every Qt6::Test-linked test, so a red run keeps each suite's
+      # assertion text and a structured JUnit result even when the console
+      # log is truncated. cygpath -m keeps the path acceptable to both the
+      # msys2 shell and the Windows CMake/Qt binaries.
       - name: Configure
-        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: |
+          GP_CAPTURE_DIR="$(cygpath -m "${GITHUB_WORKSPACE}")/test-results"
+          echo "GP_CAPTURE_DIR=${GP_CAPTURE_DIR}" >> "$GITHUB_ENV"
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DGLYPHPDF_QTTEST_CAPTURE_DIR="${GP_CAPTURE_DIR}"
 
       - name: Build
         run: cmake --build build --parallel
@@ -201,6 +212,27 @@ jobs:
       - name: Test
         # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully.
         # PDFium is present (downloaded above) so HAS_PDFIUM tests run with real character positions.
+        # CX-14: each QtTest also writes test-results/<name>.txt and
+        # test-results/<name>.junit (see the Configure step), so the evidence
+        # below survives even when the run is red. The step keeps ctest's
+        # failing exit status; the upload step runs regardless via if: always().
         run: |
           cd build
           QT_QPA_PLATFORM=offscreen ctest --output-on-failure -j4
+
+      # CX-14: always upload the per-test results (txt + junit), the ctest
+      # JUnit of the whole run and Testing/Temporary/LastTest.log — a failing
+      # suite must keep its captured failure text ("no suite may be waived
+      # without its captured failure text"). if: always() keeps the failing
+      # exit status of the Test step AND still uploads on red.
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            test-results/
+            build/Testing/Temporary/LastTest.log
+          if-no-files-found: warn
+          retention-days: 14
+
