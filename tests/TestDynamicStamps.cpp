@@ -187,7 +187,12 @@ private slots:
         // A plain click places the stamp with the resolved text.
         QTest::mouseClick(&layer, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
         QCOMPARE(layer.annotations().size(), 1);
-        const AnnotationItem& placed = layer.annotations().first();
+        // CX-16: copy the placed item — annotations() returns a temporary
+        // QList, and a const-ref bound to .first() of that temporary dangles
+        // at the semicolon (GCC -Wdangling-reference flagged exactly this
+        // line; see docs/audit/evidence-cx16/). The assertions below then
+        // read a destroyed element.
+        const AnnotationItem placed = layer.annotations().first();
         QCOMPARE(placed.mode, ToolMode::Stamp);
         QCOMPARE(placed.text, QStringLiteral("Received | Alice | 2026-09-09 14:30"));
         // Plain click → visible default box, not a zero-sized rect.
