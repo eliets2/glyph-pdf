@@ -49,33 +49,73 @@ private slots:
     }
 
     void togglingPersistsToQSettings() {
-        {
-            gp::OCRMode mode;
-            auto* denoise = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDenoise"));
-            QVERIFY(denoise);
-            denoise->setChecked(false);
-        }
-        QCOMPARE(QSettings().value(QStringLiteral("ocr/preprocessDenoise")).toBool(), false);
+        // CX-17: the old version of this slot toggled false→false, so no
+        // toggled signal ever fired and the "persisted" assertion ran against
+        // an ABSENT key — toBool() on an absent key reads as false, so the
+        // test passed even with the writer disconnected (negative control:
+        // docs/audit/evidence-cx17/old-test-writer-disconnected-STILL-PASSES.txt).
+        // The real persistence cycle per key: clear → toggle false→true → the
+        // key must EXIST and hold true → reconstruct → still true → toggle
+        // back off → the key must exist and hold false.
+        const struct { const char *box; const char *key; } cases[] = {
+            { "ocrChkDeskew",    "ocr/preprocessDeskew" },
+            { "ocrChkBinarize",  "ocr/preprocessBinarize" },
+            { "ocrChkDenoise",   "ocr/preprocessDenoise" },
+        };
+        for (const auto &c : cases) {
+            const QString box = QString::fromLatin1(c.box);
+            const QString key = QString::fromLatin1(c.key);
+            QSettings().remove(key);
 
-        {
-            gp::OCRMode mode;
-            auto* deskew = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDeskew"));
-            QVERIFY(deskew);
-            deskew->setChecked(false);
+            {
+                gp::OCRMode mode;
+                auto* chk = mode.findChild<QCheckBox*>(box);
+                QVERIFY2(chk, qPrintable(QStringLiteral("missing checkbox: ") + box));
+                QVERIFY2(!chk->isChecked(),
+                         "with the key cleared the checkbox must start off");
+                chk->setChecked(true);        // fires toggled(true) → the writer
+            }
+            {
+                QSettings after;
+                QVERIFY2(after.contains(key),
+                         "toggling on must WRITE the key — an absent key here "
+                         "means the panel no longer persists (the CX-17 bug "
+                         "shape); the old test could not catch this");
+                QCOMPARE(after.value(key).toBool(), true);
+            }
+            {
+                gp::OCRMode mode;
+                auto* chk = mode.findChild<QCheckBox*>(box);
+                QVERIFY2(chk && chk->isChecked(),
+                         "a persisted true must restore as checked");
+                chk->setChecked(false);       // toggle back off
+            }
+            {
+                QSettings after;
+                QVERIFY2(after.contains(key),
+                         "toggling off must keep the key present (an explicit "
+                         "off, not an absent default)");
+                QCOMPARE(after.value(key).toBool(), false);
+            }
         }
-        QCOMPARE(QSettings().value(QStringLiteral("ocr/preprocessDeskew")).toBool(), false);
     }
 
     void persistedPrefsRestoreOnConstruction() {
-        QSettings().setValue(QStringLiteral("ocr/preprocessDeskew"), false);
-        QSettings().setValue(QStringLiteral("ocr/preprocessDenoise"), false);
+        // CX-17: the old version stored FALSE — the constructor default — so
+        // a constructor that ignored saved values entirely still passed. The
+        // restore path is only proven by a value the default disagrees with:
+        // store true behind the panel's back, reconstruct, and require the
+        // checkbox to come up CHECKED.
+        QSettings().setValue(QStringLiteral("ocr/preprocessDeskew"), true);
+        QSettings().setValue(QStringLiteral("ocr/preprocessDenoise"), true);
         gp::OCRMode mode;
         auto* deskew = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDeskew"));
         auto* denoise = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDenoise"));
-        QVERIFY2(deskew && !deskew->isChecked(),
-                 "a persisted 'off' must restore as off — the pref is what the "
+        QVERIFY2(deskew && deskew->isChecked(),
+                 "a persisted 'on' must restore as on — the pref is what the "
                  "pipeline will honor");
-        QVERIFY2(denoise && !denoise->isChecked(), "persisted Denoise=off must restore");
+        QVERIFY2(denoise && denoise->isChecked(),
+                 "persisted Denoise=on must restore checked");
     }
 };
 
