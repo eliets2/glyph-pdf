@@ -455,6 +455,15 @@ private slots:
     // before and after (the old text-only invariant never caught this).
     void inlineImageSurvivesTagging();
 
+    // CX-07 — MCIDs inside Form XObjects: a bare integer /K with the page's
+    // /Pg is unresolvable (a consumer would search the page stream and find
+    // nothing); the tree must emit <</Type/MCR /Pg <page> /Stm <form>
+    // /MCID n>>, the form carries /StructParents + a ParentTree entry, and
+    // the validator checks /Stm — proved with an independent structure walk
+    // over a page + Form fixture and a Form-only fixture.
+    void formXObjectMcidsUseMcrReferences();
+    void formOnlyMcidsAlsoUseMcrReferences();
+
 private:
     static FixtureOpts headingParagraphFixture() {
         // Exact ladder from the design's §6.1 pin: H1, P, P, H2, P.
@@ -1260,6 +1269,248 @@ void TestAccessibilityTagger::inlineImageSurvivesTagging() {
     QVERIFY2(afterImg == beforeImg,
              "the tagged page must render pixel-identically (CX-01: the "
              "inline image and every other painting op must survive)");
+}
+
+// ── CX-07: MCIDs inside Form XObjects ────────────────────────────────────────
+// CX-07: MCIDs inside Form XObjects ── local dict-name helper (the engine's
+// nameAt is internal; the tests keep their own).
+static QString dictNameAt(const PoDoFo::PdfDictionary& d, const char* key) {
+    const PdfObject* o = d.FindKey(PdfName(key));
+    if (o == nullptr || !o->IsName()) return {};
+    const std::string_view s = o->GetName().GetString();
+    return QString::fromUtf8(s.data(), static_cast<qsizetype>(s.size()));
+}
+
+// Fixture: one page, standard F1, plus a Form XObject /Fm0 with its OWN
+// /Resources (F1) and one honestly-decodable line inside. pageTextToo adds
+// a page-stream line ABOVE the form invocation (the page + Form fixture);
+// without it every element's MCIDs live in the form (the Form-only fixture).
+static bool makeFormPdf(const QString& path, bool pageTextToo) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(
+            PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+
+        // The Form XObject: own resources, own text line.
+        auto& form = doc.GetObjects().CreateDictionaryObject();
+        form.GetDictionary().AddKey("Type", PdfObject(PdfName("XObject")));
+        form.GetDictionary().AddKey("Subtype", PdfObject(PdfName("Form")));
+        PoDoFo::PdfArray bbox;
+        bbox.Add(0.0); bbox.Add(0.0);
+        bbox.Add(595.0); bbox.Add(842.0);
+        form.GetDictionary().AddKey("BBox", PdfObject(bbox));
+        PdfDictionary formFonts;
+        addStandardFont(doc, formFonts, "F1", "Helvetica");
+        PdfDictionary formRes;
+        formRes.AddKey(PdfName("Font"), PdfObject(formFonts));
+        form.GetDictionary().AddKey("Resources", PdfObject(formRes));
+        const char* formContent =
+            "BT\n/F1 10 Tf\n60 640 Td\n(Form text line.) Tj\nET\n";
+        form.GetOrCreateStream().SetData(
+            PoDoFo::bufferview(formContent, std::strlen(formContent)));
+
+        // Page resources: F1 + /Fm0.
+        PdfDictionary fonts;
+        addStandardFont(doc, fonts, "F1", "Helvetica");
+        page.GetResources().GetDictionary().AddKey("Font",
+                                                   PdfObject(fonts));
+        PdfDictionary xobjs;
+        xobjs.AddKey(PdfName("Fm0"), form.GetIndirectReference());
+        page.GetResources().GetDictionary().AddKey("XObject",
+                                                   PdfObject(xobjs));
+
+        QByteArray c;
+        if (pageTextToo)
+            c += "BT\n/F1 10 Tf\n60 700 Td\n(Page text line.) Tj\nET\n";
+        c += "q\n/Fm0 Do\nQ\n";
+        auto& contents = page.GetOrCreateContents();
+        auto& stream = contents.CreateStreamForAppending(
+            PoDoFo::PdfStreamAppendFlags::None);
+        stream.SetData(PoDoFo::bufferview(c.constData(),
+                                          static_cast<size_t>(c.size())));
+        doc.Save(path.toUtf8().constData());
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
+// Independent structure walk: for every top-level element, collect the /K
+// entries as (mcid, MCR-shape) records and verify the MCR entries resolve:
+// /Pg is the page, /Stm is a Form XObject carrying /StructParents whose
+// ParentTree entry points back at the element. Reports whether any /MCR
+// entry and any bare-integer /K entry were seen.
+static bool walkMcrStructure(const QString& path, bool* sawMcrOut,
+                             bool* sawBareIntOut, QString* err) {
+    try {
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PdfObject* root =
+            resolve(doc.GetCatalog().GetDictionary().FindKey(
+                        PdfName("StructTreeRoot")),
+                    doc);
+        if (root == nullptr || !root->IsDictionary()) {
+            if (err) *err = QStringLiteral("no /StructTreeRoot");
+            return false;
+        }
+        // ParentTree, keyed by StructParents: key → (mcid → element ref).
+        const PdfObject* pt = resolve(
+            root->GetDictionary().FindKey(PdfName("ParentTree")), doc);
+        if (pt == nullptr || !pt->IsDictionary()) {
+            if (err) *err = QStringLiteral("no /ParentTree");
+            return false;
+        }
+        const PdfObject* nums =
+            resolve(pt->GetDictionary().FindKey(PdfName("Nums")), doc);
+        std::map<int, std::map<int, PoDoFo::PdfReference>> parentTree;
+        if (nums != nullptr && nums->IsArray()) {
+            const PdfArray& arr = nums->GetArray();
+            for (size_t i = 0; i + 1 < arr.GetSize(); i += 2) {
+                const int key = static_cast<int>(arr[i].GetNumber());
+                const PdfObject* val = resolve(&arr[i + 1], doc);
+                if (val == nullptr || !val->IsArray()) continue;
+                for (size_t m = 0; m < val->GetArray().GetSize(); ++m) {
+                    const PdfObject& r = val->GetArray()[m];
+                    if (r.IsReference())
+                        parentTree[key][static_cast<int>(m)] =
+                            r.GetReference();
+                }
+            }
+        }
+
+        const PdfObject* kids =
+            resolve(root->GetDictionary().FindKey(PdfName("K")), doc);
+        if (kids == nullptr || !kids->IsArray()) {
+            if (err) *err = QStringLiteral("root /K missing");
+            return false;
+        }
+        bool sawMcr = false;
+        bool sawBareInt = false;
+        for (const PdfObject& elRef : kids->GetArray()) {
+            const PdfObject* el = resolve(&elRef, doc);
+            if (el == nullptr || !el->IsDictionary()) {
+                if (err) *err = QStringLiteral("root /K entry not a ref");
+                return false;
+            }
+            const PdfDictionary& d = el->GetDictionary();
+            const PdfObject* pg = resolve(d.FindKey(PdfName("Pg")), doc);
+            const PdfObject* k = resolve(d.FindKey(PdfName("K")), doc);
+            QList<const PdfObject*> kEntries;
+            if (k != nullptr && k->IsArray()) {
+                for (const PdfObject& m : k->GetArray())
+                    kEntries.append(resolve(&m, doc));
+            } else if (k != nullptr) {
+                kEntries.append(k);
+            }
+            for (const PdfObject* entry : kEntries) {
+                if (entry != nullptr && entry->IsNumber()) {
+                    sawBareInt = true;
+                    continue;
+                }
+                if (entry == nullptr || !entry->IsDictionary()) {
+                    if (err) *err = QStringLiteral("bad /K entry");
+                    return false;
+                }
+                const PdfDictionary& mcr = entry->GetDictionary();
+                if (mcr.HasKey(PdfName("Type"))
+                    && dictNameAt(mcr, "Type") != QLatin1String("MCR")) {
+                    if (err) *err = QStringLiteral("/K dict not /MCR");
+                    return false;
+                }
+                sawMcr = true;
+                const PdfObject* stm = resolve(mcr.FindKey(PdfName("Stm")),
+                                               doc);
+                if (stm == nullptr || !stm->IsDictionary()
+                    || dictNameAt(stm->GetDictionary(), "Subtype")
+                           != QLatin1String("Form")) {
+                    if (err) *err = QStringLiteral("/MCR /Stm not a form");
+                    return false;
+                }
+                if (pg == nullptr
+                    || mcr.FindKey(PdfName("Pg")) == nullptr) {
+                    if (err) *err = QStringLiteral("/MCR without /Pg");
+                    return false;
+                }
+                // The form carries its own StructParents, and the
+                // ParentTree entry under it points back at THIS element.
+                const PdfObject* sp =
+                    stm->GetDictionary().FindKey(PdfName("StructParents"));
+                if (sp == nullptr || !sp->IsNumber()) {
+                    if (err) *err = QStringLiteral("form has no /StructParents");
+                    return false;
+                }
+                const int key = static_cast<int>(sp->GetNumber());
+                const PdfObject* mcidObj = mcr.FindKey(PdfName("MCID"));
+                const int mcid = mcidObj != nullptr && mcidObj->IsNumber()
+                                     ? static_cast<int>(mcidObj->GetNumber())
+                                     : -1;
+                const auto keyIt = parentTree.find(key);
+                if (keyIt == parentTree.end()
+                    || keyIt->second.find(mcid) == keyIt->second.end()) {
+                    if (err) *err = QStringLiteral(
+                        "no ParentTree[%1][%2]").arg(key).arg(mcid);
+                    return false;
+                }
+                if (!(keyIt->second.at(mcid)
+                      == el->GetIndirectReference())) {
+                    if (err) *err = QStringLiteral(
+                        "ParentTree[%1][%2] points elsewhere")
+                            .arg(key).arg(mcid);
+                    return false;
+                }
+            }
+        }
+        if (sawMcrOut != nullptr) *sawMcrOut = sawMcr;
+        if (sawBareIntOut != nullptr) *sawBareIntOut = sawBareInt;
+        return true;
+    } catch (const PoDoFo::PdfError& e) {
+        if (err) *err = QString::fromUtf8(e.what());
+        return false;
+    }
+}
+
+void TestAccessibilityTagger::formXObjectMcidsUseMcrReferences() {
+    // The page + Form fixture: page-stream text AND a form invocation.
+    QTemporaryDir& dir = fixtureDir();
+    const QString pdf = dir.filePath("cx07-page-form.pdf");
+    QVERIFY(makeFormPdf(pdf, true));
+
+    const gp::TaggerReport r = gp::tagDocumentAccessibility(pdf);
+    QVERIFY2(r.ok, qPrintable(r.message));
+    QVERIFY2(gp::validateTaggedStructureTree(pdf).isEmpty(),
+             "the tagged tree must validate (validator checks /Stm)");
+
+    // Independent walk: the form's MCID is an /MCR with /Pg + /Stm, the
+    // form carries /StructParents, and the ParentTree resolves to the
+    // element. The page text keeps its bare-integer /K.
+    bool sawMcr = false, sawBareInt = false;
+    QString err;
+    QVERIFY2(walkMcrStructure(pdf, &sawMcr, &sawBareInt, &err),
+             qPrintable(err));
+    QVERIFY2(sawMcr, "the form's MCID must be a /MCR marked-content reference");
+    QVERIFY2(sawBareInt,
+             "the page-stream text keeps its bare-integer /K");
+}
+
+void TestAccessibilityTagger::formOnlyMcidsAlsoUseMcrReferences() {
+    // The Form-only fixture: EVERY element's MCIDs live in the form —
+    // no bare-integer /K may appear anywhere.
+    QTemporaryDir& dir = fixtureDir();
+    const QString pdf = dir.filePath("cx07-form-only.pdf");
+    QVERIFY(makeFormPdf(pdf, false));
+
+    const gp::TaggerReport r = gp::tagDocumentAccessibility(pdf);
+    QVERIFY2(r.ok, qPrintable(r.message));
+    QVERIFY2(gp::validateTaggedStructureTree(pdf).isEmpty(),
+             "the tagged tree must validate (validator checks /Stm)");
+
+    bool sawMcr = false, sawBareInt = false;
+    QString err;
+    QVERIFY2(walkMcrStructure(pdf, &sawMcr, &sawBareInt, &err),
+             qPrintable(err));
+    QVERIFY2(sawMcr, "every MCID must be a /MCR marked-content reference");
+    QVERIFY2(!sawBareInt,
+             "a Form-only document must not carry bare-integer /K entries");
 }
 
 #include "TestAccessibilityTagger.moc"
