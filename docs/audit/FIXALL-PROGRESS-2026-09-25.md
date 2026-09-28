@@ -53,6 +53,7 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
 | A3 | 86f2cf34 | fix/p0-blank-viewer | FOLDED (addendum) | 36b99c27 | TestViewerRotation 4P/0F; TestOcrVerifyNavigation 16P/0F | renderPage composites onto white paper |
 | F1 | bd9b66bc | fixall-forms2 | PORTED as f6ef7d68 | f6ef7d68 | TestSecretStore 23P/0F | CX-06 MED: legacy 0x02 migration re-wraps only the entry it read (fail-before/pass-after/nc-reverted/restored evidence in docs/audit/evidence-cx06/) |
 | F2 | (lane) | fixall-forms2 | PORTED as cabf7c15 | cabf7c15 | TestFormSafety 14P/0F | CX-05 HIGH: fillForm + UI-Apply gated through commit-phase /AA /K willCommit=true BEFORE /V; fail-before/pass-after/nc/restored evidence (relocated to docs/audit/evidence-cx05/ by 476d163b) |
+| F3 | (lane WIP, committed as 5cadce52) | fixall-forms2 (pdf-r15 worktree) | FOLDED | 220b5f2b (+b3fd9673 evidence) | TestConversionExtraction 21P/0F on PR head (ctest) | CX-03 HIGH: LibreOffice converts into a fresh private temp folder; product validated before SafeSave commit; samePath replaced only by validated product. Seam: env-selected fake_soffice. Fail-before captured on old outDir behavior (3 failures on real assertions) + pass-after in docs/audit/evidence-cx03/. Lane WIP arrived with duplicate profileUri declaration — removed (kept line-599 original) |
 
 ## Checkpoint pushes
 
@@ -65,6 +66,15 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
   10P/0F, TestSignatureBadges 25P/0F, TestThumbnailZoom 5P/0F, TestPagesMode 32P/0F,
   TestViewerRotation 4P/0F, TestOcrVerifyNavigation 16P/0F. R13 clean for all picks
   (trailer grep + patch-id). Pushed as fast-forward on e47a1f18.
+- CP4 (CX-03 fold): b3fd9673 (evidence) + 220b5f2b (pick of 5cadce52) — build 0 errors,
+  TestConversionExtraction 21P/0F via ctest on the PR head. Pushed.
+- PARALLEL ROUND (R17): 5 lane branches cut at 220b5f2b — feat/fixall-images (CX-02,
+  08, 09, 10, 11, 12, N1; pdf-keyA), feat/fixall-tagging2 (CX-01, 07, 04; pdf-sec),
+  feat/fixall-ci2 (CX-13..17 + pins; pdf-keyC), feat/fixall-redaction (PGR-46 + PGR-23
+  WIP verification; pdf-inst), feat/fixall-inv1 (INV-1; pdf-r15). Concurrency cap
+  bounced images+tagging at launch — queued, dispatch on free slots. PGR-23 WIP
+  preserved as 68bc917e on feat/final-pgr-closers (redaction lane verifies + reports
+  FOLD-READY).
 
 ## Notes / deviations
 
