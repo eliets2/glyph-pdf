@@ -236,3 +236,41 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+
+  # CX-15 — the smallest sanitizer gate for the hostile-PDF engine code.
+  # ubuntu-24.04 builds a standalone, QtCore-only test of gp::content
+  # (src/engines/podofo/ContentSpans.{h,cpp}) — the byte-exact content-stream
+  # surgery layer the image findings CX-08..CX-12 live in — over their
+  # adversarial content-stream shapes, with AddressSanitizer + UBSan and
+  # -fno-sanitize-recover, so a memory error or UB fails the job. The payload
+  # is tests/sanitizers/ContentSpansAdversarial.cpp (plain main(), no QtTest),
+  # compiled directly here rather than via CMake so the sanitizer flags never
+  # touch the production build. Negative control (recorded once): an injected
+  # out-of-bounds read in a scratch copy of the harness fails the build —
+  # locally via -fsanitize-trap=undefined (SIGILL, exit 132; MSYS2 has no
+  # libasan) — see docs/audit/evidence-cx15/. LeakSanitizer is off on purpose:
+  # the smallest gate targets memory errors and UB, and LSan over Qt's
+  # allocator is noise.
+  content-spans-sanitizer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang and Qt6 Core
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang qt6-base-dev
+      - name: Build the standalone gate (ASan + UBSan)
+        run: |
+          clang++ -std=c++17 -O1 -g \
+            -fsanitize=address,undefined -fno-sanitize-recover=all \
+            -fno-omit-frame-pointer \
+            -Isrc $(pkg-config --cflags Qt6Core) \
+            tests/sanitizers/ContentSpansAdversarial.cpp \
+            src/engines/podofo/ContentSpans.cpp \
+            $(pkg-config --libs Qt6Core) \
+            -o content-spans-sanitizer
+      - name: Run the gate
+        env:
+          ASAN_OPTIONS: detect_leaks=0
+        run: ./content-spans-sanitizer
