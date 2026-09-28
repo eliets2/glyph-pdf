@@ -515,6 +515,25 @@ EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFron
         if (i != doIdx && isPainting(toks[i])) return EditResult::SharedBlock;
     }
 
+    // CX-09: the span's own marked content must be balanced — a BDC/BMC
+    // opened inside the block must close inside it, and no EMC inside may
+    // close a region opened before it. Moving an unbalanced span tears a
+    // hidden-layer or tagged owner apart.
+    {
+        int marked = 0;
+        bool balanced = true;
+        for (int i = blockOpen + 1; i < blockClose && balanced; ++i) {
+            if (toks[i].kind != Token::Kind::Operator) continue;
+            if (toks[i].text == "BDC" || toks[i].text == "BMC") {
+                ++marked;
+            } else if (toks[i].text == "EMC") {
+                if (marked == 0) balanced = false;
+                else --marked;
+            }
+        }
+        if (!balanced || marked != 0) return EditResult::StateInTheWay;
+    }
+
     const int level = toks[blockOpen].depth;
     const int parentClose = parentOpen < 0 ? -1 : match[parentOpen];
     const int first = toFront ? blockClose + 1 : (parentOpen < 0 ? 0 : parentOpen + 1);
@@ -525,6 +544,13 @@ EditResult restackImage(const QByteArray &s, const QByteArray &name, bool toFron
         if (toks[i].depth == level && changesImageState(toks, i, s, colorSensitive))
             return EditResult::StateInTheWay;
         if (isPainting(toks[i])) paintsBetween = true;
+        // CX-09: a marked-content operator between the span and its
+        // destination means the move would repaint a hidden optional-content
+        // layer or drag the placement out of its tagged owner.
+        if (toks[i].kind == Token::Kind::Operator
+            && (toks[i].text == "BDC" || toks[i].text == "BMC"
+                || toks[i].text == "EMC"))
+            return EditResult::StateInTheWay;
     }
     if (!paintsBetween) return EditResult::Unchanged;    // already front-/backmost
 

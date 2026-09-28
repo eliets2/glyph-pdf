@@ -1,0 +1,16 @@
+CX-09 pass-after — restack refuses crossing marked content (span balance + crossing scan)
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe
+
+PASS   : TestImageAppearance::restackRefusesToCrossMarkedContent()
+PASS   : TestImageAppearance::restackKeepsHiddenAndTaggedImagesInPlace()
+Totals: 41 passed, 0 failed, 0 skipped, 0 blacklisted, 687ms
+
+Touched suites (sequential):
+TestImageEditWiring: Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 2ms
+TestImageDedup: Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 26ms
+TestCheckedMutationCoverage: Totals: 13 passed, 0 failed, 0 skipped, 0 blacklisted, 267ms
+TestHistoryIntegrity: Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 631ms
+
+CX-15 sanitizer harness — restackMarkedContent now pins the fixed verdict exactly (StateInTheWay for the EMC crossing; out untouched):
+ContentSpansAdversarial: 251795 checks, 0 failures
+harness exit=0
