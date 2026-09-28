@@ -2005,6 +2005,155 @@ bool SignatureManager::addDocTimeStamp(const QString &inputPath, const QString &
 }
 
 // ---------------------------------------------------------------------------
+// INV-1 helpers: value equality across two parsed documents and the DSS-only
+// unsigned catalog update rule. Kept file-local: they exist only for
+// isLegitimateIncrementalAppend's shadow-attack scan.
+// ---------------------------------------------------------------------------
+
+// Recursive equality of two parsed PDF values that may come from DIFFERENT
+// documents. PdfObject::operator== cannot be used across documents (it
+// consults parent-document state first), so containers are compared
+// element-wise here. References are RESOLVED within their own document
+// before comparing: PoDoFo's SaveUpdate normalizes direct/indirect object
+// placement (e.g. it re-inlines the AcroForm dictionary into the catalog),
+// so a reference-vs-direct difference alone is not a content change — only
+// the resolved value must be identical.
+//
+// PDF object graphs are cyclic (page ↔ annotation /P, tree /Parent links).
+// `active` holds the (base, update) pairs of INDIRECT objects currently being
+// compared higher on the recursion path; re-encountering such a pair means the
+// two graphs continue identically from there — every reachable pair is still
+// compared exactly once by the in-progress traversal, so a real difference
+// inside the cycle is found, while identical cycles terminate instead of
+// exhausting the depth cap and failing every enclosing comparison.
+static bool inv1ValueEquals(const PoDoFo::PdfMemDocument& docA, const PoDoFo::PdfObject* a,
+                            const PoDoFo::PdfMemDocument& docB, const PoDoFo::PdfObject* b,
+                            int depth,
+                            std::set<std::pair<PoDoFo::PdfReference, PoDoFo::PdfReference>>& active)
+{
+    constexpr int kMaxDepth = 64; // pathological nesting — refuse to decide "equal"
+    if (depth > kMaxDepth) return false;
+    if (a == b) return true;
+    if (!a || !b) return false;
+
+    // Resolve each side in its own document; unresolvable references compare
+    // by (object number, generation).
+    const PoDoFo::PdfObject* ra = a;
+    const PoDoFo::PdfObject* rb = b;
+    if (a->IsReference() || b->IsReference()) {
+        if (a->IsReference())
+            ra = docA.GetObjects().GetObject(a->GetReference());
+        if (b->IsReference())
+            rb = docB.GetObjects().GetObject(b->GetReference());
+        if (!ra || !rb) {
+            return a->IsReference() && b->IsReference() &&
+                   a->GetReference() == b->GetReference();
+        }
+    }
+
+    // Cycle guard on the pair of indirect object identities.
+    std::pair<PoDoFo::PdfReference, PoDoFo::PdfReference> pairKey;
+    bool tracked = false;
+    {
+        const auto refA = ra->GetIndirectReference();
+        const auto refB = rb->GetIndirectReference();
+        if (refA.ObjectNumber() != 0 && refB.ObjectNumber() != 0) {
+            pairKey = {refA, refB};
+            if (active.count(pairKey)) return true; // same cycle pair — already in progress
+            active.insert(pairKey);
+            tracked = true;
+        }
+    }
+
+    bool equal = false;
+    if (ra->IsDictionary() && rb->IsDictionary()) {
+        const auto &da = ra->GetDictionary();
+        const auto &db = rb->GetDictionary();
+        equal = da.size() == db.size();
+        for (auto it = da.begin(); equal && it != da.end(); ++it) {
+            const PoDoFo::PdfObject* vb = db.FindKey(it->first);
+            equal = vb && inv1ValueEquals(docA, &it->second, docB, vb, depth + 1, active);
+        }
+        // Stream-bearing dictionaries (e.g. /Metadata XMP): identical keys are
+        // not enough — the payload must match too, or a re-pointed stream
+        // object with copied keys could smuggle changed content through.
+        if (equal && (ra->HasStream() || rb->HasStream())) {
+            equal = ra->HasStream() && rb->HasStream();
+            if (equal) {
+                const auto sa = ra->GetStream()->GetCopy(true);
+                const auto sb = rb->GetStream()->GetCopy(true);
+                equal = QByteArray::fromRawData(sa.data(), static_cast<qsizetype>(sa.size())) ==
+                        QByteArray::fromRawData(sb.data(), static_cast<qsizetype>(sb.size()));
+            }
+        }
+    } else if (ra->IsArray() && rb->IsArray()) {
+        const auto &aa = ra->GetArray();
+        const auto &ab = rb->GetArray();
+        equal = aa.size() == ab.size();
+        for (size_t i = 0; equal && i < aa.size(); ++i)
+            equal = inv1ValueEquals(docA, &aa[i], docB, &ab[i], depth + 1, active);
+    } else if (ra->HasStream() || rb->HasStream()) {
+        // Defensive: direct streams are illegal as dictionary values, but if
+        // one shows up the raw payload must match too, not just the keys.
+        if (!ra->HasStream() || !rb->HasStream()) {
+            equal = false;
+        } else {
+            const auto sa = ra->GetStream()->GetCopy(true);
+            const auto sb = rb->GetStream()->GetCopy(true);
+            equal = QByteArray::fromRawData(sa.data(), static_cast<qsizetype>(sa.size())) ==
+                    QByteArray::fromRawData(sb.data(), static_cast<qsizetype>(sb.size()));
+        }
+    } else {
+        equal = ra->GetVariant() == rb->GetVariant();
+    }
+
+    if (tracked) active.erase(pairKey);
+    return equal;
+}
+
+// INV-1: the ONLY legitimate unsigned catalog rewrite is the PAdES B-LT
+// long-term-validation update — adding (or refreshing, or dropping) /DSS and
+// nothing else. Every other key must survive unchanged with an equal value
+// (compared after resolving references, so PoDoFo's direct/indirect
+// normalization is not mistaken for a content change); no other key may be
+// added or removed. OpenAction / AA / Names / Pages rewrites are
+// direct-object expressible and must NOT pass the scan.
+static bool inv1CatalogUpdateAddsDssOnly(const PoDoFo::PdfMemDocument& baseDoc,
+                                         const PoDoFo::PdfMemDocument& fullDoc,
+                                         const PoDoFo::PdfObject& updatedCatalog,
+                                         QString& detail)
+{
+    const PoDoFo::PdfDictionary& base = baseDoc.GetCatalog().GetDictionary();
+    const PoDoFo::PdfDictionary& upd  = updatedCatalog.GetDictionary();
+
+    for (auto it = base.begin(); it != base.end(); ++it) {
+        const auto keySv = it->first.GetString();
+        const QString key = QString::fromLatin1(keySv.data(), static_cast<qsizetype>(keySv.size()));
+        if (key == QLatin1String("DSS")) continue; // /DSS is the one free key
+        const PoDoFo::PdfObject* updVal = upd.FindKey(it->first);
+        if (!updVal) {
+            detail = QStringLiteral("key /%1 removed").arg(key);
+            return false;
+        }
+        std::set<std::pair<PoDoFo::PdfReference, PoDoFo::PdfReference>> active;
+        if (!inv1ValueEquals(baseDoc, &it->second, fullDoc, updVal, 0, active)) {
+            detail = QStringLiteral("key /%1 changed").arg(key);
+            return false;
+        }
+    }
+    for (auto it = upd.begin(); it != upd.end(); ++it) {
+        const auto keySv = it->first.GetString();
+        const QString key = QString::fromLatin1(keySv.data(), static_cast<qsizetype>(keySv.size()));
+        if (key == QLatin1String("DSS")) continue;
+        if (!base.FindKey(it->first)) {
+            detail = QStringLiteral("key /%1 added").arg(key);
+            return false;
+        }
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
 bool SignatureManager::isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
                                                       const QByteArray& baseDocument,
                                                       QString& reason)
@@ -2099,7 +2248,19 @@ bool SignatureManager::isLegitimateIncrementalAppend(const QByteArray& trailingB
                     const auto* typeKey = obj->GetDictionary().FindKey(PoDoFo::PdfName("Type"));
                     if (typeKey && typeKey->IsName() &&
                         typeKey->GetName().GetString() == "Catalog") {
-                        continue; // Allowed to update Catalog for B-LT DSS inclusion
+                        // INV-1: the catalog allowlist is DSS-ONLY. The one
+                        // legitimate unsigned catalog rewrite is the PAdES
+                        // B-LT long-term-validation update (/DSS added and
+                        // nothing else). OpenAction / AA / Names / Pages
+                        // rewrites are direct-object expressible and used to
+                        // pass silently here, keeping trustStatus "Valid"
+                        // after an attacker-controlled unsigned revision.
+                        QString catDetail;
+                        if (inv1CatalogUpdateAddsDssOnly(baseDoc, doc, *obj, catDetail))
+                            continue; // Catalog rewrite is exactly the B-LT /DSS addition
+                        reason = QStringLiteral(
+                            "Shadow attack: unsigned catalog update beyond /DSS — %1").arg(catDetail);
+                        return false;
                     }
                 }
                 // Modified existing non-catalog object → suspicious content change.
