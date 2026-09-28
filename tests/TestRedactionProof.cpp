@@ -256,6 +256,100 @@ bool attachFileWithPayload(PoDoFo::PdfMemDocument& doc,
     }
 }
 
+// PGR-23 fixture — a minimal single-page PDF whose content stream is
+// FlateDecode-compressed, so a secret inside it is invisible to any literal
+// byte scan of the attachment payload (the nested-compressed-container class
+// the review report §5 pins). qCompress emits zlib with a 4-byte big-endian
+// uncompressed-size prefix; PDF /FlateDecode consumes raw zlib, so the prefix
+// is stripped. Byte-exact hand build (xref offsets computed) — the
+// makeMechanicsPdf pattern.
+QByteArray makeNestedFlatePdfBytes(const QByteArray& secretText)
+{
+    const QByteArray plain =
+        QByteArray("BT /F1 12 Tf 72 720 Td (") + secretText + ") Tj ET\n";
+    const QByteArray flate = qCompress(plain).mid(4);
+    const QByteArray objs[] = {
+        // 1: catalog
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        // 2: pages
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        // 3: page
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        "/Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+        // 4: font
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        // 5: Flate-compressed page content carrying the secret
+        "<< /Filter /FlateDecode /Length " + QByteArray::number(flate.size())
+            + " >>\nstream\n" + flate + "\nendstream",
+    };
+    QByteArray out = "%PDF-1.7\n";
+    QList<int> offsets;
+    for (int i = 0; i < 5; ++i) {
+        offsets.append(out.size());
+        out += QByteArray::number(i + 1) + " 0 obj\n" + objs[i] + "\nendobj\n";
+    }
+    const int xrefPos = out.size();
+    out += "xref\n0 6\n0000000000 65535 f \n";
+    for (int off : offsets)
+        out += QString("%1 00000 n \n").arg(off, 10, 10, QChar('0')).toLatin1();
+    out += "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" +
+           QByteArray::number(xrefPos) + "\n%%EOF\n";
+    return out;
+}
+
+// PGR-23 fixture — a ZIP archive whose single entry holds `secretText`
+// DEFLATE-compressed (the ZIP/OOXML attachment class the sweep cannot decode;
+// the review report §5 names it alongside nested PDFs). Local file header +
+// central directory + EOCD, structure-valid; the CRC-32 field is left zeroed —
+// the surface must refuse the CONTAINER, not parse the archive, so a correct
+// checksum would not change the contract under test.
+QByteArray makeZipAttachmentBytes(const QByteArray& secretText)
+{
+    const QByteArray deflated = qCompress(secretText).mid(4); // raw deflate
+    const QByteArray name = QByteArrayLiteral("secret.txt");
+    auto u16 = [](QByteArray& b, quint16 v) {
+        b.append(char(v & 0xFF)); b.append(char((v >> 8) & 0xFF));
+    };
+    auto u32 = [](QByteArray& b, quint32 v) {
+        for (int i = 0; i < 4; ++i) b.append(char((v >> (8 * i)) & 0xFF));
+    };
+    QByteArray zip;
+    zip += QByteArrayLiteral("PK\x03\x04"); // local file header
+    u16(zip, 20);                // version needed
+    u16(zip, 0);                 // flags
+    u16(zip, 8);                 // method 8 = deflate
+    u16(zip, 0); u16(zip, 0);    // mod time/date
+    u32(zip, 0);                 // crc-32 (fixture, see above)
+    u32(zip, quint32(deflated.size()));
+    u32(zip, quint32(secretText.size()));
+    u16(zip, quint16(name.size()));
+    u16(zip, 0);                 // extra length
+    zip += name;
+    zip += deflated;
+    const quint32 localOffset = quint32(zip.size());
+    zip += QByteArrayLiteral("PK\x01\x02"); // central directory
+    u16(zip, 20); u16(zip, 20);  // versions
+    u16(zip, 0); u16(zip, 8);    // flags, method
+    u16(zip, 0); u16(zip, 0);    // time/date
+    u32(zip, 0);                 // crc-32
+    u32(zip, quint32(deflated.size()));
+    u32(zip, quint32(secretText.size()));
+    u16(zip, quint16(name.size()));
+    u16(zip, 0); u16(zip, 0);    // extra, comment
+    u16(zip, 0); u16(zip, 0);    // disk, internal attrs
+    u32(zip, 0);                 // external attrs
+    u32(zip, localOffset);
+    zip += name;
+    const quint32 centralSize = quint32(zip.size()) - localOffset - 4;
+    zip += QByteArrayLiteral("PK\x05\x06"); // EOCD
+    u16(zip, 0); u16(zip, 0);    // disk numbers
+    u16(zip, 1); u16(zip, 1);    // entries
+    u32(zip, centralSize);
+    u32(zip, localOffset);
+    u16(zip, 0);                 // comment length
+    return zip;
+}
+
 // Tamper helpers — each produces a NEW file, leaving the committed output
 // untouched (tests compare verdicts across untampered and tampered copies).
 
@@ -1015,6 +1109,106 @@ private slots:
         QVERIFY2(joinedProofFailures(r).contains(QStringLiteral("embedded-files")),
                  qPrintable(QStringLiteral("failure must name the embedded-file surface: %1")
                                 .arg(joinedProofFailures(r))));
+    }
+
+    void proofFailsOnSecretInsideNestedCompressedAttachmentPdf()
+    {
+        // PGR-23 (review report §5): the attached payload is itself a PDF whose
+        // content stream is Flate-compressed — the redacted secret inside it is
+        // invisible to a literal scan of the (decoded) attachment payload. The
+        // sweep must recurse (parse + sweep decoded streams) and the verdict
+        // must NOT be PASS.
+        const QString src = m_tmpDir.filePath("nested_attach_src.pdf");
+        try {
+            PoDoFo::PdfMemDocument doc;
+            auto& font = doc.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(font, 12.0);
+            (painter.DrawText)("TopSecretAlpha bare secrets", 100.0, 700.0);
+            painter.FinishDrawing();
+            const QByteArray nested = makeNestedFlatePdfBytes(
+                QByteArrayLiteral("TopSecretAlpha bare secrets"));
+            // Fixture sanity: the secret must genuinely be compressed away in
+            // the payload — a literal scan must NOT see it (fail-first guard
+            // for this pin).
+            QVERIFY2(!nested.contains("TopSecretAlpha bare secrets"),
+                     "fixture is wrong: the secret is literal in the nested PDF");
+            QVERIFY(attachFileWithPayload(doc, "nested.pdf", nested));
+            doc.Save(src.toUtf8().constData());
+        } catch (const std::exception& e) {
+            QFAIL(qPrintable(QStringLiteral("nested-attachment fixture failed: %1").arg(e.what())));
+        }
+
+        const QString dest = m_tmpDir.filePath("nested_attach_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(!r.proofPassed,
+                 "a secret inside a nested Flate-compressed attachment PDF must "
+                 "NOT certify the proof PASS (PGR-23)");
+        QVERIFY2(joinedProofFailures(r).contains(QStringLiteral("embedded-files")),
+                 qPrintable(QStringLiteral("failure must name the embedded-file "
+                                          "surface: %1").arg(joinedProofFailures(r))));
+    }
+
+    void proofFailsOnUndecodableZipAttachment()
+    {
+        // PGR-23, second half: a ZIP/OOXML attachment is a container the sweep
+        // cannot decode — it must be reported Unswept, never Clean.
+        const QString src = m_tmpDir.filePath("zip_attach_src.pdf");
+        try {
+            PoDoFo::PdfMemDocument doc;
+            auto& font = doc.GetFonts().GetStandard14Font(
+                PoDoFo::PdfStandard14FontType::Helvetica);
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.TextState.SetFont(font, 12.0);
+            (painter.DrawText)("TopSecretAlpha bare secrets", 100.0, 700.0);
+            painter.FinishDrawing();
+            const QByteArray zip = makeZipAttachmentBytes(
+                QByteArrayLiteral("TopSecretAlpha bare secrets"));
+            // Fail-first guard: the deflated entry must hide the secret from a
+            // literal scan of the payload.
+            QVERIFY2(!zip.contains("TopSecretAlpha bare secrets"),
+                     "fixture is wrong: the secret is literal in the ZIP payload");
+            QVERIFY(attachFileWithPayload(doc, "dossier.zip", zip));
+            doc.Save(src.toUtf8().constData());
+        } catch (const std::exception& e) {
+            QFAIL(qPrintable(QStringLiteral("zip-attachment fixture failed: %1").arg(e.what())));
+        }
+
+        const QString dest = m_tmpDir.filePath("zip_attach_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(!r.proofPassed,
+                 "an attachment the sweep cannot decode (ZIP) must FAIL the "
+                 "proof as Unswept, never certify Clean (PGR-23)");
+        QVERIFY2(joinedProofFailures(r).contains(QStringLiteral("embedded-files")),
+                 qPrintable(QStringLiteral("failure must name the embedded-file "
+                                          "surface: %1").arg(joinedProofFailures(r))));
     }
 
     void proofFailsOnIncrementalUpdateRemnant()

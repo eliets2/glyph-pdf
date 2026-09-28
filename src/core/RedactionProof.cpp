@@ -341,6 +341,184 @@ SweepTargets buildTargets(const QStringList& derived, const QStringList& extra)
     return t;
 }
 
+// ── PGR-23: nested containers ──────────────────────────────────────────────
+//
+// One layer of stream decoding is not enough: an embedded file's payload can
+// itself be a container — an attached PDF whose own content streams are
+// Flate-compressed, a ZIP/OOXML archive, a gzip-wrapped blob. A literal scan
+// of the decoded payload sees none of that, so a secret could be certified
+// Clean from behind a compressed wall (review report §5). The sweep
+// therefore:
+//   * recurses into payloads that parse as PDFs — their decoded streams,
+//     string objects and THEIR embedded files are swept, with a depth cap;
+//   * refuses container formats it cannot decode (ZIP/OOXML, gzip, 7z, RAR,
+//     OLE compound, encrypted or unparseable PDFs) as Unswept — never Clean;
+//   * leaves plain payloads to the literal scan (complete for text).
+constexpr int kMaxNestedPdfDepth = 3;
+
+// ZIP (and its OOXML/ODF/JAR descendants), gzip, 7z, RAR, OLE compound file —
+// containers whose interiors the sweep cannot decode.
+bool hasContainerSignature(const QByteArray& b)
+{
+    static const QByteArray sigs[] = {
+        QByteArrayLiteral("PK\x03\x04"), QByteArrayLiteral("PK\x05\x06"),
+        QByteArrayLiteral("PK\x07\x08"), QByteArrayLiteral("\x1F\x8B"),
+        QByteArrayLiteral("7z\xBC\xAF\x27\x1C"), QByteArrayLiteral("Rar!\x1A\x07"),
+        QByteArrayLiteral("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
+    };
+    for (const QByteArray& s : sigs)
+        if (b.startsWith(s)) return true;
+    return false;
+}
+
+// The PDF magic may legally sit behind a small preamble; beyond ~1 KiB of
+// leading junk the bytes are not a PDF we can certify either way (the parse
+// attempt below still runs and fails honestly).
+bool looksLikePdf(const QByteArray& b)
+{
+    const int at = b.indexOf("%PDF-");
+    return at >= 0 && at < 1024;
+}
+
+struct NestedSweep {
+    QStringList survivors;
+    QStringList locations;
+    QStringList problems;   // non-empty ⇒ the nested surface is Unswept
+    int itemsScanned = 0;
+    int itemsRawOnly = 0;
+};
+
+// Decoded streams + string objects of one parsed nested PDF. Media streams
+// are raw-scanned (pixel data is not text — the host sweep's stated
+// limitation); a NON-media stream that cannot be decoded is a problem: the
+// sweep must not certify what it could not read.
+void sweepNestedStreams(PoDoFo::PdfMemDocument& doc,
+                        const SweepTargets& targets,
+                        const QString& path,
+                        NestedSweep* out)
+{
+    try {
+        auto& objects = doc.GetObjects();
+        for (auto* obj : objects) {
+            if (!obj) continue;
+            if (obj->HasStream()) {
+                PoDoFo::PdfObjectStream* stream = obj->GetStream();
+                if (!stream) continue;
+                ++out->itemsScanned;
+                const bool media = isImageStream(obj) || hasMediaFilter(obj);
+                QByteArray bytes;
+                bool scanned = false;
+                try {
+                    PoDoFo::charbuff buf;
+                    if (media)
+                        stream->CopyTo(buf, /*raw=*/true);
+                    else
+                        stream->CopyTo(buf);
+                    bytes = QByteArray(buf.data(), int(buf.size()));
+                    scanned = true;
+                } catch (const std::exception&) {
+                    scanned = false;
+                }
+                if (!scanned) {
+                    if (!media)
+                        out->problems.append(
+                            QStringLiteral("%1: a stream could not be decoded "
+                                           "— contents not swept").arg(path));
+                    continue;
+                }
+                if (media) ++out->itemsRawOnly;
+                for (int i = 0; i < targets.strings.size(); ++i) {
+                    if (containsAny(bytes, targets.needles[i])) {
+                        out->survivors.append(targets.strings[i]);
+                        out->locations.append(
+                            QStringLiteral("%1 > decoded stream").arg(path));
+                    }
+                }
+            } else {
+                QList<QByteArray> values;
+                collectStringBytes(obj, &values, 0);
+                for (const QByteArray& value : values) {
+                    ++out->itemsScanned;
+                    for (int i = 0; i < targets.strings.size(); ++i) {
+                        if (containsAny(value, targets.needles[i])) {
+                            out->survivors.append(targets.strings[i]);
+                            out->locations.append(
+                                QStringLiteral("%1 > string object").arg(path));
+                        }
+                    }
+                }
+            }
+        }
+    } catch (const std::exception& e) {
+        out->problems.append(QStringLiteral("%1: object table could not be walked: %2")
+                                 .arg(path, QString::fromLatin1(e.what())));
+    }
+}
+
+// One payload, one nesting level. `path` is the human-readable attachment
+// chain ("output: embedded file \"a.pdf\" > \"b.pdf\""); `depth` is the
+// recursion level into nested PDFs.
+void sweepNestedPayload(const QByteArray& payload,
+                        const SweepTargets& targets,
+                        const QString& path,
+                        int depth,
+                        NestedSweep* out)
+{
+    // 1) The literal scan always runs: uncompressed survivors are real
+    //    survivors at every nesting level.
+    for (int i = 0; i < targets.strings.size(); ++i) {
+        if (containsAny(payload, targets.needles[i])) {
+            out->survivors.append(targets.strings[i]);
+            out->locations.append(path);
+        }
+    }
+
+    // 2) Container dispatch.
+    if (!looksLikePdf(payload) && !hasContainerSignature(payload))
+        return; // plain payload — the literal scan above is the complete sweep
+
+    if (hasContainerSignature(payload)) {
+        out->problems.append(
+            QStringLiteral("%1: archive/OOXML container the sweep cannot decode "
+                           "— contents not swept").arg(path));
+        return;
+    }
+
+    // Nested PDF.
+    if (depth > kMaxNestedPdfDepth) {
+        out->problems.append(
+            QStringLiteral("%1: attachment nesting deeper than %2 PDFs — not swept")
+                .arg(path).arg(kMaxNestedPdfDepth));
+        return;
+    }
+    PoDoFo::PdfMemDocument inner;
+    try {
+        inner.LoadFromBuffer(
+            PoDoFo::bufferview(payload.constData(), size_t(payload.size())),
+            std::string());
+        // Force the lazy parse NOW: a truncated or encrypted payload must fail
+        // HERE, as an Unswept problem, not be mistaken for a swept one.
+        (void)inner.GetPages().GetCount();
+    } catch (const std::exception& e) {
+        out->problems.append(
+            QStringLiteral("%1: looks like a PDF but could not be parsed (%2) "
+                           "— contents not swept")
+                .arg(path, QString::fromLatin1(e.what())));
+        return;
+    }
+    sweepNestedStreams(inner, targets, path, out);
+
+    // 3) The nested document's own attachments — recursion with the cap.
+    QStringList nestedProblems;
+    const QList<EmbeddedPayload> innerFiles = embeddedFilePayloads(inner, &nestedProblems);
+    for (const QString& p : nestedProblems)
+        out->problems.append(QStringLiteral("%1 > %2").arg(path, p));
+    for (const EmbeddedPayload& p : innerFiles)
+        sweepNestedPayload(p.bytes, targets,
+                           QStringLiteral("%1 > embedded file \"%2\"").arg(path, p.name),
+                           depth + 1, out);
+}
+
 // One sweep pass over one document. Survivor/unswept findings land in
 // `reports`; fatal problems additionally land in `fatalProblems`. `role` names
 // the document in locations ("redacted output" / "sanitized copy").
@@ -432,6 +610,11 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
         SurfaceReport r;
         r.surface = Surface::DecodedStreams;
         QStringList unsweptStreams;
+        // PGR-23: for a NON-media stream, an encoded-form-only scan is not a
+        // sweep — the decoded text may hide behind an unknown filter (the
+        // same nested-compression class as the EmbeddedFiles surface). Media
+        // streams keep the raw-only quality limitation and its note.
+        QStringList rawOnlyNonMedia;
         try {
             auto& objects = doc.GetObjects();
             for (auto* obj : objects) {
@@ -484,7 +667,17 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
                             : QStringLiteral("a direct stream object"));
                     continue;
                 }
-                if (rawOnly) ++r.itemsRawOnly;
+                if (rawOnly) {
+                    ++r.itemsRawOnly;
+                    if (!media) {
+                        PoDoFo::PdfReference ref;
+                        rawOnlyNonMedia.append(
+                            obj->TryGetReference(ref)
+                                ? QStringLiteral("object %1 %2 R")
+                                      .arg(ref.ObjectNumber()).arg(ref.GenerationNumber())
+                                : QStringLiteral("a direct stream object"));
+                    }
+                }
                 for (int i = 0; i < targets.strings.size(); ++i) {
                     if (containsAny(bytes, targets.needles[i])) {
                         r.survivors.append(targets.strings[i]);
@@ -505,6 +698,14 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
                 r.verdict = SurfaceVerdict::Unswept;
                 r.problems.append(QStringLiteral("%1 stream(s) of the %2 could not be read: %3")
                     .arg(unsweptStreams.size()).arg(role, unsweptStreams.join(QStringLiteral(", "))));
+                *fatalProblems << r.problems;
+            } else if (!rawOnlyNonMedia.isEmpty()) {
+                r.verdict = SurfaceVerdict::Unswept;
+                r.problems.append(QStringLiteral(
+                    "%1 non-media stream(s) of the %2 could only be scanned in their "
+                    "encoded form (filters unknown or undecodable): %3")
+                    .arg(rawOnlyNonMedia.size()).arg(role,
+                        rawOnlyNonMedia.join(QStringLiteral(", "))));
                 *fatalProblems << r.problems;
             } else {
                 r.verdict = r.survivors.isEmpty() ? SurfaceVerdict::Clean : SurfaceVerdict::Survivor;
@@ -630,7 +831,10 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
         reports->append(r);
     }
 
-    // 7) EmbeddedFiles — decoded payloads.
+    // 7) EmbeddedFiles — decoded payloads, PGR-23 nested-container recursion:
+    //    payloads that parse as PDFs are opened and their decoded streams,
+    //    strings and own attachments swept (depth-capped); archives the sweep
+    //    cannot decode are reported Unswept, never Clean.
     {
         SurfaceReport r;
         r.surface = Surface::EmbeddedFiles;
@@ -638,13 +842,15 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
         const QList<EmbeddedPayload> payloads = embeddedFilePayloads(doc, &problems);
         r.itemsScanned = payloads.size();
         for (const EmbeddedPayload& p : payloads) {
-            for (int i = 0; i < targets.strings.size(); ++i) {
-                if (containsAny(p.bytes, targets.needles[i])) {
-                    r.survivors.append(targets.strings[i]);
-                    r.locations.append(QStringLiteral("%1: embedded file \"%2\"")
-                                           .arg(role, p.name));
-                }
-            }
+            NestedSweep nested;
+            sweepNestedPayload(p.bytes, targets,
+                               QStringLiteral("%1: embedded file \"%2\"").arg(role, p.name),
+                               0, &nested);
+            r.itemsScanned += nested.itemsScanned;
+            r.itemsRawOnly += nested.itemsRawOnly;
+            r.survivors.append(nested.survivors);
+            r.locations.append(nested.locations);
+            problems.append(nested.problems);
         }
         if (!problems.isEmpty()) {
             r.verdict = SurfaceVerdict::Unswept;
@@ -654,6 +860,13 @@ void sweepDocument(PoDoFo::PdfMemDocument& doc,
             r.verdict = r.itemsScanned == 0 ? SurfaceVerdict::Absent
                         : (r.survivors.isEmpty() ? SurfaceVerdict::Clean : SurfaceVerdict::Survivor);
         }
+        r.note = QStringLiteral(
+            "Attachment payloads are scanned literally; payloads that are "
+            "themselves PDFs are parsed and their decoded streams, string "
+            "objects and own attachments swept recursively (depth cap %1). "
+            "Containers the sweep cannot decode (ZIP/OOXML archives, unknown "
+            "filters, encrypted payloads) are reported Unswept — the proof "
+            "never certifies what it could not see into.").arg(kMaxNestedPdfDepth);
         reports->append(r);
     }
 
