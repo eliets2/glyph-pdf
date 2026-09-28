@@ -296,7 +296,15 @@ EditResult wrapImageInExtGState(const QByteArray &s, const QByteArray &name,
 
     QByteArray result = s;
     result.insert(toks[doIdx].end, "\nQ\n");
-    result.insert(toks[doIdx - 1].start, "q\n/" + gsName + " gs\n");
+    // The leading newline is load-bearing: a legal stream may put the name
+    // directly after a regular character ("5 5 cm/ImA Do Q" — '/' is a
+    // delimiter, so no whitespace is required). Without it the inserted "q"
+    // glues onto that character ("cmq" + "q" lexes as one foreign operator
+    // "cmqq"), the wrapper never opens, and the inserted Q breaks the q/Q
+    // balance — the wrapped output was corrupt and unlexable (found by the
+    // CX-15 sanitizer-gate mutation sweep; evidence in
+    // docs/audit/evidence-cx15/).
+    result.insert(toks[doIdx - 1].start, "\nq\n/" + gsName + " gs\n");
     *out = result;
     return EditResult::Changed;
 }

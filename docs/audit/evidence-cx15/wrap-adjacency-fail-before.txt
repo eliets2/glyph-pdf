@@ -1,0 +1,13 @@
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:225: outt.contains("\nq\n/GSop gs\n/ImA Do\nQ\n")
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:226: gp::content::wrapImageInExtGState(outt, "ImA", "GSop", &outt) == EditResult::Unchanged
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+FAIL tests/sanitizers/ContentSpansAdversarial.cpp:69: gp::content::lex(out, &toks)
+ContentSpansAdversarial: 278311 checks, 11 failures
+EXIT=1
