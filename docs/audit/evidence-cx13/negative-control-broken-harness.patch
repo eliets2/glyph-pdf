@@ -1,0 +1,16 @@
+diff --git a/fuzz/harnesses/redaction_driver.cpp b/fuzz/harnesses/redaction_driver.cpp
+index 43fec1d4..3ba847bf 100644
+--- a/fuzz/harnesses/redaction_driver.cpp
++++ b/fuzz/harnesses/redaction_driver.cpp
+@@ -106,7 +106,10 @@ static bool driveRedaction(const std::string& inPath, const std::string& outPath
+         std::fprintf(stderr, "[driver] loadDocumentForEditing failed: %s\n", inPath.c_str());
+         return false;
+     }
+-    bool ok = engine.applyRedactions(0, QList<QRectF>{rect});
++    // NEGATIVE CONTROL (CX-13, scratch — not committed): harness deliberately
++    // broken, redaction skipped, so every oracle must report LEAK and the
++    // gate must fail.
++    bool ok = true;
+     if (appliedOut) *appliedOut = ok;
+     if (!ok) std::fprintf(stderr, "[driver] applyRedactions returned false (saving anyway)\n");
+     bool saved = incremental

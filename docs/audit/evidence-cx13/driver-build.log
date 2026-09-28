@@ -1,0 +1,6 @@
+[1/2] compile driver object
+[2/2] link against built engine archives
+OK -> fuzz/bin/redaction_driver.exe
+[1/2] compile driver object
+[2/2] link against built engine archives
+OK -> fuzz/bin/redaction_driver.exe
