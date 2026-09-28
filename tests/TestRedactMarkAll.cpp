@@ -22,9 +22,12 @@
 #include "modes/RedactMode.h"
 #include "modes/RedactApplyDialog.h"
 #include "engines/RedactOperation.h" // SEP13 M8 lifetime pin: child-count observation
+#include "engines/PatternRedactor.h" // PGR-46: the match-rect producer (raw user space)
 #include "engines/PdfEditorEngine.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "core/AppContext.h"
+#include "core/PageSpaceTransform.h"
+#include "core/RedactionProof.h"
 #include "ui/PdfViewerWidget.h"
 
 // Windows headers (transitively included via the pdfium/OpenSSL headers) define
@@ -78,6 +81,18 @@ private slots:
     // D07 (review 2026-09-06): the shared default-ON sanitize policy
     // regression check (N10: declared as a slot so Qt Test runs it).
     void defaultSanitizePolicyIsSharedAndOn();
+    // PGR-46 (09-24 handoff §9): pattern "Mark All" places the marks through a
+    // naive display flip, so on rotated (/Rotate 90/270) or offset-origin
+    // pages the marks land AWAY from the matched text — the user reviews a
+    // clean-looking placement, Apply excises the wrong region and the secret
+    // survives (CRITICAL-class: silent redaction false success). Each probe
+    // pins the full chain: the placed marks must cover the PatternRedactor
+    // match (mapped back through the ONE shared page-space law at the excision
+    // boundary), and after Apply the extracted text must be gone with a
+    // PASSING proof verdict.
+    void markAllCoversMatchAndProofsOnRotate90Page();
+    void markAllCoversMatchAndProofsOnRotate270Page();
+    void markAllCoversMatchAndProofsOnOffsetOriginPage();
 private:
     static QString createPdfWithText(const QTemporaryDir& tmpDir,
                                      const QString& name, const QString& text);
@@ -797,6 +812,185 @@ void TestRedactMarkAll::defaultSanitizePolicyIsSharedAndOn() {
         QVERIFY2(chk->isChecked(),
                  "a caller-supplied default-ON plan must seed the checkbox ON");
     }
+
+// ── PGR-46: pattern "Mark All" on rotated / offset-origin pages ─────────────
+namespace {
+constexpr const char* kPgr46Secret = "Contact a@b.com today";
+constexpr const char* kPgr46Keeper = "KEEP_VISIBLE public line";
+
+// One-page fixture with an arbitrary page shape: /Rotate and a possibly
+// offset-origin MediaBox (PoDoFo's Rect is x, y, width, height). The secret
+// line is drawn at USER (drawX, drawY) — /Rotate never enters the content
+// stream — with a keeper line 50pt below it that must survive every Apply.
+QString createShapedPdf(const QTemporaryDir& tmpDir, const QString& name,
+                        int rotation, const PoDoFo::Rect& mediaBox,
+                        double drawX, double drawY) {
+    const QString path = tmpDir.filePath(name);
+    try {
+        PoDoFo::PdfMemDocument doc;
+        auto& page = doc.GetPages().CreatePage(mediaBox);
+        page.SetRotation(rotation);
+        auto& font = doc.GetFonts().GetStandard14Font(
+            PoDoFo::PdfStandard14FontType::Helvetica);
+        PoDoFo::PdfPainter painter;
+        painter.SetCanvas(page);
+        painter.TextState.SetFont(font, 12.0);
+        (painter.DrawText)(kPgr46Secret, drawX, drawY);
+        (painter.DrawText)(kPgr46Keeper, drawX, drawY - 50.0);
+        painter.FinishDrawing();
+        doc.Save(path.toUtf8().constData());
+    } catch (const std::exception& e) {
+        qWarning() << "createShapedPdf failed:" << e.what();
+        return {};
+    }
+    return path;
+}
+
+// The TRUE page geometry (raw MediaBox + /Rotate) via the one shared PoDoFo
+// accessor the excision/proof boundaries use (PageSpaceTransform.h W2B-1).
+gp::PageSpace::PageGeometry pageGeometryOf(const QString& pdf, int pageIndex) {
+    PoDoFo::PdfMemDocument doc;
+    doc.Load(pdf.toUtf8().constData());
+    return gp::PageSpace::pageGeometry(doc.GetPages().GetPageAt(pageIndex));
+}
+
+// The full PGR-46 chain for one page shape. Runs Mark All, asserts every
+// placed mark maps back onto the PatternRedactor match through the shared
+// viewer→user law (exactly what the excision consumes), then applies the
+// placed marks through the synchronous RedactOperation seam and requires the
+// secret gone (independent PDFium extraction) with a PASSING proof verdict
+// (the matched string supplied as the documented caller-side
+// extraSurvivorStrings seam, so the sweep cannot pass vacuously).
+void runPgr46Chain(const QString& pdf, const QTemporaryDir& tmp,
+                   const QString& outName, const char* label) {
+    gp::PageSpace::PageGeometry geo;
+    QList<QRectF> matches;
+    int redactCount = -1;
+    QList<QRectF> placedRects;
+    {
+        PdfViewerWidget viewer;
+        QVERIFY(viewer.loadDocument(pdf));
+        AppContext ctx;
+        gp::RedactMode mode;
+        mode.setAppContext(&ctx);
+        mode.setViewer(&viewer);
+
+        auto* combo = mode.findChild<QComboBox*>();
+        QVERIFY(combo);
+        combo->setCurrentIndex(0); // built-in Email pattern
+        QVERIFY(QMetaObject::invokeMethod(&mode, "onMarkAllOccurrences"));
+
+        geo = pageGeometryOf(pdf, 0);
+        matches = PatternRedactor::findMatches(
+            pdf, 0, PatternRedactor::namedPattern(QStringLiteral("email")));
+        QVERIFY2(matches.size() == 1,
+                 qPrintable(QStringLiteral("%1: expected exactly 1 match, got %2")
+                                .arg(label).arg(matches.size())));
+
+        // THE PIN: every placed mark, mapped back through the shared law at
+        // the excision boundary, must cover the matched glyphs.
+        redactCount = 0;
+        const auto annos = viewer.annotations();
+        for (const auto& a : annos) {
+            if (a.mode != ToolMode::Redact) continue;
+            ++redactCount;
+            placedRects.append(a.rect);
+            const QRectF user = gp::PageSpace::viewerToUser(a.rect, geo)
+                                    .normalized();
+            const QRectF coverage = user.adjusted(-1e-6, -1e-6, 1e-6, 1e-6);
+            QVERIFY2(coverage.contains(matches.first()),
+                     qPrintable(QStringLiteral("%1: mark at viewer (%2, %3, %4 x %5) "
+                                              "maps to user (%6, %7, %8 x %9) which does "
+                                              "not cover the match at (%10, %11, %12 x %13) "
+                                              "— the excision would miss the secret")
+                                    .arg(label)
+                                    .arg(a.rect.x()).arg(a.rect.y())
+                                    .arg(a.rect.width()).arg(a.rect.height())
+                                    .arg(user.x()).arg(user.y())
+                                    .arg(user.width()).arg(user.height())
+                                    .arg(matches.first().x())
+                                    .arg(matches.first().y())
+                                    .arg(matches.first().width())
+                                    .arg(matches.first().height())));
+        }
+        QVERIFY2(redactCount == 1,
+                 qPrintable(QStringLiteral("%1: expected exactly 1 mark, got %2")
+                                .arg(label).arg(redactCount)));
+    }
+
+    // Apply the placed marks through the synchronous transaction seam.
+    gp::RedactRequest req;
+    req.sourcePath = pdf;
+    req.destinationPath = tmp.filePath(outName);
+    req.redactionsByPage[0] = placedRects;
+    gp::RedactOperation op(req);
+    gp::RedactResult result;
+    QObject::connect(&op, &gp::RedactOperation::finished,
+                     [&result](const gp::RedactResult& r) { result = r; });
+    op.run();
+    QVERIFY2(result.outcome == gp::RedactOutcome::Completed,
+             qPrintable(QStringLiteral("%1: apply failed at %2: %3")
+                            .arg(label, result.failedStage, result.error)));
+
+    // The secret is gone and the keeper line survives (independent extractor).
+    const QString outText = pdfiumText(req.destinationPath, 0);
+    QVERIFY2(!outText.contains(QStringLiteral("a@b.com")),
+             qPrintable(QStringLiteral("%1: SECRET SURVIVED the apply: %2")
+                            .arg(label, outText)));
+    QVERIFY2(outText.contains(QLatin1String(kPgr46Keeper)),
+             qPrintable(QStringLiteral("%1: the keeper line was destroyed: %2")
+                            .arg(label, outText)));
+
+    // The proof verdict: with the pattern match supplied as the documented
+    // caller-side survivor-string seam, a surviving secret FAILS the proof.
+    gp::RedactionProof::Request proofReq;
+    proofReq.sourcePath = pdf;
+    proofReq.outputPath = req.destinationPath;
+    proofReq.redactionsByPage = req.redactionsByPage;
+    proofReq.extraSurvivorStrings.append(QStringLiteral("a@b.com"));
+    const gp::RedactionProof::Result proof = gp::RedactionProof::verify(proofReq);
+    QVERIFY2(proof.proofRan,
+             qPrintable(QStringLiteral("%1: proof did not run: %2")
+                            .arg(label, proof.error)));
+    QVERIFY2(proof.proofPassed,
+             qPrintable(QStringLiteral("%1: PROOF FAILED: %2")
+                            .arg(label, proof.failureReasons.join(
+                                             QStringLiteral("; ")))));
+}
+} // namespace
+
+// /Rotate 90: the naive display flip ignores the axis swap, so the mark lands
+// transposed (fail-before: off-page / away from the matched text).
+void TestRedactMarkAll::markAllCoversMatchAndProofsOnRotate90Page() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createShapedPdf(tmp, QStringLiteral("rot90.pdf"), 90,
+                                        PoDoFo::Rect(0, 0, 595, 842), 50.0, 700.0);
+    QVERIFY2(!pdf.isEmpty(), "rot90 fixture failed");
+    runPgr46Chain(pdf, tmp, QStringLiteral("rot90_redacted.pdf"), "rot90");
+}
+
+// /Rotate 270: same class of failure, opposite transposition.
+void TestRedactMarkAll::markAllCoversMatchAndProofsOnRotate270Page() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createShapedPdf(tmp, QStringLiteral("rot270.pdf"), 270,
+                                        PoDoFo::Rect(0, 0, 595, 842), 50.0, 700.0);
+    QVERIFY2(!pdf.isEmpty(), "rot270 fixture failed");
+    runPgr46Chain(pdf, tmp, QStringLiteral("rot270_redacted.pdf"), "rot270");
+}
+
+// Offset-origin MediaBox [100 50 695 892]: the naive flip drops the MediaBox
+// lower-left origin, so the mark is shifted by exactly the origin.
+void TestRedactMarkAll::markAllCoversMatchAndProofsOnOffsetOriginPage() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createShapedPdf(tmp, QStringLiteral("offset.pdf"), 0,
+                                        PoDoFo::Rect(100, 50, 595, 842),
+                                        150.0, 750.0);
+    QVERIFY2(!pdf.isEmpty(), "offset-origin fixture failed");
+    runPgr46Chain(pdf, tmp, QStringLiteral("offset_redacted.pdf"), "offset");
+}
 
 QTEST_MAIN(TestRedactMarkAll)
 #include "TestRedactMarkAll.moc"
