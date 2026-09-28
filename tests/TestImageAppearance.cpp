@@ -25,6 +25,7 @@
 #include "engines/PdfEditorEngine.h"
 #include "engines/DocumentSession.h"
 #include "commands/ImageAppearanceCommand.h"
+#include "commands/MoveImageCommand.h"
 #include "commands/RotateImageCommand.h"
 #include "commands/CheckedHistory.h"
 
@@ -117,6 +118,58 @@ bool isBlue(const QColor &c) { return c.blue() > 150 && c.red() < 80; }
 const QPointF kOverlap(225, 525);   // inside both images
 const QPointF kOnlyA(120, 420);     // ImA only
 
+// Rendered page 0 at 1 px = 1 pt (A4), for whole-image comparisons.
+QImage renderPage(const QString &path)
+{
+    QPdfDocument pdf;
+    if (pdf.load(path) != QPdfDocument::Error::None) return {};
+    return pdf.render(0, QSize(595, 842));
+}
+
+// The six numbers of the image's own cm — the bytes move/resize/rotate
+// actually rewrite — read back from the page content with the gp::content
+// lexer, under the same rule replaceImageMatrix uses (the last cm at the Do's
+// own depth, inside its own q..Q block). Empty when the placement sets no cm.
+QList<double> localCmNumbers(const QString &path, const QByteArray &name)
+{
+    const QByteArray content = pageContent(path);
+    QList<gp::content::Token> toks;
+    if (!gp::content::lex(content, &toks)) return {};
+    int doIdx = -1;
+    for (int i = 1; i < toks.size(); ++i) {
+        if (toks[i].kind == gp::content::Token::Kind::Operator && toks[i].text == "Do"
+            && toks[i - 1].kind == gp::content::Token::Kind::Name
+            && toks[i - 1].text == name) { doIdx = i; break; }
+    }
+    if (doIdx < 0) return {};
+    int closed = 0;   // Q..q pairs between the Do and the current token
+    for (int i = doIdx - 1; i >= 0; --i) {
+        const auto &t = toks[i];
+        if (t.kind != gp::content::Token::Kind::Operator) continue;
+        if (t.text == "Q") { ++closed; continue; }
+        if (t.text == "q") {
+            if (closed > 0) { --closed; continue; }
+            break;      // the Do's own block opens here: no cm of its own
+        }
+        if (t.text != "cm" || closed > 0 || t.depth != toks[doIdx].depth) continue;
+        QList<double> v;
+        for (int k = i - 6; k < i; ++k) {
+            if (k < 0 || toks[k].kind != gp::content::Token::Kind::Number) return {};
+            bool ok = false;
+            v.append(content.mid(toks[k].start, toks[k].end - toks[k].start)
+                         .toDouble(&ok));
+            if (!ok) return {};
+        }
+        return v;
+    }
+    return {};
+}
+
+bool closeTo(double a, double b, double eps = 1e-6)
+{
+    return qAbs(a - b) < eps;
+}
+
 } // namespace
 
 class TestImageAppearance : public QObject {
@@ -143,6 +196,14 @@ private slots:
     void moveResizeRotateReachTheRealImage();
     void listImagesReportsThePlacementMatrix();
     void matrixRewriteKeepsTheBlockBalanced();
+
+    // ── Part 3: CX-02 — edits under outer transforms keep the full matrix ──
+    void moveUnderOuterScaleDoesNotDouble();
+    void movePlusUndoRestoresAllSixCoefficients();
+    void zeroMoveKeepsSkewAndReflectionPixelIdentical();
+    void moveKeepsAPreRotatedPlacement();
+    void resizeUnderOuterScaleSetsTheExactSize();
+    void rotateUnderOuterScaleKeepsTheDrawnRect();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -478,6 +539,184 @@ void TestImageAppearance::matrixRewriteKeepsTheBlockBalanced()
              EditResult::NotIsolated);                           // no block of its own
     QCOMPARE(gp::content::replaceImageMatrix("q /ImA Do Q\n", "ImA", "1 0 0 1 0 0", &out),
              EditResult::NotIsolated);                           // block sets no cm
+}
+
+// ── Part 3: CX-02 — the edit family must keep the full six-coefficient
+// matrix ────────────────────────────────────────────────────────────────────
+// move/resize/rotate used to rebuild the image's local cm from the page-space
+// rect, so any enclosing cm was applied twice (Codex's nested-scale probe:
+// move +10 turned (20,40,200,200) into (60,80,400,400) and the inverse move
+// made it worse again), and the (w, h, rotation) breakdown dropped skew and
+// reflection. The fix: listImages reports the full effective matrix and the
+// base CTM before the image's own cm; the new local cm is desired × base⁻¹.
+
+// Codex's probe, verbatim: an outer 2× scale around the image's own cm.
+void TestImageAppearance::moveUnderOuterScaleDoesNotDouble()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "nested.pdf",
+        "q 2 0 0 2 0 0 cm q 100 0 0 100 10 20 cm /ImA Do Q Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    auto imageA = [&]() {
+        for (const auto &img : engine.listImages(0))
+            if (img.xobjectName == QLatin1String("ImA")) return img;
+        return PdfImageInfo{};
+    };
+    QVERIFY(!imageA().xobjectName.isEmpty());
+    QCOMPARE(imageA().placement, QRectF(20, 40, 200, 200));
+
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), 10, 0));
+    QVERIFY2(imageA().placement == QRectF(30, 40, 200, 200),
+             qPrintable(QStringLiteral("move +10 under a 2x outer scale gave %1 %2 %3x%4")
+                            .arg(imageA().placement.x())
+                            .arg(imageA().placement.y())
+                            .arg(imageA().placement.width())
+                            .arg(imageA().placement.height())));
+    QVERIFY(isRed(pixelAt(f, 35, 45)));     // on disk: 30..230 x 40..240
+
+    // The inverse move (what MoveImageCommand's undo does) must restore the
+    // original placement exactly — not compound the error again.
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), -10, 0));
+    QCOMPARE(imageA().placement, QRectF(20, 40, 200, 200));
+}
+
+// Move plus undo restores all six coefficients of the placement matrix.
+void TestImageAppearance::movePlusUndoRestoresAllSixCoefficients()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "undomatrix.pdf",
+        "q 2 0 0 2 0 0 cm q 100 0 0 100 10 20 cm /ImA Do Q Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    DocumentSession doc;
+    doc.beginDocument(f);
+    QUndoStack stack;
+
+    stack.push(new MoveImageCommand(&engine, &doc, 0, QStringLiteral("ImA"), 25, -15));
+    QCOMPARE(stack.count(), 1);
+    QVERIFY(CheckedHistory::undo(&stack));
+
+    const QList<double> local = localCmNumbers(f, "ImA");
+    QCOMPARE(local.size(), 6);
+    const double expected[6] = { 100, 0, 0, 100, 10, 20 };
+    for (int k = 0; k < 6; ++k)
+        QVERIFY2(closeTo(local[k], expected[k]),
+                 qPrintable(QStringLiteral("local cm coefficient %1: %2 != %3")
+                                .arg(k).arg(local[k]).arg(expected[k])));
+    // And the effective placement is the original one again.
+    PdfEditorEngine reload;
+    QVERIFY(reload.loadDocumentForEditing(f));
+    for (const auto &img : reload.listImages(0))
+        if (img.xobjectName == QLatin1String("ImA"))
+            QCOMPARE(img.placement, QRectF(20, 40, 200, 200));
+}
+
+// A zero-distance move on a skewed, reflected placement must be pixel-
+// identical and change no coefficient beyond 1e-6 — the old (w, h, rotation)
+// rebuild destroyed both the skew and the reflection.
+void TestImageAppearance::zeroMoveKeepsSkewAndReflectionPixelIdentical()
+{
+    QTemporaryDir dir;
+    // Skew (b = 20) and vertical reflection (d < 0) under an outer anisotropic
+    // scale — six distinct coefficients, none axis-aligned.
+    const QString f = makeTwoImagePdf(dir.path(), "skewflip.pdf",
+        "q 1.5 0 0 0.5 0 0 cm q 80 20 0 -100 30 200 cm /ImA Do Q Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    const QImage before = renderPage(f);
+    QVERIFY(!before.isNull());
+
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), 0, 0));
+
+    const QList<double> local = localCmNumbers(f, "ImA");
+    QCOMPARE(local.size(), 6);
+    const double expected[6] = { 80, 20, 0, -100, 30, 200 };
+    for (int k = 0; k < 6; ++k)
+        QVERIFY2(closeTo(local[k], expected[k]),
+                 qPrintable(QStringLiteral("local cm coefficient %1: %2 != %3")
+                                .arg(k).arg(local[k]).arg(expected[k])));
+    QCOMPARE(renderPage(f), before);        // pixel-identical
+}
+
+// An image placed pre-rotated (30 degrees) under an outer scale: a move must
+// shift the position by exactly (dx, dy) and keep the rotation.
+void TestImageAppearance::moveKeepsAPreRotatedPlacement()
+{
+    QTemporaryDir dir;
+    // 100-unit axes rotated 30 degrees, under a 2x outer scale.
+    const QString f = makeTwoImagePdf(dir.path(), "prerotated.pdf",
+        "q 2 0 0 2 0 0 cm q 86.60254037844387 50 -50 86.60254037844387 10 20 cm"
+        " /ImA Do Q Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+    auto imageA = [&]() {
+        for (const auto &img : engine.listImages(0))
+            if (img.xobjectName == QLatin1String("ImA")) return img;
+        return PdfImageInfo{};
+    };
+    QVERIFY(closeTo(imageA().rotation, 30.0));
+    QVERIFY(closeTo(imageA().placement.width(), 200.0));
+
+    QVERIFY(engine.moveImage(0, QStringLiteral("ImA"), 10, 0));
+    QVERIFY2(closeTo(imageA().placement.x(), 30.0)
+                 && closeTo(imageA().placement.y(), 40.0),
+             qPrintable(QStringLiteral("position %1,%2 after +10,0")
+                            .arg(imageA().placement.x()).arg(imageA().placement.y())));
+    QVERIFY2(closeTo(imageA().placement.width(), 200.0, 1e-5)
+                 && closeTo(imageA().placement.height(), 200.0, 1e-5),
+             "the outer scale must not be applied a second time");
+    QVERIFY(closeTo(imageA().rotation, 30.0, 1e-5));
+}
+
+// A resize under an outer scale must set the REPORTED size exactly — the old
+// code resized the local cm and let the outer scale double it.
+void TestImageAppearance::resizeUnderOuterScaleSetsTheExactSize()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "resize.pdf",
+        "q 2 0 0 2 0 0 cm q 100 0 0 100 10 20 cm /ImA Do Q Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    QVERIFY(engine.resizeImage(0, QStringLiteral("ImA"), 100, 50));
+    bool found = false;
+    for (const auto &img : engine.listImages(0)) {
+        if (img.xobjectName != QLatin1String("ImA")) continue;
+        found = true;
+        QVERIFY2(img.placement == QRectF(20, 40, 100, 50),
+                 qPrintable(QStringLiteral("resized to %1 %2 %3x%4")
+                                .arg(img.placement.x()).arg(img.placement.y())
+                                .arg(img.placement.width()).arg(img.placement.height())));
+    }
+    QVERIFY(found);
+    QVERIFY(isRed(pixelAt(f, 25, 45)));     // 20..120 x 40..90 on disk
+    QVERIFY(!isRed(pixelAt(f, 125, 45)));
+}
+
+// A rotation under an outer scale must turn the image about its own centre —
+// the drawn square keeps its rect (20,40)-(220,240).
+void TestImageAppearance::rotateUnderOuterScaleKeepsTheDrawnRect()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(dir.path(), "rotate.pdf",
+        "q 2 0 0 2 0 0 cm q 100 0 0 100 10 20 cm /ImA Do Q Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    QVERIFY(engine.rotateImage(0, QStringLiteral("ImA"), 90));
+    bool found = false;
+    for (const auto &img : engine.listImages(0)) {
+        if (img.xobjectName != QLatin1String("ImA")) continue;
+        found = true;
+        QVERIFY(closeTo(img.rotation, 90.0, 1e-5));
+    }
+    QVERIFY(found);
+    // The square still covers exactly 20..220 x 40..240 on disk.
+    QVERIFY(isRed(pixelAt(f, 25, 45)));
+    QVERIFY(isRed(pixelAt(f, 215, 45)));
+    QVERIFY(isRed(pixelAt(f, 120, 140)));   // the centre stays put
+    QVERIFY(!isRed(pixelAt(f, 410, 470)));  // the doubled image must not appear
 }
 
 QTEST_MAIN(TestImageAppearance)

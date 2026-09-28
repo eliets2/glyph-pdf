@@ -1,0 +1,31 @@
+********* Start testing of TestImageAppearance *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestImageAppearance::initTestCase()
+PASS   : TestImageAppearance::lexerSkipsStringsCommentsAndInlineImages()
+PASS   : TestImageAppearance::lexerRejectsUnbalancedOrUnterminatedContent()
+PASS   : TestImageAppearance::restackMovesOnlyTheImageBlock()
+PASS   : TestImageAppearance::restackWithinTheParentBlock()
+PASS   : TestImageAppearance::restackRefusesWhenTheImageWouldChange()
+PASS   : TestImageAppearance::restackIsUnchangedWhenAlreadyInPlace()
+PASS   : TestImageAppearance::wrapIsInsertedOnceAndRecognised()
+PASS   : TestImageAppearance::escapedNamesMatch()
+PASS   : TestImageAppearance::bringToFrontChangesTheVisibleImageAndPersists()
+PASS   : TestImageAppearance::sendToBackChangesTheVisibleImage()
+QWARN  : TestImageAppearance::refusedRestackLeavesTheFileUntouched() setImageZOrder refused for "ImA" on page 1 - the image shares its graphics state with other content
+PASS   : TestImageAppearance::refusedRestackLeavesTheFileUntouched()
+PASS   : TestImageAppearance::opacityBlendsAndUpdatesInPlace()
+PASS   : TestImageAppearance::opacityOnInheritedResourcesKeepsImagesVisible()
+PASS   : TestImageAppearance::commandUndoRestoresTheStacking()
+PASS   : TestImageAppearance::customAngleRotationUndoesExactly()
+PASS   : TestImageAppearance::moveResizeRotateReachTheRealImage()
+PASS   : TestImageAppearance::listImagesReportsThePlacementMatrix()
+PASS   : TestImageAppearance::matrixRewriteKeepsTheBlockBalanced()
+PASS   : TestImageAppearance::moveUnderOuterScaleDoesNotDouble()
+PASS   : TestImageAppearance::movePlusUndoRestoresAllSixCoefficients()
+PASS   : TestImageAppearance::zeroMoveKeepsSkewAndReflectionPixelIdentical()
+PASS   : TestImageAppearance::moveKeepsAPreRotatedPlacement()
+PASS   : TestImageAppearance::resizeUnderOuterScaleSetsTheExactSize()
+PASS   : TestImageAppearance::rotateUnderOuterScaleKeepsTheDrawnRect()
+PASS   : TestImageAppearance::cleanupTestCase()
+Totals: 26 passed, 0 failed, 0 skipped, 0 blacklisted, 351ms
+********* Finished testing of TestImageAppearance *********

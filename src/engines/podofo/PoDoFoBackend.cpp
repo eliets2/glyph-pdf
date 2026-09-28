@@ -4045,6 +4045,54 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
 
 namespace {
 
+// CX-02: the image-edit family works on the FULL six-coefficient placement
+// matrix, never a (w, h, rotation) breakdown — a breakdown drops skew and
+// reflection, and rebuilding a local cm from the page-space rect makes every
+// enclosing transform apply twice.
+struct Mat6 { double a, b, c, d, e, f; };
+
+// Composition in stream order: comp(m1, m2) applies m1 to the point first,
+// then m2 (m1 is the inner/local transform, m2 the enclosing one). This is the
+// multiply() rule the listImages walk already uses.
+Mat6 matMultiply(const Mat6 &m1, const Mat6 &m2)
+{
+    return {
+        m1.a*m2.a + m1.b*m2.c,
+        m1.a*m2.b + m1.b*m2.d,
+        m1.c*m2.a + m1.d*m2.c,
+        m1.c*m2.b + m1.d*m2.d,
+        m1.e*m2.a + m1.f*m2.c + m2.e,
+        m1.e*m2.b + m1.f*m2.d + m2.f
+    };
+}
+
+bool matInvert(const Mat6 &m, Mat6 *out)
+{
+    const double det = m.a * m.d - m.b * m.c;
+    if (!std::isfinite(det) || det == 0.0) return false;
+    const double ia = m.d / det, ib = -m.b / det, ic = -m.c / det, id = m.a / det;
+    out->a = ia; out->b = ib; out->c = ic; out->d = id;
+    out->e = -(ia * m.e + ic * m.f);
+    out->f = -(ib * m.e + id * m.f);
+    return true;
+}
+
+Mat6 matFromInfo(const double *m) { return { m[0], m[1], m[2], m[3], m[4], m[5] }; }
+
+// CX-02: the local cm that produces `desired` (page space) under the base CTM
+// `base`: comp(local, base) == desired  ⇒  local == comp(desired, base⁻¹).
+// Fails when the base is singular — no compensating local cm exists.
+bool localMatrixFor(const PdfImageInfo &target, const Mat6 &desired, Mat6 *local)
+{
+    if (!target.hasLocalMatrix) return false;
+    Mat6 baseInv;
+    if (!matInvert(matFromInfo(target.baseMatrix), &baseInv)) return false;
+    *local = matMultiply(desired, baseInv);
+    for (double v : { local->a, local->b, local->c, local->d, local->e, local->f })
+        if (!std::isfinite(v)) return false;
+    return true;
+}
+
 QByteArray pageContentBytes(PoDoFo::PdfPage &page)
 {
     auto *contents = page.GetContents();
@@ -4176,6 +4224,15 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
         Matrix ctm = {1,0,0,1,0,0};
         QList<Matrix> matrixStack;
 
+        // CX-02: every cm is recorded with the CTM in force just before it
+        // (its base) and its own q-nesting depth; a Q retires the cms inside
+        // the block it closes. The last live cm at the Do's own depth is the
+        // image's own local cm — the same one gp::content::replaceImageMatrix
+        // rewrites — and its base is what edits divide the desired result by.
+        struct CmRecord { int depth; Matrix base; };
+        QList<CmRecord> liveCms;
+        int qDepth = 0;
+
         auto multiply = [](const Matrix& m1, const Matrix& m2) -> Matrix {
             return {
                 m1.a*m2.a + m1.b*m2.c,
@@ -4218,12 +4275,30 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                         info.rotation = rot;
                         info.widthPx = entry.w;
                         info.heightPx = entry.h;
+                        // CX-02: the full effective matrix, plus the base CTM
+                        // in force just before the image's own last cm.
+                        const double eff[6] = { ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f };
+                        for (int k = 0; k < 6; ++k) info.matrix[k] = eff[k];
+                        for (int i = liveCms.size() - 1; i >= 0; --i) {
+                            if (liveCms[i].depth != qDepth) continue;
+                            const Matrix &base = liveCms[i].base;
+                            const double bs[6] = { base.a, base.b, base.c, base.d, base.e, base.f };
+                            for (int k = 0; k < 6; ++k) info.baseMatrix[k] = bs[k];
+                            info.hasLocalMatrix = true;
+                            Mat6 scratch;
+                            info.baseInvertible = matInvert(matFromInfo(bs), &scratch);
+                            break;
+                        }
                         result.append(info);
                     }
                 } else if (kw == "q") {
                     matrixStack.append(ctm);
+                    ++qDepth;
                 } else if (kw == "Q" && !matrixStack.isEmpty()) {
                     ctm = matrixStack.takeLast();
+                    --qDepth;
+                    for (int i = liveCms.size() - 1; i >= 0; --i)
+                        if (liveCms[i].depth > qDepth) liveCms.removeAt(i);
                 } else if (kw == "cm" && stack.size() >= 6) {
                     // PdfVariantStack indexes from the TOP: stack[0] is the
                     // LAST operand (f) and stack[5] the first (a) — the
@@ -4238,6 +4313,7 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                     cm.d = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
                     cm.e = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
                     cm.f = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
+                    liveCms.append({qDepth, ctm});
                     ctm = multiply(cm, ctm);
                 }
             }
@@ -4254,23 +4330,34 @@ bool PoDoFoBackend::moveImage(int pageIndex, const QString &xobjectName, double 
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
-        
+
         PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, this);
         if (!target) return false;
-        
-        double radians = target->rotation * M_PI / 180.0;
-        double w = target->placement.width();
-        double h = target->placement.height();
-        double newE = target->placement.x() + dx;
-        double newF = target->placement.y() + dy;
-        double cosR = std::cos(radians), sinR = std::sin(radians);
-        
+
+        // CX-02: translate the FULL effective matrix, then solve the new local
+        // cm as desired × base⁻¹. Rebuilding the local cm from the page-space
+        // rect made every enclosing cm apply twice (a 2x-outer-scale move +10
+        // gave (60,80,400,400) instead of (30,40,200,200)).
+        if (!target->hasLocalMatrix) {
+            qWarning() << "moveImage refused:" << xobjectName
+                       << "- the placement sets no cm of its own";
+            return false;
+        }
+        Mat6 desired = matFromInfo(target->matrix);
+        if (!std::isfinite(dx) || !std::isfinite(dy)) return false;
+        desired.e += dx;
+        desired.f += dy;
+        Mat6 local;
+        if (!localMatrixFor(*target, desired, &local)) {
+            qWarning() << "moveImage refused:" << xobjectName
+                       << "- the enclosing CTM is singular or has no local cm";
+            return false;
+        }
+
         bool ok = rewriteImageMatrix(page,
             xobjectName.toStdString(),
-            w * cosR, w * sinR,
-            -h * sinR, h * cosR,
-            newE, newF);
-        
+            local.a, local.b, local.c, local.d, local.e, local.f);
+
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
@@ -4285,19 +4372,43 @@ bool PoDoFoBackend::resizeImage(int pageIndex, const QString &xobjectName, doubl
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
-        
+
         PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, this);
         if (!target) return false;
-        
-        double radians = target->rotation * M_PI / 180.0;
-        double cosR = std::cos(radians), sinR = std::sin(radians);
-        
+
+        // CX-02: scale the two image axes of the FULL effective matrix to the
+        // requested lengths — the columns keep their direction, so rotation,
+        // skew and reflection all survive — then solve the new local cm as
+        // desired × base⁻¹ (the old rebuild let an outer scale double the
+        // resize: 100x50 under a 2x scale came out 200x100).
+        if (!target->hasLocalMatrix) {
+            qWarning() << "resizeImage refused:" << xobjectName
+                       << "- the placement sets no cm of its own";
+            return false;
+        }
+        Mat6 desired = matFromInfo(target->matrix);
+        if (!std::isfinite(newWidth) || !std::isfinite(newHeight)) return false;
+        const double w = std::sqrt(desired.a * desired.a + desired.b * desired.b);
+        const double h = std::sqrt(desired.c * desired.c + desired.d * desired.d);
+        if (!std::isfinite(w) || !std::isfinite(h) || w <= 0.0 || h <= 0.0) {
+            qWarning() << "resizeImage refused:" << xobjectName
+                       << "- the placement is degenerate";
+            return false;
+        }
+        const double sx = newWidth / w, sy = newHeight / h;
+        desired.a *= sx; desired.b *= sx;
+        desired.c *= sy; desired.d *= sy;
+        Mat6 local;
+        if (!localMatrixFor(*target, desired, &local)) {
+            qWarning() << "resizeImage refused:" << xobjectName
+                       << "- the enclosing CTM is singular or has no local cm";
+            return false;
+        }
+
         bool ok = rewriteImageMatrix(page,
             xobjectName.toStdString(),
-            newWidth * cosR, newWidth * sinR,
-            -newHeight * sinR, newHeight * cosR,
-            target->placement.x(), target->placement.y());
-        
+            local.a, local.b, local.c, local.d, local.e, local.f);
+
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
@@ -4312,31 +4423,44 @@ bool PoDoFoBackend::rotateImage(int pageIndex, const QString &xobjectName, doubl
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
-        
+
         PdfImageInfo* target = d->findImageByName(pageIndex, xobjectName, this);
         if (!target) return false;
-        
-        double newRot = (target->rotation + degrees) * M_PI / 180.0;
-        double w = target->placement.width();
-        double h = target->placement.height();
-        double cosR = std::cos(newRot), sinR = std::sin(newRot);
-        
-        // Rotate about the image's TRUE centre: origin + (a + c, b + d) / 2 of
-        // the current matrix. The height terms were missing (the "centre" was
-        // the midpoint of the image's first edge), so every rotation also
-        // shifted the image and rotate + undo did not return it to place.
-        const double oldRot = target->rotation * M_PI / 180.0;
-        double cx = target->placement.x() + (w * std::cos(oldRot) - h * std::sin(oldRot)) / 2.0;
-        double cy = target->placement.y() + (w * std::sin(oldRot) + h * std::cos(oldRot)) / 2.0;
-        double newE = cx - (w * cosR + h * (-sinR)) / 2.0;
-        double newF = cy - (w * sinR + h * cosR) / 2.0;
-        
+
+        // CX-02: rotate the FULL effective matrix about the image's true
+        // centre — the image of the unit-square centre, which a skewed or
+        // reflected placement also has — then solve the new local cm as
+        // desired × base⁻¹. The old (w, h, rotation) rebuild dropped skew and
+        // reflection and re-applied any enclosing transform.
+        if (!target->hasLocalMatrix) {
+            qWarning() << "rotateImage refused:" << xobjectName
+                       << "- the placement sets no cm of its own";
+            return false;
+        }
+        const Mat6 current = matFromInfo(target->matrix);
+        const double cx = 0.5 * current.a + 0.5 * current.c + current.e;
+        const double cy = 0.5 * current.b + 0.5 * current.d + current.f;
+        if (!std::isfinite(degrees)) return false;
+        const double radians = degrees * M_PI / 180.0;
+        const double cosR = std::cos(radians), sinR = std::sin(radians);
+        if (!std::isfinite(cosR) || !std::isfinite(sinR)) return false;
+        // R_c: rotate by `degrees` about (cx, cy) in page space.
+        Mat6 rot;
+        rot.a = cosR; rot.b = sinR; rot.c = -sinR; rot.d = cosR;
+        rot.e = cx - (cosR * cx - sinR * cy);
+        rot.f = cy - (sinR * cx + cosR * cy);
+        const Mat6 desired = matMultiply(current, rot);
+        Mat6 local;
+        if (!localMatrixFor(*target, desired, &local)) {
+            qWarning() << "rotateImage refused:" << xobjectName
+                       << "- the enclosing CTM is singular or has no local cm";
+            return false;
+        }
+
         bool ok = rewriteImageMatrix(page,
             xobjectName.toStdString(),
-            w * cosR, w * sinR,
-            -h * sinR, h * cosR,
-            newE, newF);
-        
+            local.a, local.b, local.c, local.d, local.e, local.f);
+
         if (ok) if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return ok;
     } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
