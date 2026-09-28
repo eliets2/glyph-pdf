@@ -1251,8 +1251,22 @@ void MainWindow::onScreenSelected(const QString& id) {
                 [this](const gp::A11yFixRequest& req) { return runA11yFix(req); });
             // T2-4 P2: tagging runs through the shell too — the resident
             // document must be parked for the same-file transaction.
+            // CX-04: the runner receives the TaggerSessionState the panel
+            // read on the GUI thread BEFORE submitting (EditPolicy, viewer
+            // path, dirty flag) — the QtConcurrent worker never touches the
+            // viewer or the session itself.
             _a11yPanel->setTagRunner(
-                [this](const QString& path) { return runA11yTag(path); });
+                [this](const QString& path, const gp::TaggerSessionState& st) {
+                    return runA11yTag(path, st);
+                });
+            _a11yPanel->setTagStateReader([this]() -> gp::TaggerSessionState {
+                gp::TaggerSessionState s;
+                s.readOnly = EditPolicy::mutationBlocked(
+                    _ctx ? _ctx->document.get() : nullptr);
+                if (auto* v = pdfViewer()) s.viewerPath = v->filePath();
+                s.dirty = _ctx && _ctx->document && _ctx->document->isDirty();
+                return s;
+            });
             // PR-review §3.1: the read-only gate rides with the runner — the
             // panel asks the SESSION predicate (one EditPolicy wording) and
             // this runner stays the hard stop at the write boundary.
@@ -1350,22 +1364,29 @@ gp::A11yFixOutcome MainWindow::runA11yFix(const gp::A11yFixRequest& request) {
     return gp::applyAccessibilityFix(path, request);
 }
 
-gp::TaggerReport MainWindow::runA11yTag(const QString& path) {
+gp::TaggerReport MainWindow::runA11yTag(
+    const QString& path, const gp::TaggerSessionState& st) {
+    // CX-04: runs on a QtConcurrent worker — every session/viewer read
+    // (read-only state, the viewer's path, the dirty flag) happened on the
+    // GUI thread BEFORE the future was submitted and arrives in `st`. This
+    // function reads NO viewer/session state on the worker.
     // PR-review §3.1: hard stop at the write boundary — tagging rewrites
     // every content stream and full-saves in place, so a read-only session
     // must never reach the transaction. (The panel refuses up front too;
     // this runner gate covers every other caller of the injected runner.)
-    if (EditPolicy::mutationBlocked(_ctx ? _ctx->document.get() : nullptr)) {
+    if (st.readOnly) {
         gp::TaggerReport refused;
         refused.message = EditPolicy::readOnlyMessage();
         return refused;
     }
-    auto* viewer = pdfViewer();
-    const QString openPath = viewer ? viewer->filePath() : QString();
-    if (openPath == path) {
+    if (st.viewerPath == path) {
         // M2 (PR-review §4): tagging rewrites the open file in place —
-        // checked save-first prompt (Save / Discard / Cancel) first.
-        if (!confirmSaveBeforeInPlaceWrite(tr("tagging the document"))) {
+        // checked save-first prompt (Save / Discard / Cancel) first, gated
+        // by the pre-submit dirty snapshot. The prompt itself hops to the
+        // GUI (confirmSaveBeforeInPlaceWrite); the GUI thread is back in
+        // its event loop — the panel never blocks on this future (CX-04).
+        if (st.dirty
+            && !confirmSaveBeforeInPlaceWrite(tr("tagging the document"))) {
             gp::TaggerReport refused;
             refused.message = tr("canceled — the document has unsaved changes");
             return refused;

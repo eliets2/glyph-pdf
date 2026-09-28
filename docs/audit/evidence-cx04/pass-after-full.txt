@@ -1,0 +1,20 @@
+********* Start testing of TestAccessibilityPanel *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestAccessibilityPanel::initTestCase()
+PASS   : TestAccessibilityPanel::emptyStateIsHonest()
+PASS   : TestAccessibilityPanel::defectsProduceSeveritiesAndDisclosure()
+PASS   : TestAccessibilityPanel::cleanDocumentNeverClaimsConformance()
+PASS   : TestAccessibilityPanel::fixRunnerReceivesRequestAndRescanHappens()
+PASS   : TestAccessibilityPanel::fixButtonsAppearOnlyWithRunner()
+PASS   : TestAccessibilityPanel::tagActionGatingAndPreflightSurface()
+PASS   : TestAccessibilityPanel::taggedDocumentDisablesTagAction()
+PASS   : TestAccessibilityPanel::tagRunnerFlowResolvesFinding()
+PASS   : TestAccessibilityPanel::disclaimerIsPinnedVerbatim()
+PASS   : TestAccessibilityPanel::tagRefusedWhenReadOnlyGateFires()
+PASS   : TestAccessibilityPanel::signedDocumentRefusedAtPreflight()
+PASS   : TestAccessibilityPanel::repeatApplyRefusedWhileTagRuns()
+PASS   : TestAccessibilityPanel::closePanelMidTagNoDeadlock()
+PASS   : TestAccessibilityPanel::switchDocumentMidTagNoDeadlock()
+PASS   : TestAccessibilityPanel::cleanupTestCase()
+Totals: 16 passed, 0 failed, 0 skipped, 0 blacklisted, 1772ms
+********* Finished testing of TestAccessibilityPanel *********
