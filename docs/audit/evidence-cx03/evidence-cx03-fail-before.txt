@@ -1,0 +1,30 @@
+********* Start testing of TestConversionExtraction *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestConversionExtraction::initTestCase()
+PASS   : TestConversionExtraction::backendPlainExtractDecodesSubsetEncoding()
+PASS   : TestConversionExtraction::backendPlainExtractDecodesWinAnsiAccents()
+PASS   : TestConversionExtraction::extractTextOneWordIsExactWithoutTerminator()
+PASS   : TestConversionExtraction::extractTextMultilineIsExactWithoutTerminator()
+PASS   : TestConversionExtraction::extractTextEmptyPageAndImageOnlyPageAreEmpty()
+PASS   : TestConversionExtraction::extractTextAccentedPageIsExactWithoutTerminator()
+PASS   : TestConversionExtraction::subsetFontExportsDecodedUnicodeNotGlyphCodes()
+PASS   : TestConversionExtraction::accentedLatinOctalEscapesDecodeInConversion()
+PASS   : TestConversionExtraction::multilineOrderIsTopToBottomAndDeterministic()
+PASS   : TestConversionExtraction::imageOnlyPdfYieldsHonestEmptyResult()
+PASS   : TestConversionExtraction::csvQuotesAndCommasAreEscaped()
+PASS   : TestConversionExtraction::csvFormulaInjectionIsNeutralized()
+PASS   : TestConversionExtraction::htmlAccentsDecodeAndMarkupEscapes()
+PASS   : TestConversionExtraction::tableColumnsBecomeRealCells()
+PASS   : TestConversionExtraction::columnInferenceCoversWideGapMultiwordAndEmptyInterior()
+PASS   : TestConversionExtraction::fontRunsSplitButProseStaysWhole()
+FAIL!  : TestConversionExtraction::officeConvertNoProductLeavesSiblingAndDestinationIntact() '!ok' returned FALSE. (a no-product conversion must report failure, never commit an unrelated pre-existing file)
+D:/pdf/pdf-r15/tests/TestConversionExtraction.cpp(866) : failure location
+FAIL!  : TestConversionExtraction::officeConvertSuccessCommitsProductWithoutTouchingSibling() Compared values are not the same
+   Actual   (readFile(tmp.path() + "/input.pdf")): ""
+   Expected (siblingBefore)                      : "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 51>>stream\nBT"...
+D:/pdf/pdf-r15/tests/TestConversionExtraction.cpp(899) : failure location
+FAIL!  : TestConversionExtraction::officeConvertEqualPathDestinationReplacedOnlyByValidatedProduct() '!cm.convertOfficeToPdf(input, tmp.path() + "/input.pdf")' returned FALSE. (a no-product equal-path conversion must fail, not bless the old file)
+D:/pdf/pdf-r15/tests/TestConversionExtraction.cpp(923) : failure location
+PASS   : TestConversionExtraction::cleanupTestCase()
+Totals: 18 passed, 3 failed, 0 skipped, 0 blacklisted, 240ms
+********* Finished testing of TestConversionExtraction *********
