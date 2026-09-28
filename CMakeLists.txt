@@ -4705,6 +4705,42 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewingModes.cpp")
     )
 endif()
 
+# ── TestViewParity (UI redesign §4.14, 2026-09-28): characterization of every
+# VIEW capability of the pre-redesign UI (zoom set, Single/Continuous/Two-Page,
+# Full Screen, Presentation, theme cycle, Eye Care/Night Mode exclusivity, RTL,
+# panes, View>Window, the 13 task screens). Written against the OLD shell; only
+# its SHELL SEAM helpers may change when the new shell lands.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewParity.cpp")
+    add_executable(TestViewParity
+        tests/TestViewParity.cpp
+        tests/TestViewParity.qrc
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestViewParity PRIVATE src tests)
+    target_compile_definitions(TestViewParity PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestViewParity PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestViewParity POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestViewParity>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestViewParity>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestViewParity"
+    )
+    add_test(NAME TestViewParity COMMAND TestViewParity)
+    set_tests_properties(TestViewParity PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 240
+        LABELS "unit;ui;viewing;parity;redesign;regression;qt;headless"
+    )
+endif()
+
 # §9.7 P0 regression test: the signature tool must grow Draw/Type/Upload modes
 # that feed the SAME annotation persistence as Draw (typed/uploaded signatures
 # persist as real PDF annotations and survive a save/reload round-trip).
