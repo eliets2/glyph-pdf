@@ -495,6 +495,20 @@ struct WalkOutput {
     FontCache fontCache;
     int nextStreamKey = 0;
 
+    // CX-01: non-text painting content, per stream index, in event order —
+    // every XObject Do name and every inline image's exact data bytes.
+    // Recorded on EVERY pass (analysis + invariant replay); the candidate
+    // invariant compares the before/after maps so a rewrite that mutates
+    // painting content (not just text) fails the transaction.
+    struct PaintingRec {
+        QByteArray kind;    // "Do" (XObject invocation) or "BI" (inline image)
+        QByteArray bytes;   // the Do name / the exact inline-image bytes
+        bool operator==(const PaintingRec& o) const {
+            return kind == o.kind && bytes == o.bytes;
+        }
+    };
+    QMap<int, QList<PaintingRec>> painting;
+
     int pageOfStream(int streamIdx) const {
         for (const StreamRec& s : streams)
             if (s.index == streamIdx) return s.pageIdx;
@@ -769,6 +783,15 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
                     break;
             }
         } else if (type == PdfContentType::DoXObject) {
+            // CX-01: the Do name is painting content — record it on every
+            // pass so the candidate invariant can compare before/after.
+            if (content->Name != nullptr) {
+                WalkOutput::PaintingRec rec;
+                rec.kind = QByteArrayLiteral("Do");
+                rec.bytes = QByteArray::fromStdString(
+                    PdfVariant(*content->Name).ToString());
+                env.out.painting[stream.index].append(rec);
+            }
             if (!env.rewriting && content->Name != nullptr) {
                 const PdfObject* xobjs = resourceDict("XObject");
                 if (xobjs != nullptr && xobjs->IsDictionary()) {
@@ -798,6 +821,17 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
             }
         }
 
+        // CX-01: the exact inline-image bytes are painting content —
+        // recorded on every pass (analysis + invariant replay), not just
+        // rewrite mode, so the invariant sees the original's bytes too.
+        if (type == PdfContentType::ImageData) {
+            const PoDoFo::charbuff& data = content.GetInlineImageData();
+            WalkOutput::PaintingRec rec;
+            rec.kind = QByteArrayLiteral("BI");
+            rec.bytes = QByteArray(data.data(),
+                                   static_cast<qsizetype>(data.size()));
+            env.out.painting[stream.index].append(rec);
+        }
         if (env.rewriting) {
             // ── token re-emission (the analysis pass skips all of this) ──
             switch (type) {
@@ -831,14 +865,21 @@ void walkOneStream(TagEnv env, PdfCanvas& canvas, StreamRec& stream) {
                     break;
                 }
                 case PdfContentType::ImageDictionary: {
-                    std::string line = "BI\n<<";
+                    // CX-01 (PDF 32000 §8.9.7): between BI and ID the
+                    // inline-image dictionary is BARE key/value pairs —
+                    // no << >> delimiters (a renderer reads the tokens
+                    // after BI directly; "<< /W 2 >>" would be unknown
+                    // keys that silently kill the image). ID is followed
+                    // by exactly one whitespace byte (the \n), then the
+                    // exact data bytes (the ImageData case below).
+                    std::string line = "BI\n";
                     const PdfDictionary& d =
                         content.GetInlineImageDictionary();
                     for (const auto& entry : d) {
                         line += PdfVariant(entry.first).ToString() + " ";
                         line += entry.second.ToString() + " ";
                     }
-                    line += ">>\nID\n";
+                    line += "\nID\n";
                     *env.emitted += line;
                     break;
                 }
@@ -1801,6 +1842,7 @@ TaggerReport tagDocumentAccessibility(const QString& path,
         bool saved = false;
         qint64 imagesExcluded = 0;
         QList<QList<QPair<QString, long long>>> beforeSeq;
+        QMap<int, QList<WalkOutput::PaintingRec>> beforePainting;
         {
         PoDoFo::PdfMemDocument doc;
         try {
@@ -1992,6 +2034,7 @@ TaggerReport tagDocumentAccessibility(const QString& path,
 
         // Snapshot BEFORE any mutation (the invariant's left side).
         beforeSeq = extractionSequences(out);
+        beforePainting = out.painting;   // CX-01: non-text painting content
 
         const auto streamByIdx = [&](int idx) -> const StreamRec* {
             for (const StreamRec& s : out.streams)
@@ -2263,6 +2306,57 @@ TaggerReport tagDocumentAccessibility(const QString& path,
                         break;
                     }
                 }
+            }
+            // CX-01: non-text painting content (inline-image bytes, XObject
+            // Do names) must survive byte-identically too — the text-only
+            // invariant never saw it (a successful transaction still
+            // destroyed every inline image).
+            // Whitespace immediately before the EI terminator is terminator
+            // syntax, not image data (PDF 32000 §8.9.7 "should be preceded
+            // by a whitespace byte"): PoDoFo's inline reader folds it into
+            // the data buffer, and the writer re-emits it as the canonical
+            // single \n — so the comparison strips trailing whitespace and
+            // pins the payload bytes themselves.
+            auto paintingData = [](const QList<WalkOutput::PaintingRec>& v) {
+                QList<WalkOutput::PaintingRec> norm;
+                norm.reserve(v.size());
+                for (const WalkOutput::PaintingRec& r : v) {
+                    WalkOutput::PaintingRec c = r;
+                    while (!c.bytes.isEmpty()
+                           && (c.bytes.endsWith(' ') || c.bytes.endsWith('\t')
+                               || c.bytes.endsWith('\n')
+                               || c.bytes.endsWith('\r')))
+                        c.bytes.chop(1);
+                    norm.append(c);
+                }
+                return norm;
+            };
+            for (auto it = beforePainting.cbegin();
+                 it != beforePainting.cend() && !diverged; ++it) {
+                const auto aIt = after.painting.constFind(it.key());
+                if (aIt == after.painting.cend()
+                    || paintingData(aIt.value())
+                           != paintingData(it.value())) {
+                    diverged = true;
+                    const int pg = after.pageOfStream(it.key());
+                    report.message = QStringLiteral(
+                        "painting-preservation invariant failed on page %1 "
+                        "— non-text painting content (inline-image bytes or "
+                        "XObject Do) diverged; the original is unchanged")
+                                         .arg(pg >= 0 ? pg + 1 : 0);
+                    break;
+                }
+            }
+            // And the candidate must not have GAINED painting events the
+            // original never had (a rewrite that paints is a rewrite that
+            // diverges).
+            if (!diverged
+                && after.painting.size() != beforePainting.size()) {
+                diverged = true;
+                report.message = QStringLiteral(
+                    "painting-preservation invariant failed — the candidate "
+                    "gained non-text painting events; the original is "
+                    "unchanged");
             }
             if (diverged) {
                 QFile::remove(candidate);
