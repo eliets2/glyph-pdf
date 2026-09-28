@@ -1,0 +1,29 @@
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:46,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from tests/TestDynamicStamps.cpp:19:
+C:/msys64/ucrt64/include/qt6/QtCore/qbitarray.h:13:21: warning: defining 'QBitArray', which previously failed to be complete in a SFINAE context [-Wsfinae-incomplete=]
+   13 | class Q_CORE_EXPORT QBitArray
+      |                     ^~~~~~~~~
+In file included from D:/pdf/msys64/ucrt64/include/c++/16.1.0/string:56,
+                 from D:/pdf/msys64/ucrt64/include/c++/16.1.0/bits/locale_classes.h:43,
+                 from D:/pdf/msys64/ucrt64/include/c++/16.1.0/bits/ios_base.h:43,
+                 from D:/pdf/msys64/ucrt64/include/c++/16.1.0/streambuf:45,
+                 from D:/pdf/msys64/ucrt64/include/c++/16.1.0/bits/streambuf_iterator.h:37,
+                 from D:/pdf/msys64/ucrt64/include/c++/16.1.0/iterator:68,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/q17memory.h:9,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:6:
+D:/pdf/msys64/ucrt64/include/c++/16.1.0/bits/range_access.h:325:24: note: here.  Use '-Wsfinae-incomplete=2' for a diagnostic at that point
+  325 |     -> decltype(__cont.data())
+      |                 ~~~~~~~^~~~
+tests/TestDynamicStamps.cpp: In member function 'void TestDynamicStamps::placementCarriesPendingTextAndConsumesIt()':
+tests/TestDynamicStamps.cpp:188:16: error: 'mouseClick' is not a member of 'QTest'
+  188 |         QTest::mouseClick(&layer, Qt::LeftButton, Qt::NoModifier, QPoint(100, 100));
+      |                ^~~~~~~~~~
+tests/TestDynamicStamps.cpp:205:16: error: 'mouseClick' is not a member of 'QTest'
+  205 |         QTest::mouseClick(&layer, Qt::LeftButton, Qt::NoModifier, QPoint(150, 150));
+      |                ^~~~~~~~~~
+tests/TestDynamicStamps.cpp: In member function 'void TestDynamicStamps::dialogManagesLibraryAndEmitsPlace()':
+tests/TestDynamicStamps.cpp:241:16: error: 'mouseClick' is not a member of 'QTest'
+  241 |         QTest::mouseClick(placeBtn, Qt::LeftButton);
+      |                ^~~~~~~~~~

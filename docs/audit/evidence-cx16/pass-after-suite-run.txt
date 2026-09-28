@@ -1,0 +1,14 @@
+********* Start testing of TestDynamicStamps *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestDynamicStamps::initTestCase()
+PASS   : TestDynamicStamps::builtInLibraryMatchesResearchRow()
+PASS   : TestDynamicStamps::resolveTextSubstitutesAtApplyTime()
+PASS   : TestDynamicStamps::resolveTextHonestyRules()
+PASS   : TestDynamicStamps::customStampsPersistAndReload()
+PASS   : TestDynamicStamps::savedAnnotationCarriesResolvedText()
+PASS   : TestDynamicStamps::placementCarriesPendingTextAndConsumesIt()
+PASS   : TestDynamicStamps::dialogManagesLibraryAndEmitsPlace()
+PASS   : TestDynamicStamps::stampsMenuIdsAreRegistryCommands()
+PASS   : TestDynamicStamps::cleanupTestCase()
+Totals: 10 passed, 0 failed, 0 skipped, 0 blacklisted, 259ms
+********* Finished testing of TestDynamicStamps *********
