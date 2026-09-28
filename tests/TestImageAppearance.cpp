@@ -39,7 +39,7 @@ const char *kTwoImages =
     "q 200 0 0 200 100 400 cm /ImA Do Q\n"
     "q 200 0 0 200 150 450 cm /ImB Do Q\n";
 
-QString makeTwoImagePdf(const QString &dir, const QString &name, const char *content,
+QString makeTwoImagePdf(const QString &dir, const QString &name, const QByteArray &content,
                         bool inheritResources = false)
 {
     const QString path = dir + QLatin1Char('/') + name;
@@ -82,7 +82,7 @@ QString makeTwoImagePdf(const QString &dir, const QString &name, const char *con
     } else {
         page.GetDictionary().AddKey("Resources", PoDoFo::PdfObject(res));
     }
-    const std::string data(content);
+    const std::string data(content.constData(), static_cast<size_t>(content.size()));
     page.GetOrCreateContents().CreateStreamForAppending().SetData(PoDoFo::bufferview(data));
     doc.Save(path.toStdString());
     return path;
@@ -211,6 +211,12 @@ private slots:
     void deleteImageRemovesTheOffsetZeroPlacement();
     void deleteImageKeepsNeighboursOverShapesAndEndings();
     void deleteImageRefusalLeavesTheFileUntouched();
+
+    // ── Part 5: CX-08 — the inline image data extent is exact ──────────────
+    void inlineImageRidesOverAFakeEi();
+    void inlineImageLengthAndEodExtents();
+    void inlineImageRefusesUnknownExtents();
+    void opacityReachesTheRealImagePastInlineData();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -218,9 +224,11 @@ private slots:
 void TestImageAppearance::lexerSkipsStringsCommentsAndInlineImages()
 {
     // "q"/"Q" inside a string, a comment and inline-image data are not
-    // operators; the only real pair is the outer q..Q.
+    // operators; the only real pair is the outer q..Q. The inline data is
+    // 4 bytes ("\x01Q\x02q"), so H must declare 4 rows of 1 byte (CX-08:
+    // the extent comes from W×H, not from the first EI-shaped bytes).
     const QByteArray s = "q (a (q) Q \\) q) Tj % Q q comment\n"
-                         "BI /W 1 /H 1 /BPC 8 /CS /G ID \x01Q\x02q EI\n"
+                         "BI /W 1 /H 4 /BPC 8 /CS /G ID \x01Q\x02q EI\n"
                          "/Im#41 Do Q";
     QList<gp::content::Token> toks;
     QVERIFY(gp::content::lex(s, &toks));
@@ -954,6 +962,167 @@ void TestImageAppearance::deleteImageRefusalLeavesTheFileUntouched()
                  "a /ImA Do inside a string is not a placement");
         QCOMPARE(fileBytes(f), before);
     }
+}
+
+// ── Part 5: CX-08 — the inline image data extent is exact ──────────────────
+
+namespace {
+
+// Codex's hostile inline image: a well-formed unfiltered RGB strip (32×1×8
+// bits = exactly 96 bytes) whose pixel bytes embed a whitespace-delimited
+// "EI" followed by operator-looking text (a balanced q..Q, as raw image
+// bytes may legitimately contain). Used by the lexer tests and by the
+// engine test below.
+QByteArray hostileInlineData()
+{
+    QByteArray data(96, '\x01');
+    data.replace(40, 16, " EI q /ImA Do Q ");
+    return data;
+}
+
+} // namespace
+
+// The first EI-shaped byte pair is data: the lexer must ride over it and the
+// only Do is the real one after the data.
+void TestImageAppearance::inlineImageRidesOverAFakeEi()
+{
+    const QByteArray data = hostileInlineData();
+    const QByteArray s = "q 200 0 0 8 20 700 cm BI /W 32 /H 1 /BPC 8 /CS /RGB ID "
+                         + data + " EI /ImA Do Q";
+    QList<gp::content::Token> toks;
+    QVERIFY2(gp::content::lex(s, &toks),
+             "the exact 96-byte extent must reach the real EI");
+    int inlineCount = 0, doCount = 0, qCount = 0, QCount = 0;
+    qsizetype inlineEnd = -1;
+    for (const auto &t : toks) {
+        if (t.kind == gp::content::Token::Kind::InlineImage) {
+            ++inlineCount;
+            inlineEnd = t.end;
+        }
+        if (t.kind == gp::content::Token::Kind::Operator && t.text == "Do") ++doCount;
+        if (t.kind == gp::content::Token::Kind::Operator && t.text == "q") ++qCount;
+        if (t.kind == gp::content::Token::Kind::Operator && t.text == "Q") ++QCount;
+    }
+    QCOMPARE(inlineCount, 1);
+    QCOMPARE(doCount, 1);       // the fake Do inside the data is not a token
+    QCOMPARE(qCount, 1);        // the fake q inside the data is not a token
+    QCOMPARE(QCount, 1);
+    QVERIFY2(inlineEnd > s.indexOf(" EI q /ImA Do Q "),
+             "the inline token must cover the fake EI inside the data");
+}
+
+// /L counts bytes wherever " EI " hides; AHx ends at '>', A85 at '~>'.
+void TestImageAppearance::inlineImageLengthAndEodExtents()
+{
+    QList<gp::content::Token> toks;
+    const auto counts = [&toks](int *inlineCount, int *doCount) {
+        *inlineCount = *doCount = 0;
+        for (const auto &t : toks) {
+            if (t.kind == gp::content::Token::Kind::InlineImage) ++*inlineCount;
+            if (t.kind == gp::content::Token::Kind::Operator && t.text == "Do") ++*doCount;
+        }
+    };
+
+    // Flate-filtered bytes with /L: the byte count decides.
+    QByteArray data(20, '\x13');
+    data[8] = ' '; data[9] = 'E'; data[10] = 'I'; data[11] = ' ';
+    QVERIFY(gp::content::lex("q BI /W 4 /H 1 /F /Fl /L 20 ID " + data
+                             + " EI /ImA Do Q", &toks));
+    int inlineCount = 0, doCount = 0;
+    counts(&inlineCount, &doCount);
+    QCOMPARE(inlineCount, 1);
+    QCOMPARE(doCount, 1);
+
+    // ASCIIHexDecode ends at the '>' EOD.
+    QVERIFY(gp::content::lex(
+        "q BI /W 2 /H 1 /BPC 8 /CS /G /F /AHx ID 4142> EI /ImA Do Q", &toks));
+    counts(&inlineCount, &doCount);
+    QCOMPARE(inlineCount, 1);
+    QCOMPARE(doCount, 1);
+
+    // ASCII85Decode ends at "~>" — even when the data embeds " EI ".
+    QVERIFY(gp::content::lex(
+        "q BI /W 2 /H 1 /BPC 8 /CS /G /F /A85 ID s EI x~> EI /ImA Do Q", &toks));
+    counts(&inlineCount, &doCount);
+    QCOMPARE(inlineCount, 1);
+    QCOMPARE(doCount, 1);
+
+    // A zero-length data section stays lexable.
+    QVERIFY(gp::content::lex("0 0 1 1 ID\nEI\n1 js", &toks));
+
+    // /IM true: one 1-bit component (9 bits → 2 packed bytes per row). The
+    // data bytes are built explicitly: a \x00 inside a C literal would
+    // truncate the QByteArray at it.
+    QByteArray imCase = QByteArray("q BI /W 9 /H 1 /IM true ID \xA0", 28);
+    imCase += char(0x00);
+    imCase += " EI /ImA Do Q";
+    QVERIFY(gp::content::lex(imCase, &toks));
+    counts(&inlineCount, &doCount);
+    QCOMPARE(inlineCount, 1);
+    QCOMPARE(doCount, 1);
+}
+
+// An extent that cannot be known refuses the edit — never a guess.
+void TestImageAppearance::inlineImageRefusesUnknownExtents()
+{
+    QList<gp::content::Token> toks;
+    // A binary filter without /L.
+    QVERIFY2(!gp::content::lex(
+                 "q BI /W 2 /H 1 /F /Fl ID \x13\x13 EI /ImA Do Q", &toks),
+             "Flate without /L must refuse");
+    // An unknown colour space without /L.
+    QVERIFY2(!gp::content::lex(
+                 "q BI /W 2 /H 1 /CS /Pattern ID \x01\x01 EI /ImA Do Q", &toks),
+             "an unknown colour space must refuse");
+    // Unfiltered data shorter than W×H declares.
+    QVERIFY2(!gp::content::lex(
+                 "q BI /W 4 /H 1 /CS /G ID \x01\x02 EI /ImA Do Q", &toks),
+             "short unfiltered data must refuse");
+    // An "ID" without a BI is undefined PDF; it keeps the lexer's historical
+    // first-EI read (pinned by the CX-15 sanitizer gate). CX-08's exact
+    // extent governs real inline images, which always carry BI.
+    QVERIFY2(gp::content::lex(
+                 "q 0 0 1 1 ID \x01 EI /ImA Do Q", &toks),
+             "a BI-less ID keeps the historical first-EI read");
+}
+
+// The engine-level CX-08: the opacity edit must wrap the REAL placement
+// after the data, never the operator look-alike inside the pixel bytes.
+void TestImageAppearance::opacityReachesTheRealImagePastInlineData()
+{
+    QTemporaryDir dir;
+    const QByteArray data = hostileInlineData();
+    const QString f = makeTwoImagePdf(
+        dir.path(), "inline.pdf",
+        "q 200 0 0 8 20 700 cm BI /W 32 /H 1 /BPC 8 /CS /RGB ID " + data + " EI Q\n"
+        "q 200 0 0 200 100 400 cm /ImA Do Q\n"
+        "q 200 0 0 200 150 450 cm /ImB Do Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    const QColor stripBefore = pixelAt(f, 30, 704);
+    const QColor imageBefore = pixelAt(f, kOnlyA.x(), kOnlyA.y());
+    QVERIFY(isRed(imageBefore));
+
+    QVERIFY(engine.setImageOpacity(0, QStringLiteral("ImA"), 0.5));
+
+    const QByteArray content = pageContent(f);
+    QVERIFY2(content.contains(data), "the inline pixel bytes must survive verbatim");
+    const qsizetype dataAt = content.indexOf(data);
+    const qsizetype wrapAt = content.indexOf("\nq\n/GSop");
+    QVERIFY2(wrapAt >= 0, "the real placement must be wrapped");
+    QVERIFY2(wrapAt > dataAt + data.size(),
+             "the wrap must sit after the inline data, never inside it");
+
+    const QColor stripAfter = pixelAt(f, 30, 704);
+    QCOMPARE(stripAfter, stripBefore);   // the strip renders exactly as before
+    // PDFium keeps the page's transparency in the rendered QImage: the real
+    // image now paints at half alpha (the strip stays fully opaque).
+    const QColor blended = pixelAt(f, kOnlyA.x(), kOnlyA.y());
+    QVERIFY2(blended.alphaF() > 0.4 && blended.alphaF() < 0.6
+                 && blended.red() > blended.green() + 40,
+             qPrintable(QStringLiteral("the real image must blend at 50%%, got %1")
+                            .arg(blended.name())));
 }
 
 QTEST_MAIN(TestImageAppearance)

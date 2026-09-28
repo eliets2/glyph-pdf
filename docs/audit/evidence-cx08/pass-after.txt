@@ -1,0 +1,19 @@
+CX-08 pass-after — exact-extent lexer (/L, AHx/A85 EOD, W×H×components×BPC; binary-filter-without-/L refuses)
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe
+
+PASS   : TestImageAppearance::inlineImageRidesOverAFakeEi()
+PASS   : TestImageAppearance::inlineImageLengthAndEodExtents()
+PASS   : TestImageAppearance::inlineImageRefusesUnknownExtents()
+PASS   : TestImageAppearance::opacityReachesTheRealImagePastInlineData()
+Totals: 35 passed, 0 failed, 0 skipped, 0 blacklisted, 542ms
+
+Touched suites (sequential):
+TestCheckedMutationCoverage: Totals: 13 passed, 0 failed, 0 skipped, 0 blacklisted, 189ms
+TestHistoryIntegrity: Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 529ms
+TestImageDedup: Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 24ms
+TestImageEditWiring: Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 1ms
+TestImageEditWiring: Totals: 4 passed, 0 failed, 0 skipped, 0 blacklisted, 2ms
+
+CX-15 sanitizer harness (local compile; CI runs it with clang+ASan+UBSan on ubuntu-24.04 — local ucrt64 GCC has no asan runtime):
+ContentSpansAdversarial: 320020 checks, 0 failures
+harness exit=0

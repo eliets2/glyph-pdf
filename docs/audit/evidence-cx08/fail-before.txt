@@ -1,0 +1,14 @@
+CX-08 fail-before — the final CX-08 test set run against HEAD's ContentSpans lexer (d976f9c, first-EI extent):
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe (ContentSpans.cpp temporarily reverted to HEAD; test file at its new state)
+
+FAIL!  : TestImageAppearance::inlineImageRidesOverAFakeEi() Compared values are not the same
+FAIL!  : TestImageAppearance::inlineImageLengthAndEodExtents() 'gp::content::lex( "q BI /W 2 /H 1 /BPC 8 /CS /G /F /A85 ID s EI x~> EI /ImA Do Q", &toks)' returned FALSE. ()
+FAIL!  : TestImageAppearance::inlineImageRefusesUnknownExtents() '!gp::content::lex( "q BI /W 2 /H 1 /F /Fl ID \x13\x13 EI /ImA Do Q", &toks)' returned FALSE. (Flate without /L must refuse)
+FAIL!  : TestImageAppearance::opacityReachesTheRealImagePastInlineData() 'content.contains(data)' returned FALSE. (the inline pixel bytes must survive verbatim)
+Totals: 31 passed, 4 failed, 0 skipped, 0 blacklisted, 583ms
+
+Reading:
+- inlineImageRidesOverAFakeEi: the first EI inside the 96 raw pixel bytes ended the data on the old lexer, so the fake q//ImA Do/Q inside the data became real tokens (Do count 3, q count 2).
+- A85 case: after the false split, the data's own '~>' leaked out as a stray hex-string terminator and lex() returned FALSE.
+- The refusals do not exist on the old engine: Flate-without-/L and short unfiltered data both lexed 'successfully' with a guessed extent.
+- opacityReachesTheRealImagePastInlineData: the opacity wrap landed INSIDE the pixel bytes (around the fake Do), destroying the inline image's data on disk.
