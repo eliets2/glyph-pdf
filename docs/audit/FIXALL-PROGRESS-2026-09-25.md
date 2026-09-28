@@ -71,10 +71,22 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
 - PARALLEL ROUND (R17): 5 lane branches cut at 220b5f2b — feat/fixall-images (CX-02,
   08, 09, 10, 11, 12, N1; pdf-keyA), feat/fixall-tagging2 (CX-01, 07, 04; pdf-sec),
   feat/fixall-ci2 (CX-13..17 + pins; pdf-keyC), feat/fixall-redaction (PGR-46 + PGR-23
-  WIP verification; pdf-inst), feat/fixall-inv1 (INV-1; pdf-r15). Concurrency cap
-  bounced images+tagging at launch — queued, dispatch on free slots. PGR-23 WIP
-  preserved as 68bc917e on feat/final-pgr-closers (redaction lane verifies + reports
-  FOLD-READY).
+  WIP verification; pdf-inst), feat/fixall-inv1 (INV-1; pdf-r15). Concurrency cap = 2
+  observed (extra dispatches bounce); dispatch on completion.
+- CP5 (INV-1 + CI lanes landed): INV-1 REPRODUCED — signature-validity finding, fixed
+  as 64baba6a (DSS-only catalog allowlist; TestSignatureRealCrypto 28P/0F/1skip ×3 on
+  lane; fail-before 'got: Valid' captured). CI lane 7 picks: 1b42e166 (CX-16),
+  462212b4 (CX-17, negative control proves old test vacuous), eb3c181b (PoDoFo SHA
+  pin 712fb0e8 + E4 wording), e0f72ce4 (CX-15 gate find: ExtGState wrap corrupted
+  tight-adjacency streams — engine fix, TestImageAppearance 20P/0F), 38e6412b (CX-14
+  capture + Fontconfig DISPROVED — real flake captured: TestWelcomeRoutes
+  imagesRouteProducesAndOpensTheOutput, recorded for owner), 4e463a8c (CX-15 sanitizer
+  gate; ASan variant runs on first CI dispatch), 92101f6c (CX-13 provisioning; dispatch
+  command post-push). R14 on PR head: build 0 errors; TestSignatureRealCrypto
+  28P/0F/1skip, TestDynamicStamps 10P/0F, TestOcrPreprocessPrefs 5P/0F,
+  TestImageAppearance 20P/0F, TestSweepW3UxFlows 14P/0F, TestSignatureValidation 9P/0F.
+  Still open: CX-01/02/04/07/08/09/10/11/12, N1, PGR-46 (images+tagging2+redaction
+  lanes queued).
 
 ## Notes / deviations
 
