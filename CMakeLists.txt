@@ -1148,6 +1148,54 @@ target_precompile_headers(pdfws_ui PRIVATE
 )
 
 # ── Test targets ──────────────────────────────────────────────────────────
+
+# ── CX-14: per-test QtTest output capture (CI evidence) ────────────────────
+# At the CI pin, TestWelcomeRoutes failed under ctest -j with EMPTY output and
+# the assertion text was unrecoverable (ci.yml uploads nothing per test).
+# When GLYPHPDF_QTTEST_CAPTURE_DIR is set (CI sets it; local builds leave it
+# empty), every test whose target links Qt6::Test — the QTEST_MAIN suites plus
+# the three custom mains, all of which forward argv to QTest::qExec — gets
+# three extra arguments appended by the add_test override below:
+#   -o -,txt                              keep the console/LastTest.log output
+#   -o <abs>/<name>.txt,txt               per-test plain-text report
+#   -o <abs>/<name>.junit,junitxml        per-test JUnit XML
+# QtTest supports several -o loggers at once (at most one on stdout), so the
+# console output that feeds LastTest.log is kept. Non-QtTest commands
+# (helpers, scripts) don't link Qt6::Test and are left untouched. Local
+# builds are unaffected (option defaults to "").
+# NOTE: this block must stay ahead of the first add_test, and the
+# "Per-test temp roots" block stays LAST in this file (R8).
+set(GLYPHPDF_QTTEST_CAPTURE_DIR "" CACHE PATH
+    "CX-14: when set, every QtTest test additionally writes .txt/.junit reports here")
+if(GLYPHPDF_QTTEST_CAPTURE_DIR)
+    file(MAKE_DIRECTORY "${GLYPHPDF_QTTEST_CAPTURE_DIR}")
+    function(add_test)
+        cmake_parse_arguments(GP_T "" "NAME" "" ${ARGV})
+        set(_gp_idx 0)
+        set(_gp_cmd "")
+        foreach(_gp_arg IN LISTS ARGN)
+            if(_gp_arg STREQUAL "COMMAND")
+                math(EXPR _gp_cmd_idx "${_gp_idx} + 1")
+                list(GET ARGN ${_gp_cmd_idx} _gp_cmd)
+                break()
+            endif()
+            math(EXPR _gp_idx "${_gp_idx} + 1")
+        endforeach()
+        set(_gp_extra "")
+        if(_gp_cmd AND TARGET "${_gp_cmd}")
+            get_target_property(_gp_link "${_gp_cmd}" LINK_LIBRARIES)
+            list(FIND _gp_link "Qt6::Test" _gp_qttest)
+            if(NOT _gp_qttest EQUAL -1)
+                set(_gp_extra
+                    -o -,txt
+                    -o "${GLYPHPDF_QTTEST_CAPTURE_DIR}/${GP_T_NAME}.txt,txt"
+                    -o "${GLYPHPDF_QTTEST_CAPTURE_DIR}/${GP_T_NAME}.junit,junitxml")
+            endif()
+        endif()
+        _add_test(${ARGV} ${_gp_extra})
+    endfunction()
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/UnitTests.cpp")
     add_executable(UnitTests
         tests/UnitTests.cpp
