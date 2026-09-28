@@ -124,6 +124,58 @@ static void inlineImageExtents()
 
     // ID with nothing but a stray whitespace byte after it.
     CHECK(!gp::content::lex("0 0 1 1 ID ", &toks));
+
+    // ── CX-08 (the fix): real inline images — with a BI — get the exact
+    // extent: /L, the AHx/A85 EOD marker, or W×H×components×BPC. A fake
+    // whitespace-delimited EI inside the raw bytes is data, not a delimiter.
+    const auto countKinds = [](const QList<Token> &ts, int *inlineCount, int *doCount) {
+        *inlineCount = *doCount = 0;
+        for (const Token &t : ts) {
+            if (t.kind == Token::Kind::InlineImage) ++*inlineCount;
+            if (t.kind == Token::Kind::Operator && t.text == "Do") ++*doCount;
+        }
+    };
+
+    // Codex's shape: a valid unfiltered 32×1×8 RGB strip (exactly 96 bytes)
+    // whose pixel bytes embed " EI q /ImA Do Q ", then the REAL EI and a real
+    // /ImA Do. The exact extent must ride over the fake EI: one inline image,
+    // and the only Do is the real one after the data.
+    QByteArray hostile(96, '\x01');
+    hostile.replace(40, 16, " EI q /ImA Do Q ");
+    const QByteArray h96 = "q BI /W 32 /H 1 /BPC 8 /CS /RGB ID " + hostile
+                           + " EI /ImA Do Q";
+    CHECK(gp::content::lex(h96, &toks));
+    {
+        int inlineCount = 0, doCount = 0;
+        countKinds(toks, &inlineCount, &doCount);
+        CHECK(inlineCount == 1);
+        CHECK(doCount == 1);
+    }
+    checkTokenConsistency(h96, toks);
+
+    // Flate with /L: the byte count decides wherever " EI " hides.
+    QByteArray flate(20, '\x13');
+    flate[8] = ' '; flate[9] = 'E'; flate[10] = 'I'; flate[11] = ' ';
+    CHECK(gp::content::lex("q BI /W 4 /H 1 /F /Fl /L 20 ID " + flate
+                           + " EI /ImA Do Q", &toks));
+    {
+        int inlineCount = 0, doCount = 0;
+        countKinds(toks, &inlineCount, &doCount);
+        CHECK(inlineCount == 1);
+        CHECK(doCount == 1);
+    }
+
+    // AHx ends at the '>' EOD; A85 at "~>" — even with " EI " in the data.
+    CHECK(gp::content::lex(
+        "q BI /W 2 /H 1 /BPC 8 /CS /G /F /AHx ID 4142> EI /ImA Do Q", &toks));
+    CHECK(gp::content::lex(
+        "q BI /W 2 /H 1 /BPC 8 /CS /G /F /A85 ID s EI x~> EI /ImA Do Q", &toks));
+
+    // A binary filter without /L refuses the edit — never a guess.
+    CHECK(!gp::content::lex("q BI /W 2 /H 1 /F /Fl ID \x13\x13 EI /ImA Do Q", &toks));
+
+    // Unfiltered data shorter than W×H declares: refused as well.
+    CHECK(!gp::content::lex("q BI /W 4 /H 1 /CS /G ID \x01\x02 EI /ImA Do Q", &toks));
 }
 
 // ── CX-09: restack must not be silently wrong across marked content ────────
