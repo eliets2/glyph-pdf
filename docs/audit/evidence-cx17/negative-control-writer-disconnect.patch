@@ -1,0 +1,34 @@
+diff --git a/src/modes/OCRMode.cpp b/src/modes/OCRMode.cpp
+index 0b8bd3b1..9b6a0516 100644
+--- a/src/modes/OCRMode.cpp
++++ b/src/modes/OCRMode.cpp
+@@ -186,7 +186,8 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
+     m_chkDeskew->setStyleSheet("color:#c0c0c0; spacing:4px;");
+     connect(m_chkDeskew, &QCheckBox::toggled, this, [](bool checked) {
+         QSettings settings;
+-        settings.setValue(kOcrPreprocessDeskewKey, checked);
++        // NEGATIVE-CONTROL (CX-17): writer disabled
++        // settings.setValue(kOcrPreprocessDeskewKey, checked);
+     });
+     row->addWidget(m_chkDeskew);
+ 
+@@ -196,7 +197,8 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
+     m_chkBinarize->setStyleSheet("color:#c0c0c0; spacing:4px;");
+     connect(m_chkBinarize, &QCheckBox::toggled, this, [](bool checked) {
+         QSettings settings;
+-        settings.setValue(kOcrPreprocessBinarizeKey, checked);
++        // NEGATIVE-CONTROL (CX-17): writer disabled
++        // settings.setValue(kOcrPreprocessBinarizeKey, checked);
+     });
+     row->addWidget(m_chkBinarize);
+ 
+@@ -206,7 +208,8 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
+     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
+     connect(m_chkDenoise, &QCheckBox::toggled, this, [](bool checked) {
+         QSettings settings;
+-        settings.setValue(kOcrPreprocessDenoiseKey, checked);
++        // NEGATIVE-CONTROL (CX-17): writer disabled
++        // settings.setValue(kOcrPreprocessDenoiseKey, checked);
+     });
+     row->addWidget(m_chkDenoise);
+ 
