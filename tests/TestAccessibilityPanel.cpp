@@ -10,6 +10,9 @@
 #include <QFile>
 #include <QLabel>
 #include <QPushButton>
+#include <QSemaphore>
+#include <QTimer>
+#include <atomic>
 #include <podofo/podofo.h>
 #include <cstring>
 
@@ -183,6 +186,15 @@ private slots:
 
     // ── PR-review §3.2: signed documents refuse at the pre-flight ───────
     void signedDocumentRefusedAtPreflight();
+
+    // ── CX-04: a repeat Tag Document must not deadlock the GUI thread ───
+    // The runner blocks on a barrier while a second Apply arrives: the
+    // second is refused with a message, the GUI keeps processing events,
+    // and exactly one completion arrives. Closing the panel / switching
+    // documents mid-tag: no deadlock, no crash.
+    void repeatApplyRefusedWhileTagRuns();
+    void closePanelMidTagNoDeadlock();
+    void switchDocumentMidTagNoDeadlock();
 
 private:
     // Wait for the panel's async scan to deliver (the default-constructed
@@ -386,7 +398,7 @@ void TestAccessibilityPanel::tagActionGatingAndPreflightSurface() {
     QVERIFY(tagButtonOf(&panel) != nullptr);
     QVERIFY(!tagButtonOf(&panel)->isEnabled());
 
-    panel.setTagRunner([](const QString& path) {
+    panel.setTagRunner([](const QString& path, const gp::TaggerSessionState&) {
         return gp::tagDocumentAccessibility(path);
     });
     panel.setDocument(pdf);
@@ -427,7 +439,7 @@ void TestAccessibilityPanel::taggedDocumentDisablesTagAction() {
     QVERIFY(makeCleanPdf(pdf));   // carries /StructTreeRoot
 
     gp::AccessibilityPanel panel;
-    panel.setTagRunner([](const QString& path) {
+    panel.setTagRunner([](const QString& path, const gp::TaggerSessionState&) {
         return gp::tagDocumentAccessibility(path);
     });
     panel.setDocument(pdf);
@@ -449,7 +461,7 @@ void TestAccessibilityPanel::tagRunnerFlowResolvesFinding() {
     QVERIFY(makeTaggablePdf(pdf));
 
     gp::AccessibilityPanel panel;
-    panel.setTagRunner([](const QString& path) {
+    panel.setTagRunner([](const QString& path, const gp::TaggerSessionState&) {
         return gp::tagDocumentAccessibility(path);
     });
     panel.setDocument(pdf);
@@ -487,7 +499,7 @@ void TestAccessibilityPanel::disclaimerIsPinnedVerbatim() {
     QVERIFY(makeTaggablePdf(pdf));
 
     gp::AccessibilityPanel panel;
-    panel.setTagRunner([](const QString& path) {
+    panel.setTagRunner([](const QString& path, const gp::TaggerSessionState&) {
         return gp::tagDocumentAccessibility(path);
     });
     panel.setDocument(pdf);
@@ -537,7 +549,7 @@ void TestAccessibilityPanel::tagRefusedWhenReadOnlyGateFires() {
 
     gp::AccessibilityPanel panel;
     bool runnerInvoked = false;
-    panel.setTagRunner([&runnerInvoked](const QString& path) {
+    panel.setTagRunner([&runnerInvoked](const QString& path, const gp::TaggerSessionState&) {
         Q_UNUSED(path);
         runnerInvoked = true;
         return gp::tagDocumentAccessibility(path);
@@ -579,7 +591,7 @@ void TestAccessibilityPanel::signedDocumentRefusedAtPreflight() {
 
     gp::AccessibilityPanel panel;
     bool runnerInvoked = false;
-    panel.setTagRunner([&runnerInvoked](const QString& path) {
+    panel.setTagRunner([&runnerInvoked](const QString& path, const gp::TaggerSessionState&) {
         Q_UNUSED(path);
         runnerInvoked = true;
         return gp::tagDocumentAccessibility(path);
@@ -602,6 +614,160 @@ void TestAccessibilityPanel::signedDocumentRefusedAtPreflight() {
     QTest::qWait(150);
     QVERIFY2(!runnerInvoked,
              "the injected runner must never be reached for a signed document");
+}
+
+// ── CX-04: a repeat Tag Document must not deadlock the GUI thread ────────────
+// The tag runner hops BACK to the GUI thread (SafeSave park/restore, the
+// save-first prompt). The old onApplyClicked answered a repeat Apply with
+// cancel() + waitForFinished() — the GUI thread blocked on a future whose
+// worker blocks on the GUI: both threads deadlocked. The pins below block
+// the runner on a barrier (only the worker waits) and prove the GUI thread
+// stays live, the repeat Apply is refused with a message, exactly one
+// completion arrives, and closing the panel / switching documents mid-tag
+// neither deadlocks nor crashes.
+void TestAccessibilityPanel::repeatApplyRefusedWhileTagRuns() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    QSemaphore barrier;
+    std::atomic<int> started{0};
+    std::atomic<int> runnerDone{0};
+    int completions = 0;
+    panel.setTagRunner([&](const QString&, const gp::TaggerSessionState&) {
+        ++started;
+        barrier.acquire();   // blocks the WORKER, never the GUI thread
+        ++runnerDone;
+        gp::TaggerReport r;
+        r.ok = true;
+        r.message = QStringLiteral("ok");
+        return r;
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QObject::connect(&panel, &gp::AccessibilityPanel::tagRunFinished,
+                     [&completions]() { ++completions; });
+
+    // First Apply: the runner starts and blocks on the barrier.
+    tagButtonOf(&panel)->click();
+    QVERIFY(waitForTagPreflight(&panel));
+    auto* apply = panel.findChild<QPushButton*>(
+        QStringLiteral("a11yTagApplyButton"));
+    QVERIFY(apply != nullptr);
+    apply->click();
+    QTRY_COMPARE_WITH_TIMEOUT(started.load(), 1, 15000);
+
+    // While the runner blocks: Tag and Apply are disabled…
+    QVERIFY(!tagButtonOf(&panel)->isEnabled());
+    QVERIFY(!apply->isEnabled());
+    // …and the GUI thread keeps processing events (it never blocked on the
+    // tag future — with the old waitForFinished this qWait never returns).
+    bool heartbeat = false;
+    QTimer::singleShot(0, [&heartbeat]() { heartbeat = true; });
+    QTest::qWait(150);
+    QVERIFY(heartbeat);
+
+    // A second Apply is REFUSED with a message — no second runner start,
+    // no cancel-then-block on the GUI thread.
+    QMetaObject::invokeMethod(&panel, "onApplyClicked");
+    QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("already running")),
+             qPrintable(statusOf(&panel)->text()));
+    QTest::qWait(150);
+    QCOMPARE(started.load(), 1);
+
+    // Release the barrier: exactly one completion arrives; controls re-enable.
+    barrier.release();
+    QTRY_COMPARE_WITH_TIMEOUT(runnerDone.load(), 1, 15000);
+    QTRY_COMPARE_WITH_TIMEOUT(completions, 1, 15000);
+    QCOMPARE(started.load(), 1);
+    QTRY_VERIFY(tagButtonOf(&panel)->isEnabled());
+    QCOMPARE(runnerDone.load(), 1);   // exactly one runner invocation, ever
+}
+
+void TestAccessibilityPanel::closePanelMidTagNoDeadlock() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+
+    auto* panel = new gp::AccessibilityPanel();
+    QSemaphore barrier;
+    std::atomic<int> started{0};
+    std::atomic<int> runnerDone{0};
+    panel->setTagRunner([&](const QString&, const gp::TaggerSessionState&) {
+        ++started;
+        barrier.acquire();
+        ++runnerDone;
+        gp::TaggerReport r;
+        r.ok = true;
+        return r;
+    });
+    panel->setDocument(pdf);
+    QVERIFY(waitForScan(panel));
+    tagButtonOf(panel)->click();
+    QVERIFY(waitForTagPreflight(panel));
+    auto* apply = panel->findChild<QPushButton*>(
+        QStringLiteral("a11yTagApplyButton"));
+    QVERIFY(apply != nullptr);
+    apply->click();
+    QTRY_COMPARE_WITH_TIMEOUT(started.load(), 1, 15000);
+
+    // Close the panel MID-TAG: the destructor must not block the GUI thread
+    // on the running tag future (the worker is blocked on the barrier — the
+    // old waitForFinished deadlocked here).
+    panel->deleteLater();
+    QTest::qWait(200);   // destruction runs; no deadlock
+
+    // The orphaned worker finishes on its own; no crash on delivery into a
+    // destroyed watcher.
+    barrier.release();
+    QTRY_COMPARE_WITH_TIMEOUT(runnerDone.load(), 1, 15000);
+    QTest::qWait(100);
+}
+
+void TestAccessibilityPanel::switchDocumentMidTagNoDeadlock() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+    const QString pdf2 = tmp.filePath("other.pdf");
+    QVERIFY(makeTaggablePdf(pdf2));
+
+    gp::AccessibilityPanel panel;
+    QSemaphore barrier;
+    std::atomic<int> started{0};
+    std::atomic<int> runnerDone{0};
+    panel.setTagRunner([&](const QString&, const gp::TaggerSessionState&) {
+        ++started;
+        barrier.acquire();
+        ++runnerDone;
+        gp::TaggerReport r;
+        r.ok = true;
+        return r;
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    tagButtonOf(&panel)->click();
+    QVERIFY(waitForTagPreflight(&panel));
+    auto* apply = panel.findChild<QPushButton*>(
+        QStringLiteral("a11yTagApplyButton"));
+    QVERIFY(apply != nullptr);
+    apply->click();
+    QTRY_COMPARE_WITH_TIMEOUT(started.load(), 1, 15000);
+
+    // Switch documents MID-TAG: no deadlock, no crash; the stale completion
+    // is discarded (ARC06) but the tag action re-enables.
+    panel.setDocument(pdf2);
+    QVERIFY(waitForScan(&panel));
+
+    barrier.release();
+    QTRY_COMPARE_WITH_TIMEOUT(runnerDone.load(), 1, 15000);
+    // Re-enable happens on completion even for a discarded (identity-tied)
+    // result — the action must not stay disabled forever.
+    QTRY_VERIFY(tagButtonOf(&panel)->isEnabled());
+    QTest::qWait(100);   // any late delivery: still no crash
 }
 
 #include "TestAccessibilityPanel.moc"

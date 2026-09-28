@@ -191,8 +191,21 @@ AccessibilityPanel::~AccessibilityPanel() {
         m_preflightWatcher->waitForFinished();
     }
     if (m_tagWatcher && m_tagWatcher->isRunning()) {
+        // CX-04: the tag runner hops BACK to the GUI thread (SafeSave
+        // park/restore, the save-first prompt) — waiting here would deadlock
+        // against our own destruction (the worker blocks on a thread that is
+        // blocked in this destructor). cancel() only: no result is delivered
+        // into a dying panel, the worker keeps its contract and finishes on
+        // its own; destroying a QFutureWatcher whose future still runs is
+        // safe (the future continues, signals stop).
+        // CX-04: the tag runner hops BACK to the GUI thread (SafeSave
+        // park/restore, the save-first prompt) — waiting here would deadlock
+        // against our own destruction (the worker blocks on a thread that is
+        // blocked in this destructor). cancel() only: no result is delivered
+        // into a dying panel, the worker keeps its contract and finishes on
+        // its own; destroying a QFutureWatcher whose future still runs is
+        // safe (the future continues, signals stop).
         m_tagWatcher->cancel();
-        m_tagWatcher->waitForFinished();
     }
 }
 
@@ -263,8 +276,14 @@ void AccessibilityPanel::setFixRunner(
 }
 
 void AccessibilityPanel::setTagRunner(
-    std::function<TaggerReport(const QString& path)> runner) {
+    std::function<TaggerReport(const QString& path,
+                               const TaggerSessionState& state)> runner) {
     m_tagRunner = std::move(runner);
+}
+
+void AccessibilityPanel::setTagStateReader(
+    std::function<TaggerSessionState()> reader) {
+    m_tagStateReader = std::move(reader);
 }
 
 void AccessibilityPanel::setReadOnlyGate(std::function<bool()> gate) {
@@ -273,6 +292,14 @@ void AccessibilityPanel::setReadOnlyGate(std::function<bool()> gate) {
 
 void AccessibilityPanel::updateTagActionState() {
     if (!m_tagBtn) return;
+    // CX-04: while a tag future is in flight, Tag (and Apply) are disabled —
+    // the runner hops back to the GUI thread, so a second concurrent tag
+    // must not be startable.
+    if (m_tagRunning) {
+        m_tagBtn->setEnabled(false);
+        m_tagBtn->setToolTip(tr("Tagging is running — wait for it to finish"));
+        return;
+    }
     // Honest gating: no document → disabled; an already-tagged document is
     // REFUSED by the engine, so the button says why instead of lying.
     if (m_currentDocPath.isEmpty() || !m_lastReport.loadOk) {
@@ -407,23 +434,38 @@ void AccessibilityPanel::onPreflightFinished() {
 
 void AccessibilityPanel::onApplyClicked() {
     if (!m_tagRunner || m_currentDocPath.isEmpty()) return;
+    // CX-04: a repeat Apply while a tag runs is REFUSED with a message. The
+    // runner hops back to this thread (SafeSave park/restore, the save-first
+    // prompt) — blocking here on the running future deadlocks both threads
+    // (the GUI never returns to its event loop to serve the hop).
+    if (m_tagWatcher && m_tagWatcher->isRunning()) {
+        m_statusLabel->setText(
+            tr("Tagging is already running — wait for it to finish."));
+        return;
+    }
     hideTagConfirmation();
+
+    // CX-04: read the session/viewer state ON THE GUI THREAD, before the
+    // future is submitted, and pass it into the runner by value — the
+    // worker never touches the viewer or the DocumentSession.
+    TaggerSessionState state;
+    if (m_tagStateReader) state = m_tagStateReader();
+
     m_statusLabel->setText(tr("Tagging…"));
+    m_tagRunning = true;
+    updateTagActionState();   // disables Tag while the run is in flight
+    if (m_tagApplyBtn) m_tagApplyBtn->setEnabled(false);
 
     if (!m_tagWatcher) {
         m_tagWatcher = new QFutureWatcher<TaggerReport>(this);
         connect(m_tagWatcher, &QFutureWatcher<TaggerReport>::finished, this,
                 &AccessibilityPanel::onTagFinished);
     }
-    if (m_tagWatcher->isRunning()) {
-        m_tagWatcher->cancel();
-        m_tagWatcher->waitForFinished();
-    }
     const QString path = m_currentDocPath;
     m_submittedTagPath = path;
     auto runner = m_tagRunner;
     m_tagWatcher->setFuture(QtConcurrent::run(
-        [runner, path]() { return runner(path); }));
+        [runner, path, state]() { return runner(path, state); }));
 }
 
 void AccessibilityPanel::onTagCancelClicked() {
@@ -432,6 +474,12 @@ void AccessibilityPanel::onTagCancelClicked() {
 }
 
 void AccessibilityPanel::onTagFinished() {
+    // CX-04: exactly one completion — the controls re-enable BEFORE any
+    // identity-tie discard, so a document switched mid-tag cannot leave the
+    // action disabled forever.
+    m_tagRunning = false;
+    if (m_tagApplyBtn) m_tagApplyBtn->setEnabled(true);
+    updateTagActionState();
     if (!m_tagWatcher || m_tagWatcher->isCanceled()) return;
     // ARC06 identity tie.
     if (m_submittedTagPath != m_currentDocPath) return;

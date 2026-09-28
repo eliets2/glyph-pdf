@@ -16,6 +16,21 @@ class QWidget;
 
 namespace gp {
 
+// CX-04: the session/viewer state the tag runner needs — read ON THE GUI
+// THREAD by the injected reader BEFORE the tag future is submitted, then
+// passed into the runner by value. The QtConcurrent worker therefore never
+// touches the viewer or the DocumentSession (the old runner read
+// pdfViewer()->filePath(), isDirty() and the read-only state on the worker).
+// The signed-document check stays file-derived inside the engine
+// (preflightTagging / tagDocumentAccessibility): it reads the FILE, not a
+// GUI-owned object, so it is already thread-honest — and moving a file walk
+// onto the GUI thread would be a regression.
+struct TaggerSessionState {
+    bool readOnly = false;      // EditPolicy::mutationBlocked(session)
+    QString viewerPath;         // the viewer's current file path ("" none)
+    bool dirty = false;         // the session's unsaved-changes state
+};
+
 // ── T2-4 accessibility: the checker + tagging panel ──────────────────────────
 //
 // Runs gp::scanAccessibility() on the open document (off the GUI thread) and
@@ -56,7 +71,18 @@ public:
     // P2 tagging: the tag runner is INJECTED the same way (the shell wraps
     // gp::tagDocumentAccessibility with viewer-handle coordination). Without
     // a runner the Tag action does not exist (never a dead control).
-    void setTagRunner(std::function<TaggerReport(const QString& path)> runner);
+    // CX-04: the runner receives the TaggerSessionState the panel read on
+    // the GUI thread before submitting — the worker never reads the session
+    // or the viewer itself.
+    void setTagRunner(std::function<TaggerReport(
+                          const QString& path, const TaggerSessionState& state)>
+                          runner);
+
+    // CX-04: the injected GUI-thread snapshot reader (EditPolicy, viewer
+    // path, dirty flag). Read in onApplyClicked BEFORE the future is
+    // submitted. Without a reader the runner gets a default (permissive)
+    // state — tests / hosts that guarantee mutability.
+    void setTagStateReader(std::function<TaggerSessionState()> reader);
 
     // PR-review §3.1: the read-only gate is INJECTED too — the panel stays a
     // view and never holds the DocumentSession; the shell's predicate asks
@@ -106,8 +132,11 @@ private:
     QString m_submittedScanPath;   // ARC06 identity tie for in-flight scans
     A11yReport m_lastReport;
     std::function<A11yFixOutcome(const A11yFixRequest&)> m_fixRunner;
-    std::function<TaggerReport(const QString& path)> m_tagRunner;
+    std::function<TaggerReport(const QString& path,
+                               const TaggerSessionState& state)> m_tagRunner;
+    std::function<TaggerSessionState()> m_tagStateReader;   // CX-04 (GUI thread)
     std::function<bool()> m_readOnlyGate;   // PR-review §3.1 (injected)
+    bool m_tagRunning = false;   // CX-04: a tag future is in flight
 
     QFutureWatcher<A11yReport>* m_scanWatcher = nullptr;
     QFutureWatcher<TaggerPreflight>* m_preflightWatcher = nullptr;

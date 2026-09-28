@@ -17,6 +17,10 @@ class WelcomeWidget;
 class QStackedWidget;
 
 namespace gp {
+// CX-04: defined in modes/AccessibilityPanel.h — the GUI-thread session
+// snapshot the injected tag runner receives (read before submission).
+struct TaggerSessionState;
+
 
 class UpdateChecker;
 class MenuBar;
@@ -226,7 +230,10 @@ private:
     gp::A11yFixOutcome runA11yFix(const gp::A11yFixRequest& request);
     // T2-4 P2: run the auto-tagging transaction (the panel's injected
     // runner); parks the resident document for the same-file write.
-    gp::TaggerReport runA11yTag(const QString& path);
+    // CX-04: all session/viewer state arrives in `st`, read on the GUI
+    // thread before submission — the worker never reads the session.
+    gp::TaggerReport runA11yTag(const QString& path,
+                                const gp::TaggerSessionState& st);
     void initUpdateChecker();
     // §9.16 P1: unified-flow conversions (same engines/progress/failure
     // handling as the Welcome cards in HomeController, minus their pick/save
