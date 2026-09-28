@@ -1,0 +1,30 @@
+PASS   : TestImageAppearance::restackRefusesWhenTheImageWouldChange()
+PASS   : TestImageAppearance::restackIsUnchangedWhenAlreadyInPlace()
+PASS   : TestImageAppearance::wrapIsInsertedOnceAndRecognised()
+PASS   : TestImageAppearance::escapedNamesMatch()
+PASS   : TestImageAppearance::bringToFrontChangesTheVisibleImageAndPersists()
+PASS   : TestImageAppearance::sendToBackChangesTheVisibleImage()
+QWARN  : TestImageAppearance::refusedRestackLeavesTheFileUntouched() setImageZOrder refused for "ImA" on page 1 - the image shares its graphics state with other content
+PASS   : TestImageAppearance::refusedRestackLeavesTheFileUntouched()
+PASS   : TestImageAppearance::opacityBlendsAndUpdatesInPlace()
+PASS   : TestImageAppearance::opacityOnInheritedResourcesKeepsImagesVisible()
+PASS   : TestImageAppearance::commandUndoRestoresTheStacking()
+PASS   : TestImageAppearance::customAngleRotationUndoesExactly()
+PASS   : TestImageAppearance::moveResizeRotateReachTheRealImage()
+PASS   : TestImageAppearance::listImagesReportsThePlacementMatrix()
+PASS   : TestImageAppearance::matrixRewriteKeepsTheBlockBalanced()
+PASS   : TestImageAppearance::moveUnderOuterScaleDoesNotDouble()
+PASS   : TestImageAppearance::movePlusUndoRestoresAllSixCoefficients()
+PASS   : TestImageAppearance::zeroMoveKeepsSkewAndReflectionPixelIdentical()
+PASS   : TestImageAppearance::moveKeepsAPreRotatedPlacement()
+PASS   : TestImageAppearance::resizeUnderOuterScaleSetsTheExactSize()
+PASS   : TestImageAppearance::rotateUnderOuterScaleKeepsTheDrawnRect()
+FAIL!  : TestImageAppearance::deleteImageRemovesTheOffsetZeroPlacement() '!content.contains("/ImA Do")' returned FALSE. (the deleted placement must be gone from the content)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(744) : failure location
+FAIL!  : TestImageAppearance::deleteImageKeepsNeighboursOverShapesAndEndings() '!content.contains("/ImA Do")' returned FALSE. (the deleted placement must be gone)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(769) : failure location
+FAIL!  : TestImageAppearance::deleteImageRefusalLeavesTheFileUntouched() '!engine.deleteImage(0, QStringLiteral("ImA"))' returned FALSE. (a shared block must not be deletable as one span)
+D:/pdf/pdf-keyA/tests/TestImageAppearance.cpp(814) : failure location
+PASS   : TestImageAppearance::cleanupTestCase()
+Totals: 26 passed, 3 failed, 0 skipped, 0 blacklisted, 458ms
+********* Finished testing of TestImageAppearance *********
