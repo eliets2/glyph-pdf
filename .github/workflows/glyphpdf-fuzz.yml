@@ -7,12 +7,24 @@
 #   2. the libFuzzer djot target IF a clang toolchain is provisioned.
 #
 # PR-triggered (short) + scheduled (longer batch).
+#
+# CX-13: the redaction-oracles job now provisions the SAME dependencies as
+# ci.yml — the vendored PoDoFo 1.1.0 bootstrap (pinned to commit SHA
+# 712fb0e80e0e9404525d8db54fa0baa4ae469963, shared cache key), ONNX Runtime
+# 1.17.3 (the driver links onnxruntime.lib), the PDFium runtime DLL (the
+# import lib is tracked, the runtime DLL is not), OpenSSL and the full
+# MSYS2 dep set — plus clang. Without them the job used to die at
+# "cmake: command not found" (run 33301931392) or would fail later at the
+# engine configure/build; the clang driver step was never reached.
+# The path filter now also covers the whole engine tree
+# (src/engines/**, src/core/Redaction*), not only src/engines/podofo/**.
 
 name: glyphpdf-fuzz
 on:
   pull_request:
     paths:
-      - 'src/engines/podofo/**'
+      - 'src/engines/**'
+      - 'src/core/Redaction*'
       - 'src/pdfws_djot/**'
       - 'fuzz/**'
   schedule:
@@ -23,12 +35,9 @@ jobs:
   redaction-oracles:
     # Runs on a Windows runner with MSYS2/ucrt64 to match the dev toolchain.
     # C1 (SWEEP-W3-DEVOPS §7.1): windows-2022, not windows-latest — the
-    # image flip must be a pinned, reviewable decision; and the msys2
-    # install list now carries cmake + ninja, which the Configure step
-    # below invokes (a missing tool here failed the job at setup, not at
-    # a named step).
+    # image flip must be a pinned, reviewable decision.
     runs-on: windows-2022
-    timeout-minutes: 30
+    timeout-minutes: 60
     defaults:
       run:
         shell: msys2 {0}
@@ -37,13 +46,100 @@ jobs:
       - uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
+          update: false
+          # Same dep set as ci.yml (minus the Qt *-tools/-svg/etc. UI extras
+          # the headless engine targets do not link) + clang: the driver
+          # today links with g++, but clang stays provisioned so the ASan
+          # driver variant and the harness builds never hit a missing
+          # toolchain mid-job.
           install: >-
-            mingw-w64-ucrt-x86_64-gcc
+            git
+            mingw-w64-ucrt-x86_64-toolchain
+            mingw-w64-ucrt-x86_64-clang
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-pdf
+            mingw-w64-ucrt-x86_64-podofo
             mingw-w64-ucrt-x86_64-qpdf
-            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-quickjs-ng
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-tesseract-ocr
+            mingw-w64-ucrt-x86_64-tesseract-data-eng
+            mingw-w64-ucrt-x86_64-leptonica
+            mingw-w64-ucrt-x86_64-libzip
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-curl
+            mingw-w64-ucrt-x86_64-libpng
+            mingw-w64-ucrt-x86_64-libjpeg-turbo
+            mingw-w64-ucrt-x86_64-libtiff
+            mingw-w64-ucrt-x86_64-openjpeg2
+            mingw-w64-ucrt-x86_64-fontconfig
+            python
+      # The CMake quickjs pin guard (GLYPHPDF_QUICKJS_PIN) enforces 0.15.1
+      # (PGR-40). Same refresh as ci.yml so the guarded configure matches.
+      - name: Sync quickjs-ng to the pinned release
+        shell: msys2 {0}
+        run: pacman -Sy --needed --noconfirm mingw-w64-ucrt-x86_64-quickjs-ng
+
+      # The engine code requires podofo 1.1.0 (MSYS2 ships older); build the
+      # vendored prefix exactly like ci.yml — pinned to a commit SHA, cached,
+      # SHA in the cache key (see ci.yml for the rationale).
+      - name: Restore vendored podofo cache
+        id: podofo-cache
+        uses: actions/cache@v4
+        with:
+          path: third_party/podofo/install
+          key: podofo-1.1.0-g712fb0e80e0e9404525d8db54fa0baa4ae469963-ucrt64-r1
+
+      - name: Build vendored podofo 1.1.0
+        if: steps.podofo-cache.outputs.cache-hit != 'true'
+        run: |
+          git init podofo-src
+          git -C podofo-src fetch --depth 1 https://github.com/podofo/podofo.git 712fb0e80e0e9404525d8db54fa0baa4ae469963
+          git -C podofo-src checkout FETCH_HEAD
+          cmake -S podofo-src -B podofo-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPODOFO_BUILD_TOOLS=OFF \
+            -DPODOFO_BUILD_TEST=OFF \
+            -DPODOFO_BUILD_EXAMPLES=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
+          cmake --build podofo-src/build --parallel
+          cmake --install podofo-src/build
+
+      # The driver links onnxruntime.lib; the oracle run needs
+      # onnxruntime.dll on PATH (the build stages runtime DLLs into build/).
+      - name: Download ONNX Runtime
+        shell: pwsh
+        run: |
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-win-x64-1.17.3.zip"
+          Invoke-WebRequest -Uri $url -OutFile ort.zip -TimeoutSec 180
+          $expected = "356A33D024F2709786BEBD5D4CA06CD5392875DA95DAA0455AAE72EDC8993256"
+          $actual = (Get-FileHash ort.zip -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { Write-Error "ORT checksum mismatch"; exit 1 }
+          Expand-Archive -Path ort.zip -DestinationPath . -Force
+          Remove-Item ort.zip
+
+      # The pdfium import lib is tracked, the runtime DLL is not — stage it
+      # exactly like ci.yml so the engine build (HAS_PDFIUM) and the driver's
+      # runtime both resolve.
+      - name: Download PDFium runtime DLL
+        shell: pwsh
+        run: |
+          $url = "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7834/pdfium-win-x64.tgz"
+          Invoke-WebRequest -Uri $url -OutFile pdfium.tgz -TimeoutSec 180
+          New-Item -ItemType Directory -Force pdfium-extract | Out-Null
+          tar -xzf pdfium.tgz -C pdfium-extract
+          $expected = "A487E1D2A18F164ADC3A17AACEE158787FA86049E6D91D3712B0A43F745E6905"
+          $actual = (Get-FileHash pdfium-extract/bin/pdfium.dll -Algorithm SHA256).Hash
+          if ($actual -ne $expected) { Write-Error "pdfium.dll checksum mismatch: $actual"; exit 1 }
+          New-Item -ItemType Directory -Force third_party/pdfium/bin | Out-Null
+          Copy-Item pdfium-extract/bin/pdfium.dll third_party/pdfium/bin/pdfium.dll
+          Remove-Item pdfium.tgz; Remove-Item -Recurse -Force pdfium-extract
+
       - name: Configure + build engine (cached)
         run: |
           # Owner's normal build of pdfws_engines into build/ (see root README).

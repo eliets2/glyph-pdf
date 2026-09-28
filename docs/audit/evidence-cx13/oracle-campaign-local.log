@@ -1,0 +1,14 @@
+[identity] Tm=1 0 0 1 100 700  -> CLEAN
+[rot90] Tm=0 1 -1 0 100 700  -> CLEAN
+[rot45] Tm=0.707 0.707 -0.707 0.707 100 600  -> CLEAN
+[scale3x] Tm=3 0 0 1 100 700  -> CLEAN
+[skewx] Tm=1 0 1 1 100 700  -> CLEAN
+
+=== P1/F-01: orphaned-object leak across revisions (plain Save path) ===
+      "raw_body_hits": {},
+      "qdf_normalized_hits": {},
+      "verdict": "CLEAN"
+[p1_simple] -> CLEAN
+
+Done. JSON reports in /d/pdf/pdf-keyC/fuzz/scratch/run-20260928-213156-1333 (fresh per-run directory, G19).
+ORACLE-EXIT=0

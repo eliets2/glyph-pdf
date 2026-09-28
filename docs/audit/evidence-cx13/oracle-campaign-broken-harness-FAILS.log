@@ -1,0 +1,11 @@
+[identity] ORACLE FAILED (tm_residual_oracle rc=3)
+[rot90] ORACLE FAILED (tm_residual_oracle rc=3)
+[rot45] ORACLE FAILED (tm_residual_oracle rc=3)
+[scale3x] ORACLE FAILED (tm_residual_oracle rc=3)
+[skewx] ORACLE FAILED (tm_residual_oracle rc=3)
+
+=== P1/F-01: orphaned-object leak across revisions (plain Save path) ===
+[p1_simple] ORACLE FAILED (redaction_leak_oracle rc=3)
+
+Done. JSON reports in /d/pdf/pdf-keyC/fuzz/scratch/run-20260928-213242-1389 (fresh per-run directory, G19).
+EXIT=1
