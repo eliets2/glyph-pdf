@@ -87,6 +87,17 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
   TestImageAppearance 20P/0F, TestSweepW3UxFlows 14P/0F, TestSignatureValidation 9P/0F.
   Still open: CX-01/02/04/07/08/09/10/11/12, N1, PGR-46 (images+tagging2+redaction
   lanes queued).
+- CP6 (tagging lane landed): e18d3433 (CX-01 HIGH — inline images now emitted as BI +
+  bare /Key value pairs + ID/data/EI per PDF 32000 §8.9.7; painting-preservation
+  invariant pins Do names + payload bytes; PDFium render backstop), d506d676 (CX-04
+  HIGH — repeat Apply refused, Tag/Apply disabled while running, GUI thread never
+  blocks on the tag future, session state read on the GUI thread pre-submit;
+  deviation: signed state stays file-derived in the engine, documented), 0144d056
+  (CX-07 MED — Form XObject MCIDs as /MCR /Pg /Stm /MCID with form StructParents +
+  ParentTree; validator checks /MCR; done honestly, no skip). R14 on PR head:
+  TestAccessibilityTagger 20P/0F/1skip, TestAccessibilityPanel 16P/0F,
+  TestSweepW3UxFlows 14P/0F. Still open: CX-02/08/09/10/11/12 (images lane in
+  flight), N1, PGR-46 (redaction lane queued).
 
 ## Notes / deviations
 
