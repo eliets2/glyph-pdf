@@ -1,0 +1,10 @@
+CX-10 fail-before — the CX-10 tests against HEAD (049edcaa: the innermost block is the image's own block, no wrapper unwrapping):
+Command: QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe (ContentSpans.cpp+PoDoFoBackend.cpp temporarily reverted to HEAD; test file at its new state)
+
+FAIL!  : TestImageAppearance::gsWrapperIsPartOfTheOwnBlock() Compared values are not the same
+FAIL!  : TestImageAppearance::opacityThenEditsComposeAndUndo() 'engine.moveImage(0, QStringLiteral("ImA"), 30, 0)' returned FALSE. ()
+Totals: 37 passed, 2 failed, 0 skipped, 0 blacklisted, 601ms
+
+Reading:
+- gsWrapperIsPartOfTheOwnBlock: after the opacity wrap the innermost block is q /GSop.. gs /ImA Do Q; replaceImageMatrix returned NotIsolated (the block sets no cm of its own) instead of rewriting the placement cm, and restack returned Unchanged (nothing paints inside the wrapper) while the image was NOT front-most.
+- opacityThenEditsComposeAndUndo: moveImage after opacity refused — listImages could not see the placement cm through the wrapper (hasLocalMatrix=false), so the whole edit family was dead after an opacity edit.

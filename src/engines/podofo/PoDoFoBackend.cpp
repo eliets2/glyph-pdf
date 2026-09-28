@@ -4250,6 +4250,12 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
         struct CmRecord { int depth; Matrix base; };
         QList<CmRecord> liveCms;
         int qDepth = 0;
+        // CX-10: blockGsOnly[d] — the block whose INSIDE nesting depth is d
+        // has so far only set graphics states (gs operators, and the image
+        // Do itself): an opacity wrapper like "q /GSop… gs /ImA Do Q" nested
+        // inside the placement block, not a placement block of its own.
+        QList<bool> blockGsOnly;
+        blockGsOnly.append(true);
 
         auto multiply = [](const Matrix& m1, const Matrix& m2) -> Matrix {
             return {
@@ -4297,42 +4303,62 @@ QList<PdfImageInfo> PoDoFoBackend::listImages(int pageIndex) {
                         // in force just before the image's own last cm.
                         const double eff[6] = { ctm.a, ctm.b, ctm.c, ctm.d, ctm.e, ctm.f };
                         for (int k = 0; k < 6; ++k) info.matrix[k] = eff[k];
-                        for (int i = liveCms.size() - 1; i >= 0; --i) {
-                            if (liveCms[i].depth != qDepth) continue;
-                            const Matrix &base = liveCms[i].base;
-                            const double bs[6] = { base.a, base.b, base.c, base.d, base.e, base.f };
-                            for (int k = 0; k < 6; ++k) info.baseMatrix[k] = bs[k];
-                            info.hasLocalMatrix = true;
-                            Mat6 scratch;
-                            info.baseInvertible = matInvert(matFromInfo(bs), &scratch);
-                            break;
+                        // CX-10: walk out through gs-only wrappers — the
+                        // opacity wrap must not hide the placement cm from
+                        // the edit family. Stop at the first depth with a
+                        // live cm, or when the level below is not a wrapper.
+                        for (int depth = qDepth; depth >= 0; --depth) {
+                            bool found = false;
+                            for (int i = liveCms.size() - 1; i >= 0; --i) {
+                                if (liveCms[i].depth != depth) continue;
+                                const Matrix &base = liveCms[i].base;
+                                const double bs[6] = { base.a, base.b, base.c, base.d, base.e, base.f };
+                                for (int k = 0; k < 6; ++k) info.baseMatrix[k] = bs[k];
+                                info.hasLocalMatrix = true;
+                                Mat6 scratch;
+                                info.baseInvertible = matInvert(matFromInfo(bs), &scratch);
+                                found = true;
+                                break;
+                            }
+                            if (found || depth == 0
+                                || depth >= blockGsOnly.size() || !blockGsOnly[depth])
+                                break;
                         }
                         result.append(info);
                     }
                 } else if (kw == "q") {
                     matrixStack.append(ctm);
                     ++qDepth;
+                    blockGsOnly.append(true);
                 } else if (kw == "Q" && !matrixStack.isEmpty()) {
                     ctm = matrixStack.takeLast();
                     --qDepth;
+                    if (blockGsOnly.size() > 1) blockGsOnly.takeLast();
                     for (int i = liveCms.size() - 1; i >= 0; --i)
                         if (liveCms[i].depth > qDepth) liveCms.removeAt(i);
-                } else if (kw == "cm" && stack.size() >= 6) {
-                    // PdfVariantStack indexes from the TOP: stack[0] is the
-                    // LAST operand (f) and stack[5] the first (a) — the
-                    // convention the redaction canvas walk already uses. The
-                    // forward reading here reported every non-symmetric
-                    // placement wrong (a 200x200 image at (100,400) came back
-                    // as 412x200 at (0,200), rotated 14 degrees).
-                    Matrix cm;
-                    cm.a = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
-                    cm.b = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
-                    cm.c = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
-                    cm.d = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
-                    cm.e = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
-                    cm.f = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
-                    liveCms.append({qDepth, ctm});
-                    ctm = multiply(cm, ctm);
+                } else {
+                    // CX-10: a gs operator keeps its block a wrapper; any
+                    // other operator (cm included — it makes the block a
+                    // placement block) marks real content.
+                    if (kw != "gs" && qDepth < blockGsOnly.size())
+                        blockGsOnly[qDepth] = false;
+                    if (kw == "cm" && stack.size() >= 6) {
+                        // PdfVariantStack indexes from the TOP: stack[0] is the
+                        // LAST operand (f) and stack[5] the first (a) — the
+                        // convention the redaction canvas walk already uses. The
+                        // forward reading here reported every non-symmetric
+                        // placement wrong (a 200x200 image at (100,400) came back
+                        // as 412x200 at (0,200), rotated 14 degrees).
+                        Matrix cm;
+                        cm.a = stack[5].IsNumberOrReal() ? stack[5].GetReal() : 0;
+                        cm.b = stack[4].IsNumberOrReal() ? stack[4].GetReal() : 0;
+                        cm.c = stack[3].IsNumberOrReal() ? stack[3].GetReal() : 0;
+                        cm.d = stack[2].IsNumberOrReal() ? stack[2].GetReal() : 0;
+                        cm.e = stack[1].IsNumberOrReal() ? stack[1].GetReal() : 0;
+                        cm.f = stack[0].IsNumberOrReal() ? stack[0].GetReal() : 0;
+                        liveCms.append({qDepth, ctm});
+                        ctm = multiply(cm, ctm);
+                    }
                 }
             }
         }
