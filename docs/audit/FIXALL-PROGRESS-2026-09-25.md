@@ -15,7 +15,7 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
   cabf7c15 (CX-05 HIGH, fillForm+UI-Apply gated through commit-phase /AA /K willCommit=true
   before /V; TestFormSafety 14P/0F), 476d163b (evidence move, E0).
   Remaining Phase 2 items (CX-01..04, 07..17, N1, PGR-46, INV-1): poll feat/fixall-* tips.
-- Phase 1-c (ledger): NEXT (branch check across all refs → CONSOLIDATION-LEDGER-2026-09-25.md).
+- Phase 1-c (ledger): **DONE** — CONSOLIDATION-LEDGER-2026-09-25.md pushed (0 unexplained; sweep-w2-gsd PRESENT by feature-presence; 68bc917e PGR-23 WIP pending-verification via redaction lane; view-parity-baseline out-of-scope per owner).
 - Phase 3 (re-verification): pending.
 - Phase 4 (gates E0-E6): pending.
 - Phase 5 (handoff): pending. Do not create CONSOLIDATION-HANDOFF-FIXALL until the end.
