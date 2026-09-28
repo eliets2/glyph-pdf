@@ -4551,8 +4551,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestConversionExtraction.cpp")
     target_link_libraries(TestConversionExtraction PRIVATE
         pdfws_engines pdfws_core zip Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
     )
+    # CX-03 seam: a controllable standalone soffice stand-in the test copies
+    # to the app-dir "bundled" location locateSoffice() checks first; its
+    # behavior (product / no-op / garbage / exit code) is env-selected.
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/fake_soffice.cpp")
+        add_executable(fake_soffice tests/fake_soffice.cpp)
+    endif()
     add_test(NAME TestConversionExtraction COMMAND TestConversionExtraction)
-    set_tests_properties(TestConversionExtraction PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;conversion;extraction;qt;headless")
+    set_tests_properties(TestConversionExtraction PROPERTIES ENVIRONMENT
+        "QT_QPA_PLATFORM=offscreen;GLYPHPDF_FAKE_SOFFICE_EXE=$<TARGET_FILE:fake_soffice>"
+        TIMEOUT 60 LABELS "unit;conversion;extraction;qt;headless")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestTextExtractionCoords.cpp")

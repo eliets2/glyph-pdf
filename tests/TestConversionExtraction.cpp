@@ -21,6 +21,8 @@
 // conversion derives a real cell grid (consistent columns across rows,
 // empty interior cells preserved, multiword cells kept whole).
 #include <QtTest/QtTest>
+#include <QCoreApplication>
+#include <QDir>
 #include <QTemporaryDir>
 #include <QFile>
 #include <QRegularExpression>
@@ -55,6 +57,14 @@ private slots:
     void tableColumnsBecomeRealCells();
     void columnInferenceCoversWideGapMultiwordAndEmptyInterior();
     void fontRunsSplitButProseStaysWhole();
+    // CX-03: office conversion runs the converter into a fresh private temp
+    // folder and commits ONLY a validated NEW product — pre-existing files
+    // (an unrelated sibling sharing the input's basename, the destination
+    // itself) are never consumed, overwritten by the converter's naming
+    // rule, or mistaken for the product on a no-output run.
+    void officeConvertNoProductLeavesSiblingAndDestinationIntact();
+    void officeConvertSuccessCommitsProductWithoutTouchingSibling();
+    void officeConvertEqualPathDestinationReplacedOnlyByValidatedProduct();
 
 private:
     // Subset-font fixture: unembedded Type1 whose /Differences encoding maps
@@ -87,6 +97,36 @@ private:
     // same baseline, adjacent advances).
     static QString createMixedFontPdf(const QString& dir, const QString& name);
     static QByteArray readFile(const QString& path);
+
+private:
+    // ── CX-03 seam ──────────────────────────────────────────────────────────
+    // Copies the fake soffice stand-in (built as the fake_soffice target, its
+    // path arrives via GLYPHPDF_FAKE_SOFFICE_EXE) to the app-dir "bundled"
+    // location — ConversionManager::locateSoffice's FIRST candidate — so
+    // convertOfficeToPdf runs a controllable converter instead of a real
+    // LibreOffice. Returns the installed path (empty on failure).
+    static QString installFakeSoffice() {
+        const QByteArray exe = qgetenv("GLYPHPDF_FAKE_SOFFICE_EXE");
+        if (exe.isEmpty()) return {};
+        const QString appDir = QCoreApplication::applicationDirPath();
+        const QString dest = appDir + "/libreoffice/program/soffice.exe";
+        QDir().mkpath(appDir + "/libreoffice/program");
+        if (QFile::exists(dest)) QFile::remove(dest);
+        return QFile::copy(QString::fromLocal8Bit(exe), dest) ? dest : QString();
+    }
+    static void removeFakeSoffice() {
+        const QString appDir = QCoreApplication::applicationDirPath();
+        QDir(appDir + "/libreoffice").removeRecursively();
+    }
+    // A standalone office file with a supported extension (content is
+    // irrelevant to the fake converter).
+    static QString makeOfficeInput(const QString& dir, const QString& name) {
+        const QString p = dir + "/" + name;
+        QFile f(p);
+        if (!f.open(QIODevice::WriteOnly)) return {};
+        f.write("synthetic office payload for the CX-03 seam\n");
+        return p;
+    }
 };
 
 // Shared hand-built-PDF writer: `objects` are the numbered object bodies
@@ -789,6 +829,126 @@ void TestConversionExtraction::fontRunsSplitButProseStaysWhole() {
     const int regularPos = text.indexOf(QStringLiteral("Regular"));
     const int boldPos = text.indexOf(QStringLiteral("Bold"));
     QVERIFY(regularPos >= 0 && boldPos > regularPos);
+}
+
+// ── CX-03 — the converter's product must be owned, validated, and committed ──
+// LibreOffice always names its output <input-basename>.pdf in --outdir. With
+// --outdir = the destination's own folder that consumed any pre-existing
+// sibling of that name (even on success), and when the converter produced
+// nothing the sibling was mistaken for the product: committed to the
+// destination, then deleted — a successful-looking data-destroying run. The
+// converter now writes into a fresh private temp folder, the product must
+// LOAD, and only the validated product reaches the destination (SafeSave
+// atomic commit).
+
+void TestConversionExtraction::officeConvertNoProductLeavesSiblingAndDestinationIntact() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QVERIFY2(!installFakeSoffice().isEmpty(), "the fake soffice seam must install");
+
+    const QString input = makeOfficeInput(tmp.path(), "input.docx");
+    QVERIFY(!input.isEmpty());
+    // The unrelated sibling: a valid, DIFFERENT PDF that happens to share the
+    // input's basename — the exact trigger shape.
+    QVERIFY(!createTextPdf(tmp.path(), "input.pdf", {"SIBLING-OLD-CONTENT"}).isEmpty());
+    const QByteArray siblingBefore = readFile(tmp.path() + "/input.pdf");
+    QVERIFY(!siblingBefore.isEmpty());
+    // A pre-existing destination the conversion claims to overwrite.
+    QVERIFY(!createTextPdf(tmp.path(), "chosen.pdf", {"CHOSEN-OLD-CONTENT"}).isEmpty());
+    const QByteArray chosenBefore = readFile(tmp.path() + "/chosen.pdf");
+    QVERIFY(!chosenBefore.isEmpty());
+
+    // Exit 0, product absent — the Codex no-op converter.
+    qputenv("GLYPHPDF_FAKE_SOFFICE_MODE", "noop");
+    ConversionManager cm;
+    const bool ok = cm.convertOfficeToPdf(input, tmp.path() + "/chosen.pdf");
+    qunsetenv("GLYPHPDF_FAKE_SOFFICE_MODE");
+    QVERIFY2(!ok, "a no-product conversion must report failure, never commit "
+                  "an unrelated pre-existing file");
+    QCOMPARE(readFile(tmp.path() + "/input.pdf"), siblingBefore);
+    QCOMPARE(readFile(tmp.path() + "/chosen.pdf"), chosenBefore);
+    removeFakeSoffice();
+}
+
+void TestConversionExtraction::officeConvertSuccessCommitsProductWithoutTouchingSibling() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QVERIFY2(!installFakeSoffice().isEmpty(), "the fake soffice seam must install");
+
+    const QString input = makeOfficeInput(tmp.path(), "input.docx");
+    QVERIFY(!input.isEmpty());
+    QVERIFY(!createTextPdf(tmp.path(), "input.pdf", {"SIBLING-OLD-CONTENT"}).isEmpty());
+    const QByteArray siblingBefore = readFile(tmp.path() + "/input.pdf");
+    QVERIFY(!siblingBefore.isEmpty());
+    QVERIFY(!createTextPdf(tmp.path(), "chosen.pdf", {"CHOSEN-OLD-CONTENT"}).isEmpty());
+    // The genuine product the fake converter will write.
+    QVERIFY(!createTextPdf(tmp.path(), "product.pdf", {"NEW-PRODUCT-CONTENT"}).isEmpty());
+    const QByteArray productBytes = readFile(tmp.path() + "/product.pdf");
+    QVERIFY(!productBytes.isEmpty());
+
+    qputenv("GLYPHPDF_FAKE_SOFFICE_MODE", "copy");
+    qputenv("GLYPHPDF_FAKE_SOFFICE_PRODUCT", QFile::encodeName(tmp.path() + "/product.pdf"));
+    ConversionManager cm;
+    const bool ok = cm.convertOfficeToPdf(input, tmp.path() + "/chosen.pdf");
+    qunsetenv("GLYPHPDF_FAKE_SOFFICE_MODE");
+    qunsetenv("GLYPHPDF_FAKE_SOFFICE_PRODUCT");
+    QVERIFY2(ok, "a real product must commit");
+    QCOMPARE(readFile(tmp.path() + "/chosen.pdf"), productBytes);
+    // The converter's naming rule used to OVERWRITE this sibling inside the
+    // destination's folder even on a successful run.
+    QCOMPARE(readFile(tmp.path() + "/input.pdf"), siblingBefore);
+    removeFakeSoffice();
+}
+
+void TestConversionExtraction::officeConvertEqualPathDestinationReplacedOnlyByValidatedProduct() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    QVERIFY2(!installFakeSoffice().isEmpty(), "the fake soffice seam must install");
+
+    const QString input = makeOfficeInput(tmp.path(), "input.docx");
+    QVERIFY(!input.isEmpty());
+    // The destination IS the sibling: converting input.docx "in place" onto
+    // the pre-existing input.pdf (the old equal-path branch).
+    QVERIFY(!createTextPdf(tmp.path(), "input.pdf", {"EQUAL-PATH-OLD-CONTENT"}).isEmpty());
+    QVERIFY(!createTextPdf(tmp.path(), "product.pdf", {"NEW-PRODUCT-CONTENT"}).isEmpty());
+    const QByteArray productBytes = readFile(tmp.path() + "/product.pdf");
+
+    // (a) No product: the old branch "validated" the old file by existence +
+    //     size and reported SUCCESS. It must fail and preserve the file.
+    QByteArray before = readFile(tmp.path() + "/input.pdf");
+    QVERIFY(!before.isEmpty());
+    qputenv("GLYPHPDF_FAKE_SOFFICE_MODE", "noop");
+    {
+        ConversionManager cm;
+        QVERIFY2(!cm.convertOfficeToPdf(input, tmp.path() + "/input.pdf"),
+                 "a no-product equal-path conversion must fail, not bless the old file");
+    }
+    QCOMPARE(readFile(tmp.path() + "/input.pdf"), before);
+
+    // (b) Head-forged garbage: starts with %PDF- but does not LOAD — the
+    //     5-byte head check alone used to admit it.
+    before = readFile(tmp.path() + "/input.pdf");
+    qputenv("GLYPHPDF_FAKE_SOFFICE_MODE", "garbage");
+    {
+        ConversionManager cm;
+        QVERIFY2(!cm.convertOfficeToPdf(input, tmp.path() + "/input.pdf"),
+                 "output that does not load as a PDF must be refused");
+    }
+    QCOMPARE(readFile(tmp.path() + "/input.pdf"), before);
+
+    // (c) A real product: the destination is replaced by the validated
+    //     product — and only now.
+    qputenv("GLYPHPDF_FAKE_SOFFICE_MODE", "copy");
+    qputenv("GLYPHPDF_FAKE_SOFFICE_PRODUCT", QFile::encodeName(tmp.path() + "/product.pdf"));
+    {
+        ConversionManager cm;
+        QVERIFY2(cm.convertOfficeToPdf(input, tmp.path() + "/input.pdf"),
+                 "a validated product must commit, equal-path included");
+    }
+    qunsetenv("GLYPHPDF_FAKE_SOFFICE_MODE");
+    qunsetenv("GLYPHPDF_FAKE_SOFFICE_PRODUCT");
+    QCOMPARE(readFile(tmp.path() + "/input.pdf"), productBytes);
+    removeFakeSoffice();
 }
 
 QTEST_MAIN(TestConversionExtraction)
