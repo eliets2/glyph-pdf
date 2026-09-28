@@ -518,3 +518,16 @@ would roughly halve the repo footprint.
   `git bundle list-heads | head`; (d) du measured live — sizes drift as consolidation proceeds; (e) survey captured
   2026-09-29 but the deliverable carries the requested 2026-09-25 name.
 
+## Addendum — concurrent mutation on capture day (2026-09-29)
+
+The tables above are a point-in-time snapshot (158 local branches / 22 worktrees). While this survey ran,
+the consolidation itself started moving. At final handoff the live counts are **161 local branches / 23 worktrees**:
+
+| New since snapshot | Tip | Divergence vs base | Notes |
+|---|---|---|---|
+| `feat/consolidation-action-plan` | `3a0c485b` (2026-09-29) | 142 behind / 1025 ahead | Action-plan docs **+ DRAFT consolidation script (`consolidation-action-draft.sh`): NOT EXECUTED** — `bash -n` only; DRYRUN default; `CONSENT=I-UNDERSTAND-THIS-DELETES-BRANCHES` + `CONSENT_PUSH` gates; fail-closed `delete_proven()` (pinned tip + content pin + bundle verify + SHA check); archive-tag push BEFORE any deletion; never force/gc/prune |
+| `feat/consolidation-critique` | `b94f3313` (2026-09-29) | **0 behind / +2 ahead** | Critique of the landed action plan; **contains `review/consolidated-parity` entirely** — built directly on the PR head, candidate consolidation trunk. New worktree `D:/pdf/pdf-conscritic` (clean) holds it |
+| `feat/explorer-branches` | `920d847e` (2026-09-29) | 142 behind / 1024 ahead | This survey (parent `feat/parity-glm`) |
+
+Planner note: the "endgame recipe" of §8 is already scripted by `feat/consolidation-action-plan` and reviewed by
+`feat/consolidation-critique` — reconcile those two documents with this landscape before executing anything.
