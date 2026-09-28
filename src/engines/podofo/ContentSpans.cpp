@@ -121,6 +121,48 @@ int findImageDo(const QList<Token> &toks, const QByteArray &name)
     return -1;
 }
 
+// The `occurrence`-th (0-based, stream order) "/<name> Do" placement.
+int findImageDoNth(const QList<Token> &toks, const QByteArray &name, int occurrence)
+{
+    if (occurrence < 0) occurrence = 0;
+    int seen = 0;
+    for (int i = 1; i < toks.size(); ++i) {
+        if (toks[i].kind == Token::Kind::Operator && toks[i].text == "Do"
+            && toks[i - 1].kind == Token::Kind::Name && toks[i - 1].text == name) {
+            if (seen == occurrence) return i;
+            ++seen;
+        }
+    }
+    return -1;
+}
+
+// match[i]: for the q token at i, the index of its Q (lex() guaranteed
+// balance); unmatched entries stay -1.
+QVector<int> qMatch(const QList<Token> &toks)
+{
+    QVector<int> match(toks.size(), -1);
+    QVector<int> open;
+    for (int i = 0; i < toks.size(); ++i) {
+        if (toks[i].kind != Token::Kind::Operator) continue;
+        if (toks[i].text == "q") open.push_back(i);
+        else if (toks[i].text == "Q" && !open.isEmpty()) match[open.takeLast()] = i;
+    }
+    return match;
+}
+
+// The innermost q..Q block containing the token at `at` (-1 when the token
+// sits outside every block). `match` comes from qMatch().
+int innermostBlockOpen(const QList<Token> &toks, int at)
+{
+    QVector<int> open;
+    for (int i = 0; i < at; ++i) {
+        if (toks[i].kind != Token::Kind::Operator) continue;
+        if (toks[i].text == "q") open.push_back(i);
+        else if (toks[i].text == "Q" && !open.isEmpty()) open.pop_back();
+    }
+    return open.isEmpty() ? -1 : open.back();
+}
+
 } // namespace
 
 bool lex(const QByteArray &s, QList<Token> *tokens)
@@ -343,6 +385,49 @@ EditResult replaceImageMatrix(const QByteArray &s, const QByteArray &name,
         return EditResult::Changed;
     }
     return EditResult::NotIsolated;
+}
+
+EditResult removeImagePlacement(const QByteArray &s, const QByteArray &name,
+                                int occurrence, QByteArray *out)
+{
+    QList<Token> toks;
+    if (!lex(s, &toks)) return EditResult::Malformed;
+
+    const int doIdx = findImageDoNth(toks, name, occurrence);
+    if (doIdx < 0) return EditResult::NotFound;
+
+    // The image's own block: the innermost q..Q around the Do. A placement
+    // outside every block is refused — erasing the bare "name Do" would leave
+    // its cm/gs/clip in force for whatever content follows.
+    const int blockOpen = innermostBlockOpen(toks, doIdx);
+    if (blockOpen < 0) return EditResult::NotIsolated;
+
+    const QVector<int> match = qMatch(toks);
+    const int blockClose = match[blockOpen];
+    // restack's isolation rule: the block must paint nothing but this
+    // placement, or the removal would take the neighbours with it.
+    for (int i = blockOpen + 1; i < blockClose; ++i)
+        if (i != doIdx && isPainting(toks[i])) return EditResult::SharedBlock;
+
+    // A marked-content region opened inside the block must also close inside
+    // it: removal may not orphan a BDC/BMC or an EMC any more than restacking
+    // may cross one (CX-09's ownership rule, which deletion honours too).
+    int markedDepth = 0;
+    for (int i = blockOpen + 1; i < blockClose; ++i) {
+        if (toks[i].kind != Token::Kind::Operator) continue;
+        if (toks[i].text == "BDC" || toks[i].text == "BMC") {
+            ++markedDepth;
+        } else if (toks[i].text == "EMC") {
+            if (markedDepth == 0) return EditResult::StateInTheWay;
+            --markedDepth;
+        }
+    }
+    if (markedDepth != 0) return EditResult::StateInTheWay;
+
+    QByteArray result = s;
+    result.remove(toks[blockOpen].start, toks[blockClose].end - toks[blockOpen].start);
+    *out = result;
+    return EditResult::Changed;
 }
 
 } // namespace gp::content

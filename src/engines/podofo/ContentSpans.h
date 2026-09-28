@@ -61,4 +61,18 @@ EditResult wrapImageInExtGState(const QByteArray &content, const QByteArray &xob
 EditResult replaceImageMatrix(const QByteArray &content, const QByteArray &xobjectName,
                               const QByteArray &matrix, QByteArray *out);
 
+// Removes the `occurrence`-th placement (0-based, stream order) of the image
+// "/<xobjectName> Do" together with its own q..Q block. The same isolation
+// rule restackImage applies guards the removal: the block must paint nothing
+// but this placement (SharedBlock otherwise), a placement outside any q..Q is
+// refused (removing the bare "name Do" would leave its cm/gs/clip active for
+// the content that follows), and a marked-content region opened inside the
+// block must also close inside it. NotFound when the name has fewer
+// placements than `occurrence`. CX-12: this replaces PoDoFoBackend's raw
+// substring delete, which was a no-op returning true when the block started
+// at offset 0 (no "\nq" before it) and could erase unrelated content when
+// find("\nQ") matched an outer block's Q.
+EditResult removeImagePlacement(const QByteArray &content, const QByteArray &xobjectName,
+                                int occurrence, QByteArray *out);
+
 } // namespace gp::content

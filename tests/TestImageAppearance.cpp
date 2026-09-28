@@ -204,6 +204,13 @@ private slots:
     void moveKeepsAPreRotatedPlacement();
     void resizeUnderOuterScaleSetsTheExactSize();
     void rotateUnderOuterScaleKeepsTheDrawnRect();
+
+    // ── Part 4: CX-12 — deleteImage removes the parsed, isolated span ──────
+    void removeImagePlacementSpanRules();
+    void removeImagePlacementByOccurrence();
+    void deleteImageRemovesTheOffsetZeroPlacement();
+    void deleteImageKeepsNeighboursOverShapesAndEndings();
+    void deleteImageRefusalLeavesTheFileUntouched();
 };
 
 // ── Part 1 ─────────────────────────────────────────────────────────────────
@@ -717,6 +724,236 @@ void TestImageAppearance::rotateUnderOuterScaleKeepsTheDrawnRect()
     QVERIFY(isRed(pixelAt(f, 215, 45)));
     QVERIFY(isRed(pixelAt(f, 120, 140)));   // the centre stays put
     QVERIFY(!isRed(pixelAt(f, 410, 470)));  // the doubled image must not appear
+}
+
+// ── Part 4: CX-12 — deleteImage removes the parsed, isolated span ──────────
+
+// The pure gp::content contract of the removal the engine delete now goes
+// through: stream start/end, CRLF, escaped names, neighbouring content,
+// strings containing "/ImA Do", nested blocks, shared blocks and marked
+// content that does not close inside the span.
+void TestImageAppearance::removeImagePlacementSpanRules()
+{
+    QByteArray out;
+
+    // The Codex shape: the block starts at offset 0 (no "\nq" before it).
+    const QByteArray s0 = "q 100 0 0 100 20 20 cm /ImA Do Q";
+    QCOMPARE(gp::content::removeImagePlacement(s0, "ImA", 0, &out),
+             EditResult::Changed);
+    QVERIFY2(QString::fromLatin1(out).trimmed().isEmpty(),
+             qPrintable(QStringLiteral("the whole block goes, got <%1>").arg(QString::fromLatin1(out))));
+
+    // Block at the very end of the stream: everything before it survives.
+    const QByteArray se = "1 js\nq 1 0 0 1 5 5 cm /ImA Do Q";
+    QCOMPARE(gp::content::removeImagePlacement(se, "ImA", 0, &out),
+             EditResult::Changed);
+    QCOMPARE(out, QByteArray("1 js\n"));
+
+    // CRLF endings: the removal is by parsed offsets, not line text.
+    const QByteArray crlf = "1 js\r\nq 1 0 0 1 5 5 cm\r\n/ImA Do\r\nQ";
+    QCOMPARE(gp::content::removeImagePlacement(crlf, "ImA", 0, &out),
+             EditResult::Changed);
+    QCOMPARE(out, QByteArray("1 js\r\n"));
+
+    // An # escaped name is the same placement.
+    const QByteArray esc = "q 1 0 0 1 5 5 cm /Im#41 Do Q";
+    QCOMPARE(gp::content::removeImagePlacement(esc, "ImA", 0, &out),
+             EditResult::Changed);
+    QVERIFY(out != esc && !out.contains("Do"));
+
+    // A neighbour block survives byte-exact, in order.
+    const QByteArray nb = "0 js\nq 1 0 0 1 5 5 cm /ImA Do Q\n"
+                          "q 2 0 0 2 1 1 cm /ImB Do Q\n";
+    QCOMPARE(gp::content::removeImagePlacement(nb, "ImA", 0, &out),
+             EditResult::Changed);
+    QCOMPARE(out, QByteArray("0 js\n\nq 2 0 0 2 1 1 cm /ImB Do Q\n"));
+
+    // A nested block: the innermost span around the Do goes, the rest stays.
+    const QByteArray nested = "q q cm /ImA Do Q Q 1 js";
+    QCOMPARE(gp::content::removeImagePlacement(nested, "ImA", 0, &out),
+             EditResult::Changed);
+    QVERIFY2(!out.contains("/ImA Do") && out.contains("1 js"),
+             qPrintable(QStringLiteral("got <%1>").arg(QString::fromLatin1(out))));
+
+    // "/ImA Do" inside a literal string is not a placement.
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement("(x /ImA Do y) Tj", "ImA", 0, &out),
+             EditResult::NotFound);
+    QVERIFY(out.isEmpty());
+
+    // A block that paints another image must not go with this one…
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement(
+                 "q 100 0 0 100 20 20 cm /ImA Do /ImB Do Q", "ImA", 0, &out),
+             EditResult::SharedBlock);
+    QVERIFY(out.isEmpty());
+    // …nor one that paints text.
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement("q /ImA Do (t) Tj Q", "ImA", 0, &out),
+             EditResult::SharedBlock);
+    QVERIFY(out.isEmpty());
+
+    // A placement outside every q..Q: refused (its cm would stay in force).
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement("1 js /ImA Do", "ImA", 0, &out),
+             EditResult::NotIsolated);
+    QVERIFY(out.isEmpty());
+
+    // A marked-content region opened inside the span must close inside it.
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement("q /P BDC /ImA Do Q", "ImA", 0, &out),
+             EditResult::StateInTheWay);
+    QVERIFY(out.isEmpty());
+    // …and a stray EMC inside the span is refused as well.
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement("q EMC /ImA Do Q", "ImA", 0, &out),
+             EditResult::StateInTheWay);
+    QVERIFY(out.isEmpty());
+    // A balanced region that the span owns moves out with it.
+    const QByteArray owned = "0 js\nq /P << /MCID 0 >> BDC /ImA Do EMC Q";
+    QCOMPARE(gp::content::removeImagePlacement(owned, "ImA", 0, &out),
+             EditResult::Changed);
+    QCOMPARE(out, QByteArray("0 js\n"));
+
+    // Unknown name and absent occurrence (refusals leave `out` untouched —
+    // it is cleared first so "still empty" proves exactly that).
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement("q /ImB Do Q", "ImA", 0, &out),
+             EditResult::NotFound);
+    QCOMPARE(gp::content::removeImagePlacement("q /ImA Do Q\nq /ImA Do Q", "ImA", 2, &out),
+             EditResult::NotFound);
+    QVERIFY(out.isEmpty());
+
+    // Unparseable content is refused, never silently edited.
+    QCOMPARE(gp::content::removeImagePlacement("q /ImA Do", "ImA", 0, &out),
+             EditResult::Malformed);
+    QVERIFY(out.isEmpty());
+}
+
+// Two placements of one image: the occurrence picks which span goes (the
+// byte-level foundation of N1's placement addressing).
+void TestImageAppearance::removeImagePlacementByOccurrence()
+{
+    QByteArray out;
+    const QByteArray two = "q 1 0 0 1 5 5 cm /ImA Do Q\nq 1 0 0 1 7 7 cm /ImA Do Q\n";
+
+    QCOMPARE(gp::content::removeImagePlacement(two, "ImA", 0, &out),
+             EditResult::Changed);
+    QVERIFY2(!out.contains("5 5 cm") && out.contains("7 7 cm"),
+             qPrintable(QStringLiteral("occurrence 0 must remove the first span, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+
+    out.clear();
+    QCOMPARE(gp::content::removeImagePlacement(two, "ImA", 1, &out),
+             EditResult::Changed);
+    QVERIFY2(out.contains("5 5 cm") && !out.contains("7 7 cm"),
+             qPrintable(QStringLiteral("occurrence 1 must remove the second span, got <%1>")
+                            .arg(QString::fromLatin1(out))));
+}
+
+// The Codex repro: the image's q..Q block starts at offset 0, so the raw
+// substring delete ("rfind \nq" before the Do, "find \nQ" after it) found
+// neither anchor, erased nothing — and still returned true.
+void TestImageAppearance::deleteImageRemovesTheOffsetZeroPlacement()
+{
+    QTemporaryDir dir;
+    const QString f = makeTwoImagePdf(
+        dir.path(), "del0.pdf",
+        "q 200 0 0 200 100 400 cm /ImA Do Q\n"
+        "q 200 0 0 200 150 450 cm /ImB Do Q\n");
+    PdfEditorEngine engine;
+    QVERIFY(engine.loadDocumentForEditing(f));
+
+    QVERIFY(engine.deleteImage(0, QStringLiteral("ImA")));
+    const QByteArray content = pageContent(f);
+    QVERIFY2(!content.contains("/ImA Do"), "the deleted placement must be gone from the content");
+    QVERIFY2(content.contains("/ImB Do"), "the neighbour placement must survive");
+    for (const auto &img : engine.listImages(0))
+        QVERIFY2(img.xobjectName != QLatin1String("ImA"),
+                 "listImages must no longer report the deleted image");
+    QVERIFY(isBlue(pixelAt(f, kOverlap.x(), kOverlap.y())));   // ImB untouched
+    QVERIFY(!isRed(pixelAt(f, kOnlyA.x(), kOnlyA.y())));       // ImA really gone
+}
+
+// The image block at the very end of the stream, CRLF endings, a nested block
+// and an # escaped name: exactly the image's own span goes, every neighbouring
+// byte survives verbatim.
+void TestImageAppearance::deleteImageKeepsNeighboursOverShapesAndEndings()
+{
+    // Block at the very end; the neighbour (and its CRLF) sits before it.
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "delEnd.pdf",
+            "q 200 0 0 200 150 450 cm /ImB Do Q\r\n"
+            "q 200 0 0 200 100 400 cm /ImA Do Q");
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        QVERIFY(engine.deleteImage(0, QStringLiteral("ImA")));
+        const QByteArray content = pageContent(f);
+        QVERIFY2(!content.contains("/ImA Do"), "the deleted placement must be gone");
+        QVERIFY2(content.startsWith("q 200 0 0 200 150 450 cm /ImB Do Q\r\n"),
+                 "the neighbour's bytes must survive verbatim");
+    }
+    // A nested block: only the innermost span around the Do is removed.
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "delNested.pdf",
+            "q q 200 0 0 200 100 400 cm /ImA Do Q Q\n"
+            "q 200 0 0 200 150 450 cm /ImB Do Q\n");
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        QVERIFY(engine.deleteImage(0, QStringLiteral("ImA")));
+        const QByteArray content = pageContent(f);
+        QVERIFY2(!content.contains("/ImA Do"), "the deleted placement must be gone");
+        QVERIFY2(content.contains("/ImB Do"), "the neighbour placement must survive");
+        QVERIFY(isBlue(pixelAt(f, kOverlap.x(), kOverlap.y())));
+    }
+    // "/Im#41 Do" is the placement of ImA — the parsed search decodes it.
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "delEsc.pdf",
+            "q 200 0 0 200 100 400 cm /Im#41 Do Q\n");
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        QVERIFY(engine.deleteImage(0, QStringLiteral("ImA")));
+        QVERIFY2(!pageContent(f).contains("/Im#41"),
+                 "the escaped-name placement must be removed from the content");
+    }
+}
+
+// A block that paints another image, and a "/ImA Do" that only appears inside
+// a literal string: both must be refused — byte-identical file, image intact.
+void TestImageAppearance::deleteImageRefusalLeavesTheFileUntouched()
+{
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "delShared.pdf",
+            "q 200 0 0 200 100 400 cm /ImA Do /ImB Do Q\n");
+        const QByteArray before = fileBytes(f);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        QVERIFY2(!engine.deleteImage(0, QStringLiteral("ImA")),
+                 "a shared block must not be deletable as one span");
+        QCOMPARE(fileBytes(f), before);
+        QCOMPARE(engine.listImages(0).size(), 2);   // both placements still listed
+        QVERIFY(isBlue(pixelAt(f, kOnlyA.x(), kOnlyA.y())));   // both still paint: ImB covers ImA
+    }
+    {
+        QTemporaryDir dir;
+        const QString f = makeTwoImagePdf(
+            dir.path(), "delString.pdf",
+            "q (x /ImA Do y) Tj Q\nq 200 0 0 200 100 400 cm /ImB Do Q\n");
+        const QByteArray before = fileBytes(f);
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(f));
+        QVERIFY2(!engine.deleteImage(0, QStringLiteral("ImA")),
+                 "a /ImA Do inside a string is not a placement");
+        QCOMPARE(fileBytes(f), before);
+    }
 }
 
 QTEST_MAIN(TestImageAppearance)

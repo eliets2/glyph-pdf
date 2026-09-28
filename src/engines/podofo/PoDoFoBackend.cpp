@@ -4147,6 +4147,24 @@ const char *describeRefusal(gp::content::EditResult r)
     }
 }
 
+// The number of parsed "/<name> Do" placements in `content`, or -1 when the
+// content does not parse. This is the delete/edit family's own census — the
+// raw substring count would also match a "/ImA Do" inside a string or inline
+// image data (CX-12), exactly the matches the parsed edit must not see.
+int countImagePlacements(const QByteArray &content, const QByteArray &name)
+{
+    QList<gp::content::Token> toks;
+    if (!gp::content::lex(content, &toks)) return -1;
+    int n = 0;
+    for (int i = 1; i < toks.size(); ++i) {
+        if (toks[i].kind == gp::content::Token::Kind::Operator && toks[i].text == "Do"
+            && toks[i - 1].kind == gp::content::Token::Kind::Name
+            && toks[i - 1].text == name)
+            ++n;
+    }
+    return n;
+}
+
 
 // Rewrites the image's placement matrix — the cm inside its own q..Q block —
 // byte-exactly via gp::content. The previous version matched the image's Do as
@@ -4531,68 +4549,38 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
     QMutexLocker locker(&d->mutex);
     if (!d->document) return false;
     if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
+    bool mutated = false;
     try {
         auto& page = d->document->GetPages().GetPageAt(pageIndex);
-        
-        // Validate the xobject exists in the page's content stream using the tokenizer
-        {
-            PoDoFo::PdfContentStreamReader reader(page);
-            PoDoFo::PdfContent pdfContent;
-            bool found = false;
-            while (reader.TryReadNext(pdfContent)) {
-                // EC03 (step-3 round-trip test): PoDoFo 1.x HANDLES a non-form
-                // XObject Do itself and reports it as PdfContentType::DoXObject
-                // (name in content->Name) — it never surfaces as a plain "Do"
-                // Operator on a page-based reader. The Operator-only scan used
-                // here left deleteImage unable to see any image placement, so
-                // every deletion was refused. Same asymmetry, same fix as the
-                // listImages scan; the plain-Operator branch stays as the
-                // fallback (form-XObject draws still report as "Do").
-                const bool imageDo = pdfContent.GetType() == PoDoFo::PdfContentType::DoXObject;
-                if (imageDo || pdfContent.GetType() == PoDoFo::PdfContentType::Operator) {
-                    QString name;
-                    if (imageDo) {
-                        if (pdfContent->Name != nullptr)
-                            name = QString::fromStdString(std::string(pdfContent->Name->GetString()));
-                        else if (pdfContent.GetStack().size() >= 1)
-                            name = QString::fromStdString(std::string(pdfContent.GetStack()[0].GetName().GetString()));
-                    } else if (pdfContent.GetKeyword() == "Do" && pdfContent.GetStack().size() >= 1) {
-                        name = QString::fromStdString(std::string(pdfContent.GetStack()[0].GetName().GetString()));
-                    }
-                    if (name == xobjectName) {
-                        found = true;
-                        break;
-                    }
-                }
-            }
-            if (!found) return false;
+        const QByteArray before = pageContentBytes(page);
+        const QByteArray nameUtf = xobjectName.toUtf8();
+
+        // CX-12: the raw-substring delete this replaces searched for the
+        // "/<name> Do" text and erased from the last "\nq" before it to the
+        // next "\nQ" after it. A stream whose first line starts at offset 0
+        // (no preceding newline) left both anchors unfound: nothing was
+        // erased and the delete still returned true. Worse, the "\nQ" could
+        // belong to an OUTER block, erasing every byte in between. The
+        // placement is now found by parsing (so escaped names match and
+        // string/inline-image look-alikes do not) and removed as its whole
+        // isolated span, under restack's isolation rule.
+        const int total = countImagePlacements(before, nameUtf);
+        if (total < 0) {
+            qWarning() << "deleteImage refused for" << xobjectName
+                       << "- the page content could not be parsed safely";
+            return false;
         }
-        
-        auto* contentsObj = page.GetContents();
-        if (!contentsObj) return false;
-        
-        PoDoFo::charbuff streamBuf;
-        contentsObj->CopyTo(streamBuf);
-        std::string content(streamBuf.data(), streamBuf.size());
-        
-        std::string doTarget = "/" + xobjectName.toStdString() + " Do";
-        size_t doPos = content.find(doTarget);
-        if (doPos == std::string::npos) return false;
-        
-        // Find enclosing q..Q block
-        size_t qStart = content.rfind("\nq\n", doPos);
-        if (qStart == std::string::npos) qStart = content.rfind("\nq ", doPos);
-        size_t qEnd = content.find("\nQ", doPos);
-        
-        if (qStart != std::string::npos && qEnd != std::string::npos) {
-            content.erase(qStart, (qEnd + 2) - qStart);
-        } else {
-            size_t lineStart = content.rfind('\n', doPos);
-            size_t lineEnd = content.find('\n', doPos);
-            if (lineStart != std::string::npos && lineEnd != std::string::npos)
-                content.erase(lineStart, lineEnd - lineStart);
+        if (total == 0) return false;               // nothing drawn under this name
+
+        QByteArray edited;
+        const auto result = gp::content::removeImagePlacement(before, nameUtf, 0, &edited);
+        if (result != gp::content::EditResult::Changed) {
+            qWarning() << "deleteImage refused for" << xobjectName << "on page"
+                       << pageIndex + 1 << "-" << describeRefusal(result);
+            return false;
         }
-        
+
+        mutated = true;
         // EC03 round-trip fix: PdfContents::Reset() installs a fresh (initially
         // empty) ARRAY container, so GetObject() is an array and a direct
         // GetOrCreateStream() threw "Tried to get stream of non-dictionary
@@ -4600,19 +4588,17 @@ bool PoDoFoBackend::deleteImage(int pageIndex, const QString &xobjectName) {
         // content was already mutated (a half-mutation the viewer could show
         // but the file never carried). Write through both container shapes,
         // the same rule the redaction/annotation writers use.
-        contentsObj->Reset();
-        if (contentsObj->GetObject().IsArray()) {
-            auto& stream = contentsObj->CreateStreamForAppending();
-            stream.SetData(content);
-        } else {
-            auto& stream = contentsObj->GetObject().GetOrCreateStream();
-            stream.SetData(content);
-        }
-        
+        setPageContentBytes(page, edited);
+
+        // Success only if a reparse no longer finds what the edit removed.
+        if (countImagePlacements(pageContentBytes(page), nameUtf) != total - 1)
+            throw std::runtime_error("deleteImage: the placement survived the edit");
+
         if (!commitMutation(d->currentFile)) throw std::runtime_error("writeUpdate failed");
         return true;
     } catch (const std::exception& e) {   // PdfError, or a refused commit (commitMutation already rolled back)
         qWarning() << "deleteImage error:" << e.what();
+        if (mutated) d->rollbackResidentMutation();   // never leave a half edit resident
         return false;
     }
 }

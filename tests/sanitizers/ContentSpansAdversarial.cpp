@@ -232,6 +232,8 @@ static void extGStateWrap()
 // is exercised through, pinned here so the sanitizer sees them too: the image
 // block at offset 0, at the very end, CRLF line endings, # escaped names and
 // "/ImA Do" appearing only inside a literal string or inline-image data.
+// Since the CX-12 fix the engine goes through gp::content::removeImagePlacement,
+// which the sanitizer now drives directly over the same shapes.
 static void deletionShapes()
 {
     QList<Token> toks;
@@ -243,12 +245,23 @@ static void deletionShapes()
           == EditResult::Changed);
     checkStreamStaysLexable(s0, out);
     CHECK(out.contains("2 0 0 2 0 0 cm /ImA Do"));
+    out.clear();
+    CHECK(gp::content::removeImagePlacement(s0, "ImA", 0, &out) == EditResult::Changed);
+    checkStreamStaysLexable(s0, out);
 
     // Block at the very end of the stream (blockClose is the last token).
     const QByteArray se = "1 js\nq 1 0 0 1 5 5 cm /ImA Do Q";
     CHECK(gp::content::replaceImageMatrix(se, "ImA", "1 0 0 1 6 6", &out)
           == EditResult::Changed);
     checkStreamStaysLexable(se, out);
+    out.clear();
+    CHECK(gp::content::removeImagePlacement(se, "ImA", 0, &out) == EditResult::Changed);
+    checkStreamStaysLexable(se, out);
+    CHECK(out == QByteArray("1 js\n"));
+    // An absent occurrence is refused without touching the output.
+    out.clear();
+    CHECK(gp::content::removeImagePlacement(se, "ImA", 1, &out) == EditResult::NotFound);
+    CHECK(out.isEmpty());
 
     // CRLF line endings everywhere.
     const QByteArray crlf = "1 js\r\nq 1 0 0 1 5 5 cm\r\n/ImA Do\r\nQ";
@@ -256,21 +269,48 @@ static void deletionShapes()
     CHECK(gp::content::replaceImageMatrix(crlf, "ImA", "1 0 0 1 7 7", &out)
           == EditResult::Changed);
     checkStreamStaysLexable(crlf, out);
+    out.clear();
+    CHECK(gp::content::removeImagePlacement(crlf, "ImA", 0, &out) == EditResult::Changed);
+    checkStreamStaysLexable(crlf, out);
+    CHECK(out == QByteArray("1 js\r\n"));
 
     // # escaped name decodes to the same placement.
     const QByteArray esc = "q 1 0 0 1 5 5 cm /Im#41 Do Q";
     CHECK(gp::content::restackImage(esc, "ImA", true, &out) == EditResult::Unchanged);
     CHECK(gp::content::restackImage(esc, "ImX", true, &out) == EditResult::NotFound);
+    out.clear();
+    CHECK(gp::content::removeImagePlacement(esc, "ImA", 0, &out) == EditResult::Changed);
+    checkStreamStaysLexable(esc, out);
 
     // The name only inside a string: parsing must not find a placement there.
     CHECK(gp::content::restackImage("(x /ImA Do y) Tj", "ImA", true, &out)
           == EditResult::NotFound);
+    out.clear();
+    CHECK(gp::content::removeImagePlacement("(x /ImA Do y) Tj", "ImA", 0, &out)
+          == EditResult::NotFound);
+    CHECK(out.isEmpty());
+
+    // A shared block is refused as one removable span; a placement outside
+    // every q..Q is refused as well — the removal never takes neighbours
+    // along and never leaves a dangling cm behind.
+    out.clear();
+    CHECK(gp::content::removeImagePlacement("q /ImA Do /ImB Do Q", "ImA", 0, &out)
+          == EditResult::SharedBlock);
+    CHECK(out.isEmpty());
+    out.clear();
+    CHECK(gp::content::removeImagePlacement("1 js /ImA Do", "ImA", 0, &out)
+          == EditResult::NotIsolated);
+    CHECK(out.isEmpty());
 
     // q/Q unbalanced: malformed, never a silent edit.
     CHECK(!gp::content::lex("q /ImA Do", &toks));
     CHECK(!gp::content::lex("Q /ImA Do Q", &toks));
     CHECK(gp::content::restackImage("q /ImA Do", "ImA", true, &out)
           == EditResult::Malformed);
+    out.clear();
+    CHECK(gp::content::removeImagePlacement("q /ImA Do", "ImA", 0, &out)
+          == EditResult::Malformed);
+    CHECK(out.isEmpty());
 
     // A cm with missing operands: refused as malformed, no OOB operand read.
     CHECK(gp::content::replaceImageMatrix("q cm /ImA Do Q", "ImA", "1 0 0 1 0 0", &out)
@@ -313,7 +353,10 @@ static void mutationSweep()
             out.clear();
             const EditResult r4 = gp::content::wrapImageInExtGState(s, "ImA", "GS", &out);
             if (r4 == EditResult::Changed) checkStreamStaysLexable(s, out);
-            (void)r1; (void)r2; (void)r3; (void)r4;
+            out.clear();
+            const EditResult r5 = gp::content::removeImagePlacement(s, "ImA", 0, &out);
+            if (r5 == EditResult::Changed) checkStreamStaysLexable(s, out);
+            (void)r1; (void)r2; (void)r3; (void)r4; (void)r5;
         }
     }
 }

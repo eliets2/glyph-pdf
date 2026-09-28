@@ -1,0 +1,4 @@
+FAIL!  : TestImageAppearance::deleteImageRemovesTheOffsetZeroPlacement() '!content.contains("/ImA Do")' returned FALSE. (the deleted placement must be gone from the content)
+FAIL!  : TestImageAppearance::deleteImageKeepsNeighboursOverShapesAndEndings() '!content.contains("/ImA Do")' returned FALSE. (the deleted placement must be gone)
+FAIL!  : TestImageAppearance::deleteImageRefusalLeavesTheFileUntouched() '!engine.deleteImage(0, QStringLiteral("ImA"))' returned FALSE. (a shared block must not be deletable as one span)
+Totals: 26 passed, 3 failed, 0 skipped, 0 blacklisted, 439ms
