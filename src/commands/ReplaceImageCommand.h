@@ -8,11 +8,15 @@
 
 class ReplaceImageCommand : public CheckedUndoCommand {
 public:
+    // N1: `occurrence` addresses the placement (see MoveImageCommand); the
+    // replacement itself swaps the shared XObject's pixels (object scope).
     ReplaceImageCommand(IPdfEditorEngine* engine, DocumentSession* doc,
                         int pageIndex, const QString& xobjectName,
-                        const QString& newImagePath, const QByteArray& pageBackup)
+                        const QString& newImagePath, const QByteArray& pageBackup,
+                        int occurrence = 0)
         : m_engine(engine), m_doc(doc), m_page(pageIndex),
-          m_name(xobjectName), m_newPath(newImagePath), m_backup(pageBackup) {
+          m_name(xobjectName), m_occurrence(occurrence),
+          m_newPath(newImagePath), m_backup(pageBackup) {
         setText(QObject::tr("Replace image %1").arg(xobjectName));
     }
     // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the checked APPLY side — the
@@ -80,6 +84,7 @@ private:
     DocumentSession* m_doc;
     int m_page;
     QString m_name;
+    int m_occurrence;
     QString m_newPath;
     QByteArray m_backup;
 
@@ -107,7 +112,7 @@ private:
                                  .arg(m_name);
             return false;
         }
-        if (!m_engine->replaceImage(m_page, m_name, m_newPath)) {
+        if (!m_engine->replaceImage(m_page, m_name, m_newPath, m_occurrence)) {
             if (err) *err = QObject::tr("Replacing image %1 failed; the document was left unchanged.")
                                  .arg(m_name);
             return false;

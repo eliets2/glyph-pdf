@@ -154,17 +154,31 @@ public:
     bool removeEncryption(const QString &ownerPassword);
     bool sanitizeDocument(const QString &outputPath);
 
-    // Image operations
+    // Image operations. N1: every edit addresses a PLACEMENT —
+    // (pageIndex, xobjectName, occurrence), the occurrence being the 0-based
+    // stream-order index among the page's placements of the name that
+    // listImages reports. Default 0 keeps the single-placement callers
+    // unchanged; a name drawn twice is two editable targets, and addressing
+    // the name alone always hit the first placement.
     QList<PdfImageInfo> listImages(int pageIndex);
-    bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy);
-    bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight);
-    bool rotateImage(int pageIndex, const QString &xobjectName, double degrees);
-    bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath);
-    bool deleteImage(int pageIndex, const QString &xobjectName);
+    bool moveImage(int pageIndex, const QString &xobjectName, double dx, double dy,
+                   int occurrence = 0);
+    bool resizeImage(int pageIndex, const QString &xobjectName, double newWidth,
+                     double newHeight, int occurrence = 0);
+    bool rotateImage(int pageIndex, const QString &xobjectName, double degrees,
+                     int occurrence = 0);
+    // replaceImage swaps the pixels of the SHARED XObject: every placement of
+    // the name shows the new image, so `occurrence` is accepted for uniform
+    // addressing but the scope is object-level.
+    bool replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath,
+                      int occurrence = 0);
+    bool deleteImage(int pageIndex, const QString &xobjectName, int occurrence = 0);
     // Byte-exact content edits via gp::content (ContentSpans.h); both refuse,
     // leaving the document untouched, when the edit could restyle the image.
-    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront);
-    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity);
+    bool setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront,
+                        int occurrence = 0);
+    bool setImageOpacity(int pageIndex, const QString &xobjectName, double opacity,
+                         int occurrence = 0);
 
     // Watermarking (Session 13)
     bool addTextWatermark(const TextWatermarkOptions &options);

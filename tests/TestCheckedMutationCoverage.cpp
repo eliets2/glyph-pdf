@@ -149,7 +149,7 @@ public:
         return m_deleteOk;
     }
     int m_replaceImageCalls = 0;
-    bool replaceImage(int, const QString &, const QString &) override {
+    bool replaceImage(int, const QString &, const QString &, int) override {
         ++m_replaceImageCalls;
         return true;
     }

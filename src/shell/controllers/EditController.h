@@ -216,9 +216,12 @@ signals:
     void ocrSaveFinished(bool saved, bool canceled, const QString& message);
 
 private slots:
-    void onImageSelected(const QString &name, const QRectF &placement);
-    void onImageMoved(const QString &name, double dx, double dy);
-    void onImageResized(const QString &name, double newW, double newH);
+    // N1: the slots carry the selected placement's occurrence — a reused
+    // image XObject is drawn several times, and the edit must land on the
+    // placement the user selected, never "the first with that name".
+    void onImageSelected(const QString &name, const QRectF &placement, int occurrence);
+    void onImageMoved(const QString &name, double dx, double dy, int occurrence);
+    void onImageResized(const QString &name, double newW, double newH, int occurrence);
     void onTextEditRequested(int pageIndex, QPointF pos);
     void onTextFormatChanged(const QString &fontFamily, int fontSize, const QColor &color, bool bold, bool italic, int alignment);
     void onTextStyleChanged(double opacity, double letterSpacing, double lineSpacing);
@@ -256,6 +259,7 @@ private:
     QString _ocrRapidLang;                        // language the cached RapidOCR was init'd with
 
     QString _selectedImageName;
+    int _selectedImageOccurrence = 0;   // N1: which placement of the name
     int _imageEditPage = -1;
     EditToolBar* _textToolBar = nullptr;
 

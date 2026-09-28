@@ -9,11 +9,12 @@
 
 class DeleteImageCommand : public CheckedUndoCommand {
 public:
+    // N1: `occurrence` addresses the placement (see MoveImageCommand).
     DeleteImageCommand(IPdfEditorEngine* engine, DocumentSession* doc,
                        int pageIndex, const QString& xobjectName,
-                       const QByteArray& pageBackup)
+                       const QByteArray& pageBackup, int occurrence = 0)
         : m_engine(engine), m_doc(doc), m_page(pageIndex),
-          m_name(xobjectName), m_backup(pageBackup) {
+          m_name(xobjectName), m_occurrence(occurrence), m_backup(pageBackup) {
         setText(QObject::tr("Delete image %1").arg(xobjectName));
     }
     // WP-R03 (WHOLE-ARCHITECTURE-REVIEW A02): the checked APPLY side — the
@@ -86,6 +87,7 @@ private:
     DocumentSession* m_doc;
     int m_page;
     QString m_name;
+    int m_occurrence;
     QByteArray m_backup;
 
     // G08: the shared restoration body — one committed step, no reporting.
@@ -112,7 +114,7 @@ private:
                                  .arg(m_name);
             return false;
         }
-        if (!m_engine->deleteImage(m_page, m_name)) {
+        if (!m_engine->deleteImage(m_page, m_name, m_occurrence)) {
             if (err) *err = QObject::tr("Deleting image %1 failed; the document was left unchanged.")
                                  .arg(m_name);
             return false;

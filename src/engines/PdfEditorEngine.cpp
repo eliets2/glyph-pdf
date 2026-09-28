@@ -1469,12 +1469,13 @@ QList<PdfImageInfo> PdfEditorEngine::listImages(int pageIndex)
     return d->backend->listImages(pageIndex);
 }
 
-bool PdfEditorEngine::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy)
+bool PdfEditorEngine::moveImage(int pageIndex, const QString &xobjectName, double dx, double dy,
+                                int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("moveImage");
-    bool ok = d->backend->moveImage(pageIndex, xobjectName, dx, dy);
+    bool ok = d->backend->moveImage(pageIndex, xobjectName, dx, dy, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to move the image on page %1.").arg(pageIndex + 1),
@@ -1484,12 +1485,13 @@ bool PdfEditorEngine::moveImage(int pageIndex, const QString &xobjectName, doubl
     return ok;
 }
 
-bool PdfEditorEngine::resizeImage(int pageIndex, const QString &xobjectName, double newWidth, double newHeight)
+bool PdfEditorEngine::resizeImage(int pageIndex, const QString &xobjectName, double newWidth,
+                                  double newHeight, int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("resizeImage");
-    bool ok = d->backend->resizeImage(pageIndex, xobjectName, newWidth, newHeight);
+    bool ok = d->backend->resizeImage(pageIndex, xobjectName, newWidth, newHeight, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to resize the image on page %1.").arg(pageIndex + 1),
@@ -1499,12 +1501,13 @@ bool PdfEditorEngine::resizeImage(int pageIndex, const QString &xobjectName, dou
     return ok;
 }
 
-bool PdfEditorEngine::rotateImage(int pageIndex, const QString &xobjectName, double degrees)
+bool PdfEditorEngine::rotateImage(int pageIndex, const QString &xobjectName, double degrees,
+                                  int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("rotateImage");
-    bool ok = d->backend->rotateImage(pageIndex, xobjectName, degrees);
+    bool ok = d->backend->rotateImage(pageIndex, xobjectName, degrees, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to rotate the image on page %1.").arg(pageIndex + 1),
@@ -1514,12 +1517,13 @@ bool PdfEditorEngine::rotateImage(int pageIndex, const QString &xobjectName, dou
     return ok;
 }
 
-bool PdfEditorEngine::replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath)
+bool PdfEditorEngine::replaceImage(int pageIndex, const QString &xobjectName, const QString &newImagePath,
+                                   int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("replaceImage");
-    bool ok = d->backend->replaceImage(pageIndex, xobjectName, newImagePath);
+    bool ok = d->backend->replaceImage(pageIndex, xobjectName, newImagePath, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to replace the image on page %1.").arg(pageIndex + 1),
@@ -1529,12 +1533,12 @@ bool PdfEditorEngine::replaceImage(int pageIndex, const QString &xobjectName, co
     return ok;
 }
 
-bool PdfEditorEngine::deleteImage(int pageIndex, const QString &xobjectName)
+bool PdfEditorEngine::deleteImage(int pageIndex, const QString &xobjectName, int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("deleteImage");
-    bool ok = d->backend->deleteImage(pageIndex, xobjectName);
+    bool ok = d->backend->deleteImage(pageIndex, xobjectName, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Failed to delete the image on page %1.").arg(pageIndex + 1),
@@ -1544,12 +1548,13 @@ bool PdfEditorEngine::deleteImage(int pageIndex, const QString &xobjectName)
     return ok;
 }
 
-bool PdfEditorEngine::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront)
+bool PdfEditorEngine::setImageZOrder(int pageIndex, const QString &xobjectName, bool bringToFront,
+                                     int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("setImageZOrder");
-    const bool ok = d->backend->setImageZOrder(pageIndex, xobjectName, bringToFront);
+    const bool ok = d->backend->setImageZOrder(pageIndex, xobjectName, bringToFront, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Could not change the stacking order of the image on page %1: it "
@@ -1562,12 +1567,13 @@ bool PdfEditorEngine::setImageZOrder(int pageIndex, const QString &xobjectName, 
     return ok;
 }
 
-bool PdfEditorEngine::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity)
+bool PdfEditorEngine::setImageOpacity(int pageIndex, const QString &xobjectName, double opacity,
+                                      int occurrence)
 {
     QMutexLocker locker(&d->mutex);
     d->clearErr();
     if (!d->backend) return d->noBackend("setImageOpacity");
-    const bool ok = d->backend->setImageOpacity(pageIndex, xobjectName, opacity);
+    const bool ok = d->backend->setImageOpacity(pageIndex, xobjectName, opacity, occurrence);
     if (!ok) {
         d->setErr(ErrorInfo::Error,
                   QObject::tr("Could not set the opacity of the image on page %1. Nothing was "
