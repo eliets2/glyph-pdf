@@ -441,3 +441,46 @@ identically on the UNCHANGED `8a0a8b3d` baseline (pre-existing machine flake,
 not caused by any D2 fix — same class as the three baseline flake rows in the
 line-reconciliation verification). Any further deferred residuals the D2 lane
 held were not committed to its branch; this is flagged as an evidence gap.
+
+## §11. FIXALL session outcomes (2026-09-25 session, closed 2026-09-29)
+
+Status of every Codex CX item, N1, PGR-46 and INV-1 at PR head `2ead0b17`
+(`review/consolidated-parity`). Full evidence table:
+`docs/audit/CONSOLIDATION-HANDOFF-FIXALL-2026-09-25.md` §4.
+
+| ID | Status | Commit | Test / evidence |
+|----|--------|--------|-----------------|
+| CX-01 HIGH | **Fixed** | `838f71c7` | TestAccessibilityTagger painting-preservation invariant + PDFium render backstop; 20P/0F/1skip ×3 |
+| CX-02 HIGH | **Fixed** | `0bc692df` | TestImageAppearance desired × base⁻¹ matrix pins (all six coefficients, reflection); 47P/0F ×3 |
+| CX-03 HIGH | **Fixed** | `220b5f2b` | TestConversionExtraction 21P/0F ×3 (fresh private temp folder; validated product only); evidence `docs/audit/evidence-cx03/` |
+| CX-04 HIGH | **Fixed** | `3b2eb8c7` | TestAccessibilityPanel repeat-Apply refusal + GUI-never-blocks pins; 16P/0F ×3 solo — **post-fix defect: the repeat-Apply pin segfaults under heavy CPU contention (CI ×3, local 6-way repro), recorded for owner** |
+| CX-05 HIGH | **Fixed** | `cabf7c15` | TestFormSafety 14P/0F (commit-phase `/AA /K` willCommit=true before `/V`); evidence `docs/audit/evidence-cx05/` |
+| CX-06 MED | **Fixed** | `f6ef7d68` | TestSecretStore 23P/0F ×3; evidence `docs/audit/evidence-cx06/` |
+| CX-07 MED | **Fixed** | `c7d261b6` | Form XObject MCIDs as `/MCR /Pg /Stm /MCID`; validator checks /MCR; 20P/0F/1skip ×3 |
+| CX-08 MED | **Fixed** | `175a1a12` | exact inline-image extent pins (AHx/A85/Flate ±/L; refuse binary without /L); evidence `docs/audit/evidence-cx08/` |
+| CX-09 MED | **Fixed** | `da295c34` | restack refuses marked-content crossing (OCG + tagged, both directions); evidence `docs/audit/evidence-cx09/` |
+| CX-10 MED | **Fixed** | `1a8f6380` | gs-only wrapper treated as the image's own block; evidence `docs/audit/evidence-cx10/` |
+| CX-11 MED | **Fixed** | `c524f8ef` | SharedBlock isolation for replaceImageMatrix; evidence `docs/audit/evidence-cx11/` |
+| CX-12 MED | **Fixed** | `a2397a94` | parsed-span removal + reparse gate; evidence `docs/audit/evidence-cx12/` |
+| CX-13 | **Fixed** | `92101f6c` | fuzz workflow provisioned (deps like ci.yml; engine-wide path filter); acceptance evidence `docs/audit/evidence-cx13/` (oracle campaign + broken-harness negative control) |
+| CX-14 | **Fixed** | `38e6412b` | per-test txt+junit artifacts always uploaded; Fontconfig theory disproved with captured output (real flake named for owner) |
+| CX-15 | **Fixed** | `4e463a8c` (+ engine find `e0f72ce4`) | ubuntu content-spans-sanitizer job (ASan+UBSan, CX-08..12 adversarial cases) green on CI; the gate build found a real engine bug (ExtGState wrap corrupting tight-adjacency streams) |
+| CX-16 | **Fixed** | `1b42e166` | TestDynamicStamps 10P/0F (copy instead of reference-into-temporary; by inspection — no ASan on UCRT64) |
+| CX-17 | **Fixed** | `462212b4` | TestOcrPreprocessPrefs 5P/0F with negative control proving non-vacuity; evidence `docs/audit/evidence-cx17/` |
+| N1 | **Fixed** | `2ead0b17` | occurrence-index addressing end-to-end; TestImageAppearance 47P/0F ×3; evidence `docs/audit/evidence-n1/` (41P/4F → 47P/0F) |
+| PGR-46 CRITICAL-class | **Fixed** | `99dd7b67` | pattern mark-all placement through the one page-space law; TestRedactMarkAll 21P/0F ×3; evidence `docs/audit/evidence-pgr46/` (18P/3F → 21P/0F) |
+| INV-1 | **Reproduced + Fixed (HIGH)** | `64baba6a` | DSS-only catalog allowlist (unsigned `/OpenAction` append now downgraded); TestSignatureRealCrypto 28P/0F/1skip ×3 at CP5; the no-over-block pin flaked once on CI (run 36486624682, captured artifact) — owner root-cause item |
+
+Also closed this session (verified ×3 on the PR head): PGR-23 (`6841247d`,
+nested-PDF recursion + container refusal; the parallel WIP `68bc917e`
+SUPERSEDED, its 2 pins ported as `06ce3ae4`; residual: OLE compound signature
+not in the refusal list — owner item), M1 per-mark accounting (`3fb0b8c2`),
+M2 save-first prompt (`673d19a0`), M3 CSV exemption (`75427aed`),
+PGR-42..45 = the D2 fixes NOW ON THE PR (`f90b4c71`, `1d59f241`, `6600a429`,
+`ddef6a8f` — superseding this document's earlier "not on the PR" D2 note above),
+the formjs PGR-35..39 suites (TestFormJsCalc 49P, TestFormJsAdversarial
+24P/1skip, TestFormKeystroke 9P), the secrets/engine suites (TestSecretStore
+23P, TestEngineSave 22P), and the Phase 1 pick surfaces (TestFindReplace 30P,
+TestAccessibilityTagger 20P/1skip, TestAccessibilityPanel 16P, TestBatchPresets
+15P, TestBatchPresetsP2 33P). Gates and totals:
+`docs/audit/CONSOLIDATION-HANDOFF-FIXALL-2026-09-25.md`.

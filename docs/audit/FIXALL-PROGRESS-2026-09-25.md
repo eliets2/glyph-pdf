@@ -157,3 +157,58 @@ Worktree: D:/pdf/pdf-review. Branch: review/consolidated-parity.
 - Note: the redaction lane observed the N1 finisher's edits appearing in the pdf-inst
   worktree (worktree mixup by that agent, not the integrator's doing) — to be verified
   and picked from wherever the work actually landed when the N1 agent reports.
+
+## Checkpoint CP9 (Phases 3-5 gates, 2026-09-29, successor integrator)
+
+- Phase 3 re-verification (all areas, §6 table): **ALL GREEN**.
+  - PGR-23 `6841247d`: TestRedactionProof 33P/0F ×3 (+ TestSep13LeadRedactionProof
+    11P/0F ×3). M1 `3fb0b8c2` per-mark pin present and passing (pin
+    blankMarkWhereExcisedOpsExceedAttributionIsUnverifiable, TestRedactionProof.cpp:1382).
+  - PGR-42..45 `6600a429`/`f90b4c71`/`1d59f241`/`ddef6a8f`: TestPgr37PageSpaceLaw 9P ×3,
+    TestPgr35BatchCollision 4P ×3, TestPgr36StaleSigningPanel 3P ×3, TestBatchMode 17P ×3,
+    TestBatchOpsCoverage 8P/1skip ×3 + the full redaction cluster (TestRedaction 22P/2skip,
+    TestRedactTransaction 42P, TestPatternRedact 15P, TestRedactMarkAll 21P,
+    TestRedactApplyMarks 5P, TestRedactClearMarks 4P, TestRedactSanitizeBundle 3P) ×3;
+    TestFindReplace 30P/0F ×3 (the `9b2b2727` port re-verified).
+  - M2 `673d19a0`: flow7c + M2 slots in TestSweepW3UxFlows 14P/0F ×3. flow7 `cee36259`:
+    the "never certifies" disclosure check retained verbatim
+    (TestSweepW3UxFlows.cpp:1972-1974) and passing. flow2a `91ce30b7`: same suite.
+  - M3 `75427aed`: TestConversionExtraction 21P/0F ×3 (CSV plain-number exemption pins;
+    NOTE the CX-03 seam tests need the ctest env GLYPHPDF_FAKE_SOFFICE_EXE — direct exe
+    runs without it fail the 3 seam tests, an environment contract, not a defect).
+  - Ponytail `0aa5c2de`: TestCommentsReview 10P/0F ×3, TestCompareEntry 26P/0F ×3,
+    TestCompareIntegration 8P/0F ×3 (behavior-preserving).
+  - formjs PGR-35..39: TestFormJsCalc 49P/0F ×3, TestFormJsAdversarial 24P/0F/1skip ×3,
+    TestFormKeystroke 9P/0F ×3.
+  - Secrets/engine PGR-20/22/06/25/26: TestSecretStore 23P/0F ×3, TestEngineSave 22P/0F ×3.
+  - Tag gates + matrix: TestAccessibilityTagger 20P/0F/1skip ×3, TestAccessibilityPanel
+    16P/0F ×3; presets picks' suites TestBatchPresets 15P/0F ×3, TestBatchPresetsP2 33P/0F ×3.
+- CP8 verification (lane-folded commits): PGR-46 `99dd7b67` + PGR-23 pins `06ce3ae4`
+  re-verified ×3 on the PR head (TestRedactMarkAll 21P incl. the 3 rot90/rot270/offset
+  placement pins; TestRedactionProof 35P incl. the 2 ported pins).
+- N1 landed on `feat/fixall-images` (`d63ed76e`) and folded as `2ead0b17` (single
+  cherry-pick; a concurrent-pick race with a lane agent was resolved by squashing two
+  partial applications whose union diff was proven byte-identical to the source —
+  content applied exactly once). N1 suites ×3 on the PR head: TestImageAppearance
+  47P/0F (41+6 N1 pins), TestImageEditWiring 4P, TestCheckedMutationCoverage 13P,
+  TestHistoryIntegrity 15P, TestControllers 13P.
+- NEW DEFECT (recorded, R10 — owner item): TestAccessibilityPanel
+  `repeatApplyRefusedWhileTagRuns` SEGFAULTS under heavy CPU contention: CI -j4 2/2
+  runs since the images lane (run 36486557489, 36486624682; artifact: 12 PASS then
+  crash entering this test), and locally 3/6 instances crashed when 6 copies ran in
+  parallel; solo and 3× always green (16P/0F). Panel-side worker lambda is by-value
+  safe; hazard candidates: the test's by-reference runner captures vs the CX-04
+  cancel-only destructor on a contention-blown wait. Reproducer:
+  `for i in 1..6; ./TestAccessibilityPanel.exe & done` (needs load to hit).
+- CI evidence: run 36486557489 (da295c34) failed Test: TestWelcomeRoutes (known flake,
+  owner item from CP5) + TestSweepW3UxFlows (known parallel flake) +
+  TestAccessibilityPanel (segfault above). Run 36486624682 (f4b9ccb8) added
+  TestSignatureRealCrypto (flake-listed; INV-1 pin testOwnBltDssRevisionNotDowngraded
+  got ValidWithUnsignedChanges once — captured artifact; passed all other CI runs and
+  locally ×3 at CP5). Build step green on every run; content-spans-sanitizer green.
+- Gates (Phase 4): E0 PASS (tracked logs/patches are deliberate audit evidence);
+  E1 PASS (fresh Release build dir this session, 945 steps, 0 errors);
+  E2 full ctest -j6 + serial + touched-suite ×3 (recorded at the gates head);
+  E3 PASS (0 purge hits, main ancestor, 0 merges); E4 PASS (166,613 added lines,
+  0 secret matches); E5 PASS (0 unexplained + uniq-d = exactly the 12 Phase 0
+  sources). E6: final push + PR body update (see handoff).
