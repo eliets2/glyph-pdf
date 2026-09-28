@@ -1002,6 +1002,7 @@ struct ElementRec {
     double y = 0, x = 0;
     QString alt;           // figures only
     QList<int> mcids;      // filled at group assignment
+    QList<int> mcidStreams; // CX-07: streamIdx per mcid (parallel list)
     PdfReference ref{};    // filled at assembly
 };
 
@@ -1292,6 +1293,9 @@ std::map<int, StreamGroups> assignGroups(WalkOutput& out,
             end.mcid = mcid;
             end.tag = elements[g.elementIdx].tag;
             elements[g.elementIdx].mcids.append(mcid);
+            // CX-07: which stream the MCID was emitted in (a Form XObject's
+            // stream needs a marked-content reference, not a bare integer).
+            elements[g.elementIdx].mcidStreams.append(streamIdx);
             ++mcid;
         }
     }
@@ -1721,27 +1725,67 @@ QString validateTaggedStructureTree(const QString& path) {
                 return QStringLiteral(
                     "element /S %1 has an orphan /P link").arg(tag);
 
-            // /K: int or array of ints; cross-check against ParentTree and
-            // the stream's marked content.
+            // /K: int, /MCR dict, or an array of those; cross-check against
+            // ParentTree and the stream's marked content. A /MCR entry
+            // (CX-07) marks an MCID that lives inside a Form XObject —
+            // <</Type/MCR /Pg <page> /Stm <form> /MCID n>> — and resolves
+            // through the form's own /StructParents.
             const PdfObject* kObj = el.FindKey(PdfName("K"));
-            QList<int> mcids;
+            struct KRef {
+                int mcid = -1;
+                bool inForm = false;
+                int stmKey = -1;   // the form's StructParents
+            };
+            QList<KRef> krefs;
             if (kObj == nullptr)
                 return QStringLiteral("element /S %1 has no /K").arg(tag);
-            if (kObj->IsNumber()) {
-                mcids.append(static_cast<int>(kObj->GetNumber()));
-            } else if (kObj->IsArray()) {
-                for (const PdfObject& m : kObj->GetArray()) {
-                    if (!m.IsNumber())
-                        return QStringLiteral(
-                            "element /S %1 has a non-numeric /K entry")
+            QString kErr;
+            auto readKEntry = [&](const PdfObject& m) {
+                if (!kErr.isEmpty()) return;
+                if (m.IsNumber()) {
+                    krefs.append(KRef{
+                        static_cast<int>(m.GetNumber()), false, -1});
+                } else if (m.IsDictionary()) {
+                    const PdfDictionary& md = m.GetDictionary();
+                    const PdfObject* mcidObj = md.FindKey(PdfName("MCID"));
+                    const PdfObject* stmObj =
+                        resolveObj(doc, md.FindKey(PdfName("Stm")));
+                    if (nameAt(md, "Type") != QLatin1String("MCR")
+                        || !md.HasKey(PdfName("Pg")) || mcidObj == nullptr
+                        || !mcidObj->IsNumber() || stmObj == nullptr
+                        || !stmObj->IsDictionary()
+                        || nameAt(stmObj->GetDictionary(), "Subtype")
+                               != QLatin1String("Form")) {
+                        kErr = QStringLiteral(
+                                   "element /S %1 has an invalid /MCR /K "
+                                   "entry")
+                                   .arg(tag);
+                        return;
+                    }
+                    const PdfObject* sp =
+                        stmObj->GetDictionary().FindKey(
+                            PdfName("StructParents"));
+                    KRef kr;
+                    kr.mcid = static_cast<int>(mcidObj->GetNumber());
+                    kr.inForm = true;
+                    kr.stmKey =
+                        sp != nullptr && sp->IsNumber()
+                            ? static_cast<int>(sp->GetNumber())
+                            : -1;
+                    krefs.append(kr);
+                } else {
+                    kErr = QStringLiteral(
+                               "element /S %1 has a non-numeric /K entry")
                                .arg(tag);
-                    mcids.append(static_cast<int>(m.GetNumber()));
                 }
+            };
+            if (kObj->IsArray()) {
+                for (const PdfObject& m : kObj->GetArray()) readKEntry(m);
             } else {
-                return QStringLiteral(
-                    "element /S %1 has an unsupported /K").arg(tag);
+                readKEntry(*kObj);
             }
-            if (mcids.isEmpty())
+            if (!kErr.isEmpty()) return kErr;
+            if (krefs.isEmpty())
                 return QStringLiteral("element /S %1 has an empty /K")
                            .arg(tag);
 
@@ -1768,7 +1812,34 @@ QString validateTaggedStructureTree(const QString& path) {
                 return QStringLiteral("element /S %1 /Pg is not in the page tree")
                            .arg(tag);
             const std::set<int>& owned = pageStreams[pgIdx];
-            for (int mcid : mcids) {
+            for (const KRef& kr : krefs) {
+                if (kr.inForm) {
+                    // CX-07: the MCID lives in the /Stm form — resolve it
+                    // through the form's own StructParents + ParentTree
+                    // entry (never through the page-owned streams).
+                    if (kr.stmKey < 0)
+                        return QStringLiteral(
+                            "element /S %1 /MCR /Stm has no /StructParents")
+                                .arg(tag);
+                    const auto ptIt = parentTree.find(kr.stmKey);
+                    if (ptIt == parentTree.end())
+                        return QStringLiteral(
+                            "element /S %1 /MCR /Stm StructParents %2 has "
+                            "no /ParentTree entry").arg(tag).arg(kr.stmKey);
+                    const auto mIt = ptIt->second.find(kr.mcid);
+                    if (mIt == ptIt->second.end())
+                        return QStringLiteral(
+                            "element /S %1 /MCR MCID %2 has no /ParentTree "
+                            "entry in its /Stm stream")
+                                .arg(tag).arg(kr.mcid);
+                    if (!(mIt->second == f.ref))
+                        return QStringLiteral(
+                            "/ParentTree[%1][%2] does not point at the "
+                            "element that claims it")
+                                .arg(kr.stmKey).arg(kr.mcid);
+                    continue;
+                }
+                const int mcid = kr.mcid;
                 bool found = false;
                 for (int key : owned) {
                     const auto ptIt = parentTree.find(key);
@@ -1793,7 +1864,7 @@ QString validateTaggedStructureTree(const QString& path) {
             Q_UNUSED(elKids);
             // P2 trees are flat (root /K only); nested /K dicts would be a
             // P3 concern. Still verify no child arrays lurk inside /K —
-            // done above by the numeric check.
+            // done above: entries are numbers or /MCR dicts, never arrays.
         }
 
         // ── bidirectional MCID consistency ───────────────────────────────
@@ -2092,19 +2163,46 @@ TaggerReport tagDocumentAccessibility(const QString& path,
             d.AddKey(PdfName("P"), PdfObject(rootObj.GetIndirectReference()));
             // /Pg — the PAGE the element's content renders on (its page
             // stream's owner).
+            const StreamRec* elPageSr = nullptr;
             for (const StreamRec& s : out.streams) {
                 if (s.pageIdx != el.pageIdx || s.isForm) continue;
+                elPageSr = &s;
                 d.AddKey(PdfName("Pg"),
                          PdfObject(s.contentObj->GetIndirectReference()));
                 break;
             }
+            // CX-07: an MCID emitted inside a FORM XObject cannot be a bare
+            // integer /K with the page's /Pg — a conforming consumer would
+            // look it up in the page stream and find nothing. Per PDF 32000
+            // §14.7.2 it is a marked-content reference:
+            //   <</Type/MCR /Pg <page> /Stm <form> /MCID n>>
+            // The form carries its own /StructParents and a ParentTree
+            // entry (written below), so the lookup resolves through /Stm.
+            auto kObjectFor = [&](int i) -> PdfObject {
+                const int mcid = el.mcids[i];
+                const int sIdx =
+                    i < el.mcidStreams.size() ? el.mcidStreams[i] : -1;
+                const StreamRec* sr = streamByIdx(sIdx);
+                if (sr == nullptr || !sr->isForm || elPageSr == nullptr
+                    || elPageSr->contentObj == nullptr
+                    || sr->contentObj == nullptr)
+                    return PdfObject(static_cast<int64_t>(mcid));
+                PdfDictionary mcr;
+                mcr.AddKey(PdfName("Type"), PdfObject(PdfName("MCR")));
+                mcr.AddKey(PdfName("Pg"), PdfObject(
+                    elPageSr->contentObj->GetIndirectReference()));
+                mcr.AddKey(PdfName("Stm"), PdfObject(
+                    sr->contentObj->GetIndirectReference()));
+                mcr.AddKey(PdfName("MCID"),
+                           PdfObject(static_cast<int64_t>(mcid)));
+                return PdfObject(mcr);
+            };
             if (el.mcids.size() == 1) {
-                d.AddKey(PdfName("K"),
-                         PdfObject(static_cast<int64_t>(el.mcids.first())));
+                d.AddKey(PdfName("K"), kObjectFor(0));
             } else {
                 PdfArray ks;
-                for (int m : el.mcids)
-                    ks.Add(PdfObject(static_cast<int64_t>(m)));
+                for (int i = 0; i < el.mcids.size(); ++i)
+                    ks.Add(kObjectFor(i));
                 d.AddKey(PdfName("K"), PdfObject(ks));
             }
             if (!el.alt.isEmpty())

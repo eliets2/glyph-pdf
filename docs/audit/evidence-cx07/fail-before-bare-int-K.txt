@@ -1,0 +1,10 @@
+********* Start testing of TestAccessibilityTagger *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestAccessibilityTagger::initTestCase()
+FAIL!  : TestAccessibilityTagger::formXObjectMcidsUseMcrReferences() 'sawMcr' returned FALSE. (the form's MCID must be a /MCR marked-content reference)
+D:/pdf/pdf-sec/tests/TestAccessibilityTagger.cpp(1490) : failure location
+FAIL!  : TestAccessibilityTagger::formOnlyMcidsAlsoUseMcrReferences() 'sawMcr' returned FALSE. (every MCID must be a /MCR marked-content reference)
+D:/pdf/pdf-sec/tests/TestAccessibilityTagger.cpp(1511) : failure location
+PASS   : TestAccessibilityTagger::cleanupTestCase()
+Totals: 2 passed, 2 failed, 0 skipped, 0 blacklisted, 46ms
+********* Finished testing of TestAccessibilityTagger *********
