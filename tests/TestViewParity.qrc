@@ -1,0 +1,11 @@
+<!-- TestViewParity: the three SHIPPED theme sheets under the exact resource
+     paths the app loads (:/resources/theme_*.qss), so the theme-cycle check
+     exercises the real stylesheets. resources.qrc itself belongs to
+     PdfWorkstation (G20); this maps only what the suite needs. -->
+<RCC>
+    <qresource prefix="/">
+        <file alias="resources/theme_dark.qss">../resources/theme_dark.qss</file>
+        <file alias="resources/theme_light.qss">../resources/theme_light.qss</file>
+        <file alias="resources/theme_highcontrast.qss">../resources/theme_highcontrast.qss</file>
+    </qresource>
+</RCC>
