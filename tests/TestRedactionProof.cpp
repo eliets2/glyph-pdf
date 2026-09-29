@@ -1243,6 +1243,45 @@ private slots:
                                 .arg(failures)));
     }
 
+    void proofFailsOnOleCompoundDocumentAttachment()
+    {
+        // PGR-23 residual (PROGRAM-CONSOLIDATION §1.2, the 68bc917e leftover
+        // the 6841247d superset dropped): the OLE compound-document signature
+        // D0 CF 11 E0 A1 B1 1A E1 is the container format of legacy .doc and
+        // .xls attachments. It is a structured container the sweep cannot
+        // decode — exactly the ZIP case — so it must be reported Unswept,
+        // never Clean. The filler carries no survivor, so a plain-payload
+        // judgment (the pre-fix behavior) would wrongly certify it Clean.
+        QByteArray ole("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1");
+        for (int i = 0; i < 128; ++i)
+            ole.append(char((i * 41 + 7) & 0xFF));
+        const QString src = makeAttachedSourcePdf(
+            m_tmpDir.filePath("ole_attach_src.pdf"), "legacy.doc", ole);
+        QVERIFY(!src.isEmpty());
+
+        const QString dest = m_tmpDir.filePath("ole_attach_redacted.pdf");
+        QMap<int, QList<QRectF>> rects;
+        rects[0].append(secretMark());
+        RedactRequest req;
+        req.sourcePath = src;
+        req.destinationPath = dest;
+        req.redactionsByPage = rects;
+        req.produceProof = true;
+        RedactOperation op(req);
+        const RedactResult r = runOp(&op);
+        QCOMPARE(r.outcome, RedactOutcome::Completed);
+        QVERIFY(r.proofRan);
+        QVERIFY2(!r.proofPassed,
+                 "an OLE compound-document attachment must FAIL the proof (Unswept)");
+        const QString failures = joinedProofFailures(r);
+        QVERIFY2(failures.contains(QStringLiteral("UNSWEPT [embedded-files]")),
+                 qPrintable(QStringLiteral("failure must be an Unswept embedded-file problem: %1")
+                                .arg(failures)));
+        QVERIFY2(failures.contains(QStringLiteral("legacy.doc")),
+                 qPrintable(QStringLiteral("failure must name the OLE attachment: %1")
+                                .arg(failures)));
+    }
+
     void proofFailsOnUnparseablePdfAttachment()
     {
         // PGR-23: a payload that claims to be a PDF but cannot be parsed

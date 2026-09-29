@@ -352,7 +352,8 @@ SweepTargets buildTargets(const QStringList& derived, const QStringList& extra)
 //   * a payload that parses as a PDF is opened and swept inside (object
 //     strings, decoded streams, its own attachments), to a fixed depth;
 //   * a payload carrying a compressed-container signature (ZIP/OOXML, GZIP,
-//     7z, RAR, XZ, BZIP2) or a PDF-like payload that cannot be parsed
+//     7z, RAR, XZ, BZIP2, OLE compound) or a PDF-like payload that cannot
+//     be parsed
 //     (encrypted, corrupt) is reported UNSWEPT — never Clean;
 //   * any other payload (plain text, JSON, CSV, ...) was fully visible to the
 //     literal scan, which already judged it — nothing more to claim.
@@ -369,6 +370,11 @@ bool hasCompressedContainerSignature(const QByteArray& bytes)
         QByteArrayLiteral("Rar!\x1a\x07"),
         QByteArrayLiteral("\xfd7zXZ\x00"),
         QByteArrayLiteral("BZh"),          // BZIP2
+        // §1.2 (PGR-23 residual, the 68bc917e leftover the 6841247d superset
+        // dropped): the OLE compound-document signature — the container of
+        // legacy .doc/.xls attachments. A structured container the sweep
+        // cannot decode: Unswept, never Clean.
+        QByteArrayLiteral("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
     };
     for (const QByteArray& m : magics)
         if (bytes.startsWith(m)) return true;

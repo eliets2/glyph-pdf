@@ -1,0 +1,8 @@
+********* Start testing of TestBatchPresetsP2 *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresetsP2::initTestCase()
+FAIL!  : TestBatchPresetsP2::exportToMidwayFailureLeavesTheTargetIntact() 'QFileInfo::exists(target)' returned FALSE. (the target must survive a mid-export failure)
+D:/pdf/pdf-secfix/tests/TestBatchPresetsP2.cpp(1744) : failure location
+PASS   : TestBatchPresetsP2::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 6ms
+********* Finished testing of TestBatchPresetsP2 *********

@@ -1,0 +1,9 @@
+********* Start testing of TestRedactionProof *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestRedactionProof::initTestCase()
+Fontconfig error: Cannot load default config file: File not found
+FAIL!  : TestRedactionProof::proofFailsOnOleCompoundDocumentAttachment() '!r.proofPassed' returned FALSE. (an OLE compound-document attachment must FAIL the proof (Unswept))
+D:/pdf/pdf-secfix/tests/TestRedactionProof.cpp(1274) : failure location
+PASS   : TestRedactionProof::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 57ms
+********* Finished testing of TestRedactionProof *********
