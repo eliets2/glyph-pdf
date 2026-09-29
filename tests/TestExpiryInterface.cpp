@@ -26,6 +26,14 @@ private slots:
     // marker; it used to survive only when both saves shared one wall-clock
     // second (the TestReadOnlyGate / TestCommandBinding load flake).
     void markerSurvivesTheSaveTimeModDateRefresh();
+    // PROGRAM-CONSOLIDATION 1.3: a document-property edit (title through
+    // setMetadata) used to DROP custom XMP entities — PoDoFoBackend::
+    // setMetadata called SyncXMPMetadata(true), whose resetXMPPacket=true
+    // "will loose custom entities" (PoDoFo's own contract, PdfMetadata.h).
+    // An expiry date set earlier then vanished the next time the title or
+    // author was edited. The property sync must preserve custom entities;
+    // PDF/A export keeps its deliberate reset (a separate code path).
+    void expiryMarkerSurvivesADocumentPropertyEdit();
 };
 void TestExpiryInterface::callableThroughInterfacePointer() {
     MockPdfEditorEngine mock;
@@ -127,6 +135,61 @@ void TestExpiryInterface::markerSurvivesTheSaveTimeModDateRefresh() {
     QVERIFY2(reopen.loadDocumentForEditing(in), "the document must survive the in-place write intact");
     QVERIFY(second);
     QCOMPARE(PdfEditorEngine::readExpiryDate(in), later);
+}
+
+void TestExpiryInterface::expiryMarkerSurvivesADocumentPropertyEdit() {
+    // The markerSurvivesTheSaveTimeModDateRefresh fixture: an /Info with an
+    // old /ModDate, so the property-edit save re-syncs the packet for real.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString in = dir.filePath(QStringLiteral("dated.pdf"));
+    const QList<QByteArray> objects = {
+        "<</Type/Catalog/Pages 2 0 R>>",
+        "<</Type/Pages/Kids[3 0 R]/Count 1>>",
+        "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>",
+        "<</Producer(synthetic)/ModDate(D:20200101000000Z)>>",
+    };
+    QByteArray pdf = "%PDF-1.4\n";
+    QList<qint64> offsets;
+    for (int i = 0; i < objects.size(); ++i) {
+        offsets.append(pdf.size());
+        pdf += QByteArray::number(i + 1) + " 0 obj" + objects.at(i) + "endobj\n";
+    }
+    const qint64 xref = pdf.size();
+    pdf += "xref\n0 " + QByteArray::number(objects.size() + 1) + "\n0000000000 65535 f \n";
+    for (qint64 off : offsets)
+        pdf += QByteArray::number(off).rightJustified(10, '0') + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(objects.size() + 1)
+         + "/Root 1 0 R/Info 4 0 R>>\nstartxref\n" + QByteArray::number(xref) + "\n%%EOF\n";
+    QFile f(in);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(pdf);
+    f.close();
+
+    PdfEditorEngine engine;
+    const QDate d(2026, 4, 1);
+    QVERIFY(engine.setExpiryDate(in, d, in));
+    QCOMPARE(PdfEditorEngine::readExpiryDate(in), d);
+
+    // The document-property edit: a title change through the engine's
+    // setMetadata (the Document Properties flow), then a save to a NEW path
+    // so the pin reads the persisted packet, not the resident state.
+    QVERIFY(engine.loadDocumentForEditing(in));
+    PdfMetadata meta;
+    QVERIFY(engine.getMetadata(meta));
+    meta.title = QStringLiteral("Renamed by the properties dialog");
+    QVERIFY(engine.setMetadata(meta));
+    const QString out = dir.filePath(QStringLiteral("renamed.pdf"));
+    QVERIFY(engine.saveDocument(out));
+
+    PdfEditorEngine reopen;
+    QVERIFY(reopen.loadDocumentForEditing(out));
+    // The edit took effect…
+    PdfMetadata after;
+    QVERIFY(reopen.getMetadata(after));
+    QCOMPARE(after.title, QStringLiteral("Renamed by the properties dialog"));
+    // …and the custom XMP entity did NOT vanish with it.
+    QCOMPARE(PdfEditorEngine::readExpiryDate(out), d);
 }
 
 QTEST_GUILESS_MAIN(TestExpiryInterface)

@@ -781,7 +781,15 @@ bool PoDoFoBackend::setMetadata(const PdfMetadata &metadata) {
         }
         meta.SetKeywords(kwVec);
         
-        meta.SyncXMPMetadata(true);
+        // PROGRAM-CONSOLIDATION 1.3: sync WITHOUT resetting the packet.
+        // resetXMPPacket=true rebuilds the XMP from the Info fields and, in
+        // PoDoFo's own words, "will loose custom entities" — a custom expiry
+        // date (<glyph:ExpiryDate>, set by setExpiryDate) vanished the next
+        // time the title or author was edited here. The default (false)
+        // updates the existing packet in place and preserves custom entities.
+        // The PDF/A export path (SyncXMPMetadata(true) in exportPdfA) keeps
+        // its reset on purpose: a PDF/A packet is regenerated from scratch.
+        meta.SyncXMPMetadata(false);
 #ifdef QT_DEBUG
         qDebug() << "Successfully updated document metadata.";
 #endif
