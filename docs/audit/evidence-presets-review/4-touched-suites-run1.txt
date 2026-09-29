@@ -1,0 +1,64 @@
+Test project D:/pdf/pdf-presets-review/build-presets-review
+      Start  42: TestSweepW3UxFlows
+ 1/14 Test  #42: TestSweepW3UxFlows ...............   Passed   57.62 sec
+      Start  60: TestBatchMode
+ 2/14 Test  #60: TestBatchMode ....................   Passed    1.60 sec
+      Start  61: TestBatchPresets
+ 3/14 Test  #61: TestBatchPresets .................   Passed    0.48 sec
+      Start  62: TestBatchPresetsP2
+ 4/14 Test  #62: TestBatchPresetsP2 ...............   Passed    1.97 sec
+      Start  63: TestBatchOcrLanguage
+ 5/14 Test  #63: TestBatchOcrLanguage .............   Passed    0.41 sec
+      Start  64: TestBatchOcrSkipText
+ 6/14 Test  #64: TestBatchOcrSkipText .............   Passed    2.26 sec
+      Start  69: TestBatchOpsCoverage
+ 7/14 Test  #69: TestBatchOpsCoverage .............   Passed    1.12 sec
+      Start  84: TestBatchOcrConfidence
+ 8/14 Test  #84: TestBatchOcrConfidence ...........   Passed    0.37 sec
+      Start 171: TestSep13LeadBatchMerge
+ 9/14 Test #171: TestSep13LeadBatchMerge ..........   Passed    1.25 sec
+      Start 175: R14ProbeSep13Fixes
+10/14 Test #175: R14ProbeSep13Fixes ...............   Passed   20.58 sec
+      Start 178: TestSweepW1PresetAdversary
+11/14 Test #178: TestSweepW1PresetAdversary .......   Passed    0.16 sec
+      Start 183: R14ProbeBatchSkip
+12/14 Test #183: R14ProbeBatchSkip ................***Not Run (Disabled)   0.00 sec
+      Start 184: TestGsdW2Probe
+13/14 Test #184: TestGsdW2Probe ...................   Passed    0.82 sec
+      Start 186: TestPgr35BatchCollision
+14/14 Test #186: TestPgr35BatchCollision ..........   Passed    0.47 sec
+
+100% tests passed, 0 tests failed out of 13
+
+Label Time Summary:
+R14-probe     =   0.00 sec*proc (1 test)
+adversary     =   0.16 sec*proc (1 test)
+batch         =  10.09 sec*proc (10 tests)
+confidence    =   0.37 sec*proc (1 test)
+core          =  20.58 sec*proc (1 test)
+gsd           =   0.82 sec*proc (1 test)
+headless      =  89.11 sec*proc (14 tests)
+language      =   0.41 sec*proc (1 test)
+merge         =   1.12 sec*proc (1 test)
+modes         =   5.30 sec*proc (4 tests)
+ocr           =   3.04 sec*proc (3 tests)
+pdfa          =   1.12 sec*proc (1 test)
+pgr35         =   0.47 sec*proc (1 test)
+presets       =   2.61 sec*proc (3 tests)
+probe         =   0.82 sec*proc (2 tests)
+qt            =  89.11 sec*proc (14 tests)
+r14review     =  20.58 sec*proc (1 test)
+redact        =   1.12 sec*proc (1 test)
+sep13leads    =   1.25 sec*proc (1 test)
+skip-text     =   2.26 sec*proc (1 test)
+sweep-w1      =   0.16 sec*proc (1 test)
+sweep-w3      =  57.62 sec*proc (1 test)
+ui            =  61.67 sec*proc (4 tests)
+unit          =  89.11 sec*proc (13 tests)
+ux-audit      =  57.62 sec*proc (1 test)
+watermark     =   1.12 sec*proc (1 test)
+
+Total Test time (real) =  89.13 sec
+
+The following tests did not run:
+	183 - R14ProbeBatchSkip (Disabled)

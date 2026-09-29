@@ -1,0 +1,95 @@
+Test project D:/pdf/pdf-presets-review/build-presets-review
+      Start  42: TestSweepW3UxFlows
+ 1/13 Test  #42: TestSweepW3UxFlows ...............   Passed   51.76 sec
+      Start  60: TestBatchMode
+ 2/13 Test  #60: TestBatchMode ....................   Passed    1.26 sec
+      Start  61: TestBatchPresets
+ 3/13 Test  #61: TestBatchPresets .................   Passed    0.50 sec
+      Start  62: TestBatchPresetsP2
+ 4/13 Test  #62: TestBatchPresetsP2 ...............   Passed    2.39 sec
+      Start  63: TestBatchOcrLanguage
+ 5/13 Test  #63: TestBatchOcrLanguage .............   Passed    0.10 sec
+      Start  64: TestBatchOcrSkipText
+ 6/13 Test  #64: TestBatchOcrSkipText .............   Passed    1.61 sec
+      Start  69: TestBatchOpsCoverage
+ 7/13 Test  #69: TestBatchOpsCoverage .............   Passed    0.77 sec
+      Start  84: TestBatchOcrConfidence
+ 8/13 Test  #84: TestBatchOcrConfidence ...........   Passed    0.06 sec
+      Start 171: TestSep13LeadBatchMerge
+ 9/13 Test #171: TestSep13LeadBatchMerge ..........   Passed    0.92 sec
+      Start 175: R14ProbeSep13Fixes
+10/13 Test #175: R14ProbeSep13Fixes ...............***Timeout 300.03 sec
+********* Start testing of R14ProbeSep13Fixes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : R14ProbeSep13Fixes::initTestCase()
+QWARN  : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() HTTP POST to "https://127.0.0.1:9/tsa" timed out
+QWARN  : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() B-T: TSA returned empty token — signature downgrades to B-B
+QWARN  : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() B-T: timestamp token missing — signature bytes written but the requested RFC 3161 timestamp could not be embedded (attained B-B). The caller MUST inform the user that timestamped-signature assurances are not in effect.
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1920
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() extractOcspFromDss: catalog keys: false
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() dead-TSA outcome = 3 timestampMissing = true docTimestampMissing = false
+QINFO  : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() DocTimeStamp objects in artifact: 0
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1923
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() extractOcspFromDss: catalog keys: false
+QDEBUG : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest() control outcome = 2
+PASS   : R14ProbeSep13Fixes::l1_deadTsaDisclosedAndArtifactHonest()
+QINFO  : R14ProbeSep13Fixes::l2_htmlStyleAttributeCannotBeBrokenOut() style attributes scanned: 2
+PASS   : R14ProbeSep13Fixes::l2_htmlStyleAttributeCannotBeBrokenOut()
+QINFO  : R14ProbeSep13Fixes::l13_threeRaggedRowsStayOneColumn() rows: QList("\"Amount\"", "\"55\"", "\"\",\"7\"")
+PASS   : R14ProbeSep13Fixes::l13_threeRaggedRowsStayOneColumn()
+QINFO  : R14ProbeSep13Fixes::m7_smallLineUnderBigHeadingVariant() lines: QList("HEADING\r", "fine print\r")
+PASS   : R14ProbeSep13Fixes::m7_smallLineUnderBigHeadingVariant()
+QWARN  : R14ProbeSep13Fixes::l9_mergeIntoFileAsDirectoryHonestAccounting() BatchMode merge: save failed for "D:/pdf/pdf-presets-review/build-presets-review/test-tmp/R14ProbeSep13Fixes/R14ProbeSep13Fixes-r2-WmGdQf/a.pdf/a_merged.pdf" : PdfErrorCode::IOError, Tried to do something unsupported to an I/O device like seek a non-seekable input device
+Callstack:t#0 Error Source: auxiliary/StreamDevice.cpp(875), Information: Error accessing file D:/pdf/pdf-presets-review/build-presets-review/test-tmp/R14ProbeSep13Fixes/R14ProbeSep13Fixes-r2-WmGdQf/a.pdf/a_merged.pdf
+QINFO  : R14ProbeSep13Fixes::l9_mergeIntoFileAsDirectoryHonestAccounting() r14 doomed accounting: success = 0 fail = 2 skip = 0 fileCount = 2 output exists = false
+PASS   : R14ProbeSep13Fixes::l9_mergeIntoFileAsDirectoryHonestAccounting()
+PASS   : R14ProbeSep13Fixes::cleanupTestCase()
+Totals: 7 passed, 0 failed, 0 skipped, 0 blacklisted, 20133ms
+********* Finished testing of R14ProbeSep13Fixes *********
+qt.core.qobject.connect: QObject::connect(QObject, Unknown): invalid nullptr parameter
+
+      Start 178: TestSweepW1PresetAdversary
+11/13 Test #178: TestSweepW1PresetAdversary .......   Passed    0.06 sec
+      Start 184: TestGsdW2Probe
+12/13 Test #184: TestGsdW2Probe ...................   Passed    0.48 sec
+      Start 186: TestPgr35BatchCollision
+13/13 Test #186: TestPgr35BatchCollision ..........   Passed    0.17 sec
+
+92% tests passed, 1 tests failed out of 13
+
+Label Time Summary:
+adversary     =   0.06 sec*proc (1 test)
+batch         =   7.84 sec*proc (10 tests)
+confidence    =   0.06 sec*proc (1 test)
+core          = 300.03 sec*proc (1 test)
+gsd           =   0.48 sec*proc (1 test)
+headless      = 360.11 sec*proc (13 tests)
+language      =   0.10 sec*proc (1 test)
+merge         =   0.77 sec*proc (1 test)
+modes         =   5.07 sec*proc (4 tests)
+ocr           =   1.76 sec*proc (3 tests)
+pdfa          =   0.77 sec*proc (1 test)
+pgr35         =   0.17 sec*proc (1 test)
+presets       =   2.95 sec*proc (3 tests)
+probe         =   0.48 sec*proc (1 test)
+qt            = 360.11 sec*proc (13 tests)
+r14review     = 300.03 sec*proc (1 test)
+redact        =   0.77 sec*proc (1 test)
+sep13leads    =   0.92 sec*proc (1 test)
+skip-text     =   1.61 sec*proc (1 test)
+sweep-w1      =   0.06 sec*proc (1 test)
+sweep-w3      =  51.76 sec*proc (1 test)
+ui            =  55.91 sec*proc (4 tests)
+unit          = 360.11 sec*proc (13 tests)
+ux-audit      =  51.76 sec*proc (1 test)
+watermark     =   0.77 sec*proc (1 test)
+
+Total Test time (real) = 360.13 sec
+
+The following tests FAILED:
+	175 - R14ProbeSep13Fixes (Timeout)                      core headless qt r14review unit
+Errors while running CTest
