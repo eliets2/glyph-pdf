@@ -24,7 +24,7 @@
     Manufacturer="Glyph"
     Version="$(var.GlyphPDFVersion)"
     UpgradeCode="fb1fbe00-e1af-449c-8a58-2d2e308b9127"
-    ProductCode="9B76D748-BA88-4AE3-83F8-22D396F2433E"
+    ProductCode="1D37C313-A885-4032-8AEF-5D639B904B3E"
     Scope="perMachine"
     Language="1033"
     Compressed="yes">
@@ -42,7 +42,8 @@
            v1.3.1  ACBE8FC8-FB58-4028-9BFB-FD86B4773D7F
            v1.3.2  9DEC2F54-B9B9-4800-858D-77560039964F
            v1.3.2.x 0C00BB58-7455-49F4-BCB9-136935E81CBB
-           v1.4.0  9B76D748-BA88-4AE3-83F8-22D396F2433E -->
+           v1.4.0  9B76D748-BA88-4AE3-83F8-22D396F2433E
+           v1.5.0  1D37C313-A885-4032-8AEF-5D639B904B3E -->
     <MajorUpgrade
       DowngradeErrorMessage="A newer version of [ProductName] is already installed."
       AllowSameVersionUpgrades="yes"

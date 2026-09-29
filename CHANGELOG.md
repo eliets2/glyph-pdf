@@ -4,15 +4,75 @@ All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased]
 
-The September 2026 parity wave: twelve engine-repair packages (F01–F12), the
-U01–U08 UI packages, and follow-up code-review passes over the branch. The
-September plan is complete — all 21 packages have landed — and every item below
-is implemented with regression tests but **awaiting independent review**.
-Per-item commits, evidence, and residual limitations are tracked in
-`docs/audit/CURRENT-EVIDENCE-LEDGER-2026-09-05.md`; nothing here is claimed as
+## [1.5.0] — 2026-09-29
+
+**The consolidation release.**
+- **How it landed:** every parity and hardening line since v1.4.0 reached `main` through PR #2, using cherry-picks only, with linear history and the 2026-09-02 history purge intact.
+- **Verification before the tag:** an independent Release build from scratch, then the full CTest suite serially and with `-j6`.
+- **Records:** user-facing notes are in `docs/release/release-notes-v1.5.0.md`. Open work is listed in `docs/audit/PROGRAM-CONSOLIDATION-2026-09-25.md`.
+
+### Added (consolidation program)
+
+- **Form scripts:** AcroForm Calculate, Format, Keystroke and Validate scripts run in a
+  sandboxed quickjs-ng runtime with a CPU deadline (R05).
+- **Accessibility:** a checker (P1), and **Tag Document** (P2), which builds a
+  structure tree for untagged documents.
+- **Batch presets P1 and P2 (U1–U7):**
+  - a Bates lane;
+  - rename on conflict;
+  - stop on failure;
+  - import and export;
+  - a per-step measured-bytes report;
+  - hot-folder ingest;
+  - a preset manager and a multi-step editor.
+- **Send for signing P1:** Protect ▸ Sign ▸ Prepare Request.
+- **Printable review summaries,** a certificate-encryption recipient picker (N17) and a certify
+  selector (N18).
+- **Machine policy (R24):** managed settings are shown in Preferences. The policy file
+  must be admin-owned (W1-05).
+- **Editing and viewing:**
+  - Night Mode page inversion;
+  - image restack, opacity and rotate by angle;
+  - letter spacing, line spacing and opacity for inline text edits.
+- **Tests:**
+  - `TestViewParity`, which characterizes every view mode of the pre-redesign interface. One known defect is pinned as an expected failure: Zoom In/Out after Fit Width/Fit Page stays in fit mode.
+  - A child-process regression test for the K5 autosave deadlock.
+
+### Fixed (consolidation program)
+
+- **Set Expiry Date could damage the document (shipped in v1.4.0).**
+  - What went wrong: `setExpiryDate` saved in place onto the file PoDoFo was still reading on demand, so a second expiry write left a file that no longer parsed. The save-time `/ModDate` refresh could also re-serialize PoDoFo's cached XMP packet over the injected marker, dropping the expiry silently.
+  - The fix: the write is a SafeSave transaction. The XMP is synced first, the candidate is saved with `NoMetadataUpdate`, the marker is verified, and the commit is atomic.
+  - Pinned by `TestExpiryInterface::markerSurvivesTheSaveTimeModDateRefresh`. This also resolves the load-dependent `TestReadOnlyGate` / `TestCommandBinding` failures.
+- **Parity review:** 43 of 46 findings fixed (PGR-01…46). PGR-33 stays open as dead
+  code by decision; PGR-40 and PGR-41 are deferred, disclosed and pinned by tests.
+- **Second code review:** all 17 findings fixed (CX-01…17). The follow-up items N1, N2 and
+  INV-1 are fixed too.
+- **K5:**
+  - The problem: a background save could deadlock the GUI. The autosave worker held the engine lock while
+    making a blocking hop to the GUI thread, and the GUI thread was itself waiting for that lock.
+  - The fix: saves to destinations that are not displayed no longer make the hop. The hop for the
+    displayed file is kept.
+- **Accessibility panel:** a failed tag run announces `tagRunFinished` again, and the
+  guard now exists before the first emit.
+- **Test isolation:**
+  - The problem: the CX-03 fake `soffice` went into the build directory that every test binary shares, where it hijacked `TestOfficeImport` under parallel runs.
+  - The fix: it is now planted on a private PATH.
+
+### September parity wave (F01–F12, U01–U08)
+
+The September 2026 parity wave had three parts:
+- twelve engine-repair packages (F01–F12);
+- the U01–U08 UI packages;
+- follow-up code-review passes over the branch.
+
+The September plan is complete: all 21 packages have landed. Every item below
+is implemented with regression tests, but is **awaiting independent review**.
+Per-item commits, evidence and residual limitations are tracked in
+`docs/audit/CURRENT-EVIDENCE-LEDGER-2026-09-05.md`. Nothing here is claimed as
 verified.
 
-### Security & correctness fixes
+#### Security & correctness fixes
 
 - **Redaction**: "Mark All" honors an explicit page list (an invalid range marks
   nothing instead of falling back to all pages); the saved copy offers
@@ -56,7 +116,7 @@ verified.
   entry opens the verify screen from every surface (three-layer drift resolved).
 - **Viewing**: annotations and search highlights are visible in two-page mode.
 
-### Added
+#### Added
 
 - **Capability registry**: pre-execution capability/scope disclosure consumed by
   Compress, Convert, Batch, and the signature picker; the RapidOCR probe no
@@ -79,6 +139,11 @@ verified.
   card grid.
 - **Page Labels groundwork**: pure seams + tests; writer/UI deferred with a
   scoping note.
+
+## [1.4.0] — 2026-09-02
+
+A feature-parity and hardening release. See `docs/release/release-notes-v1.4.0.md`.
+This entry was added in 1.5.0: the 1.4.0 release did not promote the changelog.
 
 ## [1.3.2.3] — 2026-06-22
 

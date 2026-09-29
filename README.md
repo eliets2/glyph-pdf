@@ -1,4 +1,4 @@
-# GlyphPDF v1.3.1 — Professional PDF Workstation
+# GlyphPDF v1.5.0 — Professional PDF Workstation
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/eliets2/glyph-pdf/actions/workflows/ci.yml)
@@ -13,44 +13,60 @@ A high-performance desktop PDF editor built with C++17 and Qt 6. Designed for pr
 
 | Option | Download | How to run |
 |--------|----------|------------|
-| **Installer** (recommended) | [`GlyphPDF-1.3.1-x64.msi`](https://github.com/eliets2/glyph-pdf/releases/latest) | Double-click → Next → Finish. Adds Start-menu & desktop shortcuts and a "PDF Document — GlyphPDF" Open-With entry. |
-| **Portable** (no install) | [`GlyphPDF-1.3.1-x64-portable.zip`](https://github.com/eliets2/glyph-pdf/releases/latest) | Unzip anywhere — including a USB stick — and run `GlyphPDF.exe`. Nothing is written to the registry. |
+| **Installer** (recommended) | [`GlyphPDF-1.5.0-x64.msi`](https://github.com/eliets2/glyph-pdf/releases/latest) | Double-click → Next → Finish. Adds Start-menu & desktop shortcuts and a "PDF Document — GlyphPDF" Open-With entry. |
+| **Portable** (no install) | [`GlyphPDF-1.5.0-x64-portable.zip`](https://github.com/eliets2/glyph-pdf/releases/latest) | Unzip anywhere — including a USB stick — and run `GlyphPDF.exe`. Nothing is written to the registry. |
 
-Coming soon: `winget install Glyph.GlyphPDF` (pending Microsoft review).
+A `winget` package (`Glyph.GlyphPDF`) will follow once releases are code-signed.
 
 **System requirements:** Windows 10 (version 1607+) or Windows 11, 64-bit. 4 GB RAM recommended for OCR on large documents. That's the entire list.
 
 Every release is published with a `.sha256` file so you can verify the download integrity:
 ```powershell
-Get-FileHash .\GlyphPDF-1.3.1-x64.msi -Algorithm SHA256
+Get-FileHash .\GlyphPDF-1.5.0-x64.msi -Algorithm SHA256
 ```
 
 ## Features
 
 ### Document Editing
-- Text editing with inline support
+- Text editing with inline support, including letter spacing, line spacing and opacity
+- Image move, resize, rotate by angle, restack and opacity, written into the PDF
 - Full annotation suite (highlights, underlines, notes, stamps, shapes, pencil)
 - Forms: text fields, checkboxes, radio buttons, dropdowns, date/numeric/calculated fields
+- Form scripts: AcroForm Calculate, Format, Keystroke and Validate scripts run in a sandboxed JavaScript runtime (quickjs-ng) with a CPU deadline
 - Page operations: rotate, crop, resize, reorder, insert, extract, split
 - Headers, footers, page numbers, Bates numbering
 - Text and image watermarks
 
-### Security
+### Security & Signing
 - AES-256 password encryption
-- Certificate-based encryption (multi-recipient)
-- PAdES B-LT/B-LTA digital signatures with DSS/VRI
-- Secure redaction (content stream excision, never black rectangles)
+- Certificate-based encryption (multi-recipient, with a recipient picker)
+- PAdES B-LT/B-LTA digital signatures with DSS/VRI, a certify selector and visible signature appearances
+- Signature picker: Draw, Type or Upload (each saved as a real PDF annotation)
+- Prepare signing requests for other signers (Protect ▸ Sign ▸ Prepare Request)
+- Secure redaction (content stream excision, never black rectangles), with a proof step that refuses to certify what it cannot verify
 - Document sanitization (15+ vectors)
 - SHA-256 only for signature hashing
+- Machine policy for administrators: managed settings are always shown as "Managed by policy"
 
 ### OCR
 - Tesseract and RapidOCR PP-OCRv5 engines
-- Preprocessing pipeline
+- Preprocessing pipeline (deskew, binarize, denoise)
 - ROVER word-level multi-engine merge
+- Word-level review before accepting OCR text
+
+### Accessibility
+- Accessibility checker with jump-to-issue rows (including reading order)
+- Tag Document: builds a structure tree for untagged documents while preserving images and marked content
+
+### Review & Compare
+- Comments filter, table view and CSV export
+- Printable review summary: comments grouped by page, with status and totals
+- Document comparison with page alignment and change-type filters
 
 ### Conversion & Batch
-- PDF to HTML, images, CSV, text
+- PDF to Word (.docx), Excel (.xlsx, real table columns), HTML, images, CSV, text
 - Batch processing with inline error reporting
+- Batch presets: Bates numbering, rename on conflict, stop on failure, import/export, per-step size report, hot-folder ingest, and a multi-step preset editor
 - Export presets (High Quality PDF/A, Web Optimized, Legal Archive)
 
 ### Print & Export
@@ -58,8 +74,10 @@ Get-FileHash .\GlyphPDF-1.3.1-x64.msi -Algorithm SHA256
 - Export presets panel with create/edit/delete support
 
 ### UI
-- Ribbon toolbar with 7 controllers (Home, View, Edit, Pages, Convert, Forms, Security)
-- Dark, Light, and High Contrast themes
+- Task-organized ribbon (Home, View, Edit, Pages, Comment, Review, Convert, Forms, Protect and more)
+- Single, Continuous and Two-Page layouts; Presentation and Full Screen
+- Dark, Light, and High Contrast themes; Eye Care and Night Mode reading modes
+- Right-to-left layout option
 - Drag-and-drop PDF opening
 - Recent files (max 20)
 - AI Chat panel (local Ollama only — no document content leaves the machine)
@@ -68,12 +86,13 @@ Get-FileHash .\GlyphPDF-1.3.1-x64.msi -Algorithm SHA256
 
 ### Localization
 
-GlyphPDF v1.0 ships in English. Arabic, French, and German translations are planned for a future release (translation scaffolding — 1394 strings each — is in place; human-translated packages are pending commissioning).
+GlyphPDF ships in English. Arabic, French, and German translations are planned for a future release (translation scaffolding — 1394 strings each — is in place; human-translated packages are pending commissioning).
 
 ### Auto-Update
 - JSON manifest-based update checker
 - SHA-256 verified downloads
 - User consent required at every stage
+- Dormant until a code-signed release ships: the updater refuses unsigned installers by design
 
 ## Technical Architecture
 
@@ -165,7 +184,7 @@ scripts/bootstrap-vendor-deps.sh           # install what is missing
 ### Build (Windows + MSYS2)
 Open the **MSYS2 UCRT64** shell (`C:\msys64\ucrt64.exe`) or any shell with `C:\msys64\ucrt64\bin` on PATH:
 ```bash
-cd /c/Users/User/Projects/pdf
+cd glyph-pdf            # your clone
 mkdir -p build && cd build
 cmake .. -G "Ninja"
 cmake --build . --parallel 8
@@ -173,10 +192,15 @@ cmake --build . --parallel 8
 Or from PowerShell with MSYS2 ucrt64 on PATH:
 ```powershell
 $env:PATH = 'C:\msys64\ucrt64\bin;' + $env:PATH
-cd C:\Users\User\Projects\pdf
+cd glyph-pdf            # your clone
 cmake -B build -G "Ninja"
 cmake --build build --parallel 8
 ```
+
+> **Git Bash users:** put `C:\msys64\ucrt64\bin` **first** on PATH. Git for
+> Windows ships its own older `zlib1.dll` / `libstdc++-6.dll` in
+> `/mingw64/bin`; if that directory comes first, Qt's `rcc` fails during
+> configure with `0xc0000139` (entry point not found).
 
 ### Optional external tools (two features)
 
@@ -209,30 +233,40 @@ VC++ runtime, ONNX models and tessdata into a self-contained tree) → WiX MSI *
 portable ZIP, each with a SHA-256 checksum, written to `dist/`. The MSI registers `.pdf`
 file associations via OpenWithProgids (it does **not** hijack the default handler).
 
+Two prerequisites the repository cannot provide:
+- **The OCR models** (`models/ppocrv5/`, `models/pp_doclayout/`) are not in the repository,
+  and `deploy.ps1` refuses to stage a payload without them.
+- **A code-signing certificate.** The pipeline signs the EXE and the MSI and has a hard
+  publish gate. `build-msi.ps1 -SkipSigning` produces a local test build only; such
+  artifacts must never be published.
+
 ## Testing
 
 ```bat
 set QT_QPA_PLATFORM=offscreen
 cd build
-ctest --output-on-failure
+ctest --output-on-failure -j6
 ```
 
-**14 test targets:**
+The suite has **189 registered CTest suites**: 188 run, and one probe is deliberately
+disabled. They cover:
+- the PDF engines;
+- save and recovery safety;
+- redaction and its proofs;
+- signatures and certificate encryption;
+- form scripts;
+- accessibility tagging;
+- OCR;
+- conversion;
+- batch presets;
+- the UI, including `TestViewParity`, which characterizes every view mode of the current interface.
 
-| Target | Category | What it tests |
-|--------|----------|---------------|
-| UnitTests | Unit | Core utility validation |
-| TestInterfaces | Unit | Engine API contracts |
-| SmokeTest | Integration | End-to-end load/save/modify |
-| TestSanitization | Security | Metadata stripping vectors |
-| TestSignatureValidation | Security | Byte-range and trust validation |
-| TestRedaction | Security | Content stream excision, XObject redaction |
-| TestThreadSafety | Concurrency | Mutex validation under concurrent access |
-| TestEncryption | Security | AES-256 generation and enforcement |
-| TestResourceLimits | Resilience | Page/buffer size boundaries |
-| TestControllers | UI | Controller action dispatch |
-| TestIntegration | E2E | Full workflow: open, edit, save, encrypt, rotate, redact |
-| TestPerformance | Benchmark | Open/save timing, metadata ops, error overhead |
+Every test gets its own temporary directory, so parallel runs (`-j`) don't share temp state.
+Filter by label to run a subset, for example `ctest -L security` or `ctest -L redaction`.
+Suites that need the (untracked) OCR models skip themselves when the models are absent.
+
+Run directly from Git Bash, a test executable may print nothing to the console. Use
+`TestName.exe -o result.txt,txt` to capture its QtTest output.
 
 ## Keyboard Shortcuts
 
@@ -255,7 +289,7 @@ ctest --output-on-failure
 
 ## Architecture
 
-GlyphPDF v1.3.1 is publicly released (Apache-2.0). The architecture integrates three workstreams committed per `ROADMAP.md`:
+GlyphPDF v1.5.0 is publicly released (Apache-2.0). The architecture integrates three workstreams committed per `ROADMAP.md`:
 
 - **Dual-Model Core** — Structural model (PDF object graph owned by PoDoFo + PDFium + qpdf — source of truth for sign/redact/forms/exact layout) ↔ Semantic model (`docmodel::SemanticDocument` — editing/interchange model). `LuaDjotCodec` encodes a `SemanticDocument` to Djot and decodes Djot back into a `SemanticDocument` by walking the vendored reference parser's AST. The round-trip is **structure-preserving for the document's section tree** — section nesting, titles, paragraph/list text, and inline emphasis/strong/code round-trip exactly (verified by `TestDjotRoundtrip::testStructuralRoundtrip` and per-seed section-count equality in `TestDjotFuzz`). It is **not yet a byte-exact round-trip for every block construct**: standalone heading blocks are promoted to sections on reparse and empty code blocks are dropped, so top-level block counts are not guaranteed to match (the decode never invents content — decoded block count ≤ original). Semantic ↔ PDF is EXPLICITLY LOSSY both ways and is gated: `applySemanticToPdf` requires a `ProvenanceToken` that only `ProvenanceGuard::mintApplyToken` can mint (compile-time chokepoint), and the guard refuses Djot-edit-save-back for signed documents.
 - **Heterogeneous LaneScheduler** — GPU lane (warm persistent worker, never spawn-per-page) + CPU lane (QtConcurrent, core-count) + cross-page pipelining (`layout(P+1) ‖ ocr(P) ‖ fusion(P-1)`). Reused by: OCR ensemble, MRC compression pipeline, future GPU workloads.
