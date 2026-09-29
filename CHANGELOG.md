@@ -58,6 +58,10 @@ All notable changes to GlyphPDF are documented in this file.
 - **Test isolation:**
   - The problem: the CX-03 fake `soffice` went into the build directory that every test binary shares, where it hijacked `TestOfficeImport` under parallel runs.
   - The fix: it is now planted on a private PATH.
+- **Performance guard on optimized builds:**
+  - The problem: `TestSep13LeadComparePerf` compared two sizes 4× apart. On the LTO release build that could not separate the fixed memo lookup (8.8–12×) from the old quadratic scan (~16×) across a 10× line.
+  - The fix: it now measures 16× apart, with each size calibrated separately.
+  - Evidence: fixed 28–47×, regressed 229–292× (a negative control reinstating the scan), ceiling 100×.
 
 ### September parity wave (F01–F12, U01–U08)
 

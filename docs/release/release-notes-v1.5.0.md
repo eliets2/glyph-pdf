@@ -1,4 +1,4 @@
-GlyphPDF **v1.5.0** — the consolidation release. Five months of parity and hardening work that lived on separate lines has been reviewed, fixed and landed on one branch: new form-script, accessibility-tagging, batch-preset and signing workflows, and a large security and reliability pass. The whole suite runs green on this build: 189 registered test suites; 188 run, and one deliberately disabled probe does not.
+GlyphPDF **v1.5.0** — the consolidation release. Months of parity and hardening work that lived on separate branch lines has been reviewed, fixed and landed on one branch: new form-script, accessibility-tagging, batch-preset and signing workflows, and a large security and reliability pass. The whole suite runs green on this build: 189 registered test suites; 188 run, and one deliberately disabled probe does not.
 
 ## Downloads
 | File | What it is |
