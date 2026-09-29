@@ -244,6 +244,11 @@ private slots:
     }
 
     // ── ocr/allowNetworkDownload at the model-load gate ───────────────────
+    // Both gate pins run against "deu": the gate is language-independent, and
+    // the build stages eng.traineddata beside the test binaries
+    // (PROGRAM-CONSOLIDATION-2026-09-25 §1.7a — the production seed path), so
+    // "eng" would now initialize from the staged copy without ever reaching
+    // the gate these pins exercise.
     void ocrDownloadPolicyGateRefusesEngineLoad()
     {
         // User says YES; the machine policy says NO → the engine refuses the
@@ -259,7 +264,7 @@ private slots:
             + QStringLiteral("/tessdata-policy-wiring-1");
         qInstallMessageHandler(warningCapturingHandler);
         OcrEngine engine;
-        const bool loaded = engine.initialize(QStringLiteral("eng"), dataPath);
+        const bool loaded = engine.initialize(QStringLiteral("deu"), dataPath);
         QCOMPARE(loaded, false);
         QVERIFY2(g_warnings.contains(QStringLiteral("OCR download disabled")),
                  "expected the honest OCR-download refusal warning");
@@ -276,7 +281,8 @@ private slots:
     void ocrDownloadUserPrefOnlyStillWorks()
     {
         // No policy → the existing gate behavior is unchanged: user OFF
-        // means no download, with the same honest refusal.
+        // means no download, with the same honest refusal. ("deu" — see the
+        // block comment above the first gate pin.)
         setUserPref(QStringLiteral("ocr/allowNetworkDownload"), false);
         const QString dataPath =
             QStandardPaths::writableLocation(
@@ -284,7 +290,7 @@ private slots:
             + QStringLiteral("/tessdata-policy-wiring-2");
         qInstallMessageHandler(warningCapturingHandler);
         OcrEngine engine;
-        QCOMPARE(engine.initialize(QStringLiteral("eng"), dataPath), false);
+        QCOMPARE(engine.initialize(QStringLiteral("deu"), dataPath), false);
         QVERIFY2(g_warnings.contains(QStringLiteral("OCR download disabled")),
                  "expected the honest OCR-download refusal warning");
         QDir(QStandardPaths::writableLocation(

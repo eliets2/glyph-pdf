@@ -770,7 +770,14 @@ private slots:
     void unmanagedDisabledDownloadNamesTheUserSetting() {
         // No policy loaded; the USER's own setting refuses → the whyNot names
         // the setting (which Preferences can change), never the policy.
+        // Language German, exactly like the policy-blocked pin above: the
+        // build stages eng.traineddata beside the test binaries
+        // (PROGRAM-CONSOLIDATION-2026-09-25 §1.7a), so a locally-available
+        // "eng" would route this refusal into the generic init-failure
+        // wording instead of the download-setting disclosure this pin exists
+        // for — and "deu" keeps the wrong-language trap honest.
         PolicyController::instance().resetForTesting();
+        QSettings().setValue(QStringLiteral("ocr/language"), QStringLiteral("DE"));
         QSettings().setValue(QStringLiteral("ocr/allowNetworkDownload"), false);
 
         auto h = makeRefusedHarness();
