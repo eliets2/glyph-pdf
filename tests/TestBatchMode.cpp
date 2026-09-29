@@ -707,6 +707,56 @@ private slots:
         QVERIFY2(processed < 6,
             qPrintable(QString("Expected cancel to stop before all 6 files; got %1").arg(processed)));
     }
+
+    // ── §1.1 PGR-16/17: ErrorLog::exportCsv neutralizes formula leads ────────
+    // The log's Message and Technical Details fields carry PDF-derived
+    // diagnostics (engine text, file/object names an attacker influences).
+    // RFC-4180 quoting alone is not neutralization: a field whose FIRST
+    // character is '=', '+', '-' or '@' evaluates as a formula/DDE payload
+    // when the exported CSV is opened in a spreadsheet. exportCsv routes every
+    // field through the conversion export's csvFormulaSafeCell; the M3
+    // plain-number exemption keeps numeric details raw.
+    void errorLogCsvNeutralizesFormulaLeads() {
+        ErrorLog log;
+        ErrorInfo injection = ErrorInfo::error(
+            QStringLiteral("=HYPERLINK(\"http://exfil\", \"leak\")"),
+            QStringLiteral("=cmd|' /C calc'!A0"));
+        injection.sourceFile = QStringLiteral("C:/in/hostile.pdf");
+        injection.sourcePage = 0;
+        log.append(injection);
+
+        ErrorInfo plain = ErrorInfo::warning(
+            QStringLiteral("Page count differs"),
+            QStringLiteral("-42"));
+        log.append(plain);
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("errors.csv"));
+        QVERIFY2(log.exportCsv(path), "export must succeed for a valid path");
+
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::ReadOnly));
+        const QString csv = QString::fromUtf8(f.readAll());
+        f.close();
+
+        // The formula-lead fields are emitted apostrophe-neutralized inside
+        // their quoted cells; the payloads never lead the cells.
+        QVERIFY2(csv.contains(QStringLiteral("\"'=HYPERLINK(")),
+                 qPrintable(csv));
+        QVERIFY2(csv.contains(QStringLiteral("\"'=cmd|' /C calc'!A0\"")),
+                 qPrintable(csv));
+        QVERIFY2(!csv.contains(QStringLiteral("\"=cmd")) &&
+                     !csv.contains(QStringLiteral("\"=HYPERLINK")),
+                 qPrintable(QStringLiteral(
+                     "a formula-lead field must never lead its quoted cell: %1")
+                                .arg(csv)));
+
+        // M3 exemption: the plain-number detail stays raw.
+        QVERIFY2(csv.contains(QStringLiteral("\"-42\"")), qPrintable(csv));
+        QVERIFY2(csv.contains(QStringLiteral("\"Page count differs\"")),
+                 qPrintable(csv));
+    }
 };
 
 QTEST_MAIN(TestBatchMode)

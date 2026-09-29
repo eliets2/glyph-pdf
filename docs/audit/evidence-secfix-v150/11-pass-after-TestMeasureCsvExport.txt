@@ -1,0 +1,15 @@
+********* Start testing of TestMeasureCsvExport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestMeasureCsvExport::initTestCase()
+PASS   : TestMeasureCsvExport::calibratedPerimeterRowReproducesValueUnitPage()
+PASS   : TestMeasureCsvExport::emptyDocumentProducesHeaderOnly()
+PASS   : TestMeasureCsvExport::nonMeasureItemsAreIgnored()
+PASS   : TestMeasureCsvExport::rfc4180EscapingOfLabelAndVertices()
+PASS   : TestMeasureCsvExport::formulaLeadLabelIsNeutralized()
+PASS   : TestMeasureCsvExport::plainNumberLabelKeepsTheExemptionButOperatorLeadEscapes()
+PASS   : TestMeasureCsvExport::uncalibratedRowIsTruthfulPt()
+PASS   : TestMeasureCsvExport::panelExportRequiresViewer()
+PASS   : TestMeasureCsvExport::exportWritesFileRoundTrip()
+PASS   : TestMeasureCsvExport::cleanupTestCase()
+Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 364ms
+********* Finished testing of TestMeasureCsvExport *********

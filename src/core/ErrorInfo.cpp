@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "core/ErrorInfo.h"
 
+#include "engines/ConversionManager.h" // §1.1: the shared CSV formula-lead neutralizer
+
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -37,7 +39,16 @@ bool ErrorLog::exportCsv(const QString& path) const {
     QTextStream out(&f);
     out << "Timestamp,Severity,File,Page,Message,Technical Details\n";
     for (const auto& e : entries) {
+        // §1.1 (PGR-16/17 class): Message and Technical Details carry
+        // PDF-derived diagnostics, and RFC-4180 quoting is structure, not
+        // neutralization — a field whose FIRST character is '=', '+', '-' or
+        // '@' (or TAB/CR) evaluates as a formula/DDE payload when the log is
+        // opened in a spreadsheet. Every field goes through the conversion
+        // export's csvFormulaSafeCell (apostrophe prefix, OWASP guidance, the
+        // M3 plain-number exemption) — the single contract CommentsWidget,
+        // ConversionManager, MeasureMode and BatchMode already use.
         auto esc = [](QString s) {
+            s = ConversionManager::csvFormulaSafeCell(s);
             s.replace('"', QStringLiteral("\"\""));
             return '"' + s + '"';
         };

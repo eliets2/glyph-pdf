@@ -191,6 +191,59 @@ private slots:
         QCOMPARE(cols1.at(6), label);
     }
 
+    // PGR-16/17 class (PROGRAM-CONSOLIDATION §1.1): the Label field is the
+    // /Contents snapshot — PDF-derived text an attacker influences. RFC-4180
+    // quoting alone is NOT neutralization: a cell whose FIRST character is
+    // '=', '+', '-' or '@' still evaluates as a formula/DDE payload when the
+    // CSV is opened in a spreadsheet. The measurement CSV routes every escaped
+    // field through the conversion export's csvFormulaSafeCell (apostrophe
+    // prefix, OWASP CSV-injection guidance) — the same single contract the
+    // CommentsWidget and ConversionManager exporters use, so the three
+    // exporters cannot drift.
+    void formulaLeadLabelIsNeutralized() {
+        const QString label = QStringLiteral("=cmd|' /C calc'!A0");
+        QList<AnnotationItem> items;
+        items.append(makePerimeterItem(0, label));
+
+        const QString csv = MeasureMode::measurementCsv(items);
+        const QStringList lines = csvLines(csv);
+        QCOMPARE(lines.size(), 2);
+        QVERIFY2(csv.contains(QStringLiteral("'=cmd|' /C calc'!A0")),
+                 qPrintable(QStringLiteral("the formula-lead label must carry "
+                                          "the apostrophe neutralizer: %1")
+                                .arg(csv)));
+
+        // The row re-imports with the neutralized field: the payload no
+        // longer LEADS the cell, so the spreadsheet interprets it as text.
+        const QStringList cols = csvFields(lines.at(1));
+        QCOMPARE(cols.size(), 8);
+        QCOMPARE(cols.at(6), QStringLiteral("'=cmd|' /C calc'!A0"));
+    }
+
+    // M3 negative control: a PLAIN number ("-2", "+3.14") is a legitimate
+    // label value — the apostrophe must NOT turn numeric cells into
+    // spreadsheet text. The exemption is narrow (one optional sign, digits,
+    // one optional decimal group); a bare operator still escapes.
+    void plainNumberLabelKeepsTheExemptionButOperatorLeadEscapes() {
+        QList<AnnotationItem> items;
+        items.append(makePerimeterItem(0, QStringLiteral("-2")));
+        const QString csv = MeasureMode::measurementCsv(items);
+        const QStringList cols = csvFields(csvLines(csv).at(1));
+        QCOMPARE(cols.size(), 8);
+        QCOMPARE(cols.at(6), QStringLiteral("-2"));
+        QVERIFY2(!cols.at(6).startsWith(QLatin1Char('\'')),
+                 qPrintable(QStringLiteral("the plain-number exemption keeps "
+                                          "numeric labels raw: %1").arg(csv)));
+
+        // "-2+3+cmd" is not a plain number — it still escapes.
+        QList<AnnotationItem> hostile;
+        hostile.append(makePerimeterItem(0, QStringLiteral("-2+3+cmd")));
+        const QString csv2 = MeasureMode::measurementCsv(hostile);
+        QVERIFY2(csv2.contains(QStringLiteral("'-2+3+cmd")),
+                 qPrintable(QStringLiteral("a signed operator chain is not a "
+                                          "plain number: %1").arg(csv2)));
+    }
+
     // Uncalibrated measurements export honestly: "no" in the Calibrated
     // column, truthful pt values — never a fabricated real-world claim.
     void uncalibratedRowIsTruthfulPt() {

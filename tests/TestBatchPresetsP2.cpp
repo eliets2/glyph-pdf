@@ -160,6 +160,7 @@ private slots:
     void measuredBytesTwoStepChainHandComputed();
     void runReportJsonShapePinned();
     void runReportCsvShapePinned();
+    void runReportCsvFormulaLeadsNeutralized();
 
     // ── U6: import/export as validated atomic copies ──────────────────────────
     void importExportRoundTripByteIdentical();
@@ -1497,6 +1498,43 @@ void TestBatchPresetsP2::runReportCsvShapePinned() {
     QVERIFY2(text.contains(QStringLiteral(
                  "\"C:/in/b.pdf\",\"\",\"skipped\",\"\",\"\",\"\",\"\",\"\",\"\","
                  "\"\",\"\",\"run aborted before start: comma, \"\"quote\"\"\"\r\n")),
+             qPrintable(text));
+}
+
+// §1.1 PGR-16/17: the Detail column carries PDF-derived diagnostics (skip
+// reasons, engine error text — file names, object names, attacker-influenced
+// strings). Quoting is RFC-4180 structure, not neutralization: a detail whose
+// FIRST character is '=', '+', '-' or '@' still evaluates as a formula/DDE
+// payload when the report is opened in a spreadsheet. The formatter routes
+// every field through the conversion export's csvFormulaSafeCell (apostrophe
+// prefix); the M3 plain-number exemption keeps numeric details raw.
+void TestBatchPresetsP2::runReportCsvFormulaLeadsNeutralized() {
+    BatchFileResult failed;
+    failed.inputPath    = QStringLiteral("C:/in/e.pdf");
+    failed.outputPath   = QStringLiteral("C:/out/e.pdf");
+    failed.success      = false;
+    failed.errorMessage = QStringLiteral("=cmd|' /C calc'!A0");
+
+    BatchFileResult numeric;
+    numeric.inputPath    = QStringLiteral("C:/in/n.pdf");
+    numeric.outputPath   = QStringLiteral("C:/out/n.pdf");
+    numeric.success      = false;
+    numeric.errorMessage = QStringLiteral("-42");
+
+    const QString text =
+        QString::fromUtf8(BatchMode::runReportCsv({ failed, numeric }));
+
+    // The formula-lead detail is emitted apostrophe-neutralized inside its
+    // quoted cell; the payload never leads the field a spreadsheet reads.
+    QVERIFY2(text.contains(QStringLiteral("\"'=cmd|' /C calc'!A0\"\r\n")),
+             qPrintable(text));
+    QVERIFY2(!text.contains(QStringLiteral("\"=cmd")),
+             qPrintable(QStringLiteral(
+                 "a formula-lead detail must never lead its quoted cell: %1")
+                            .arg(text)));
+
+    // M3 exemption: "-42" is a plain number — no apostrophe.
+    QVERIFY2(text.contains(QStringLiteral("\"-42\"\r\n")),
              qPrintable(text));
 }
 

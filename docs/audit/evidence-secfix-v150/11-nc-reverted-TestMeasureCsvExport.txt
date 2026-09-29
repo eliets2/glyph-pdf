@@ -1,0 +1,21 @@
+********* Start testing of TestMeasureCsvExport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestMeasureCsvExport::initTestCase()
+PASS   : TestMeasureCsvExport::calibratedPerimeterRowReproducesValueUnitPage()
+PASS   : TestMeasureCsvExport::emptyDocumentProducesHeaderOnly()
+PASS   : TestMeasureCsvExport::nonMeasureItemsAreIgnored()
+PASS   : TestMeasureCsvExport::rfc4180EscapingOfLabelAndVertices()
+FAIL!  : TestMeasureCsvExport::formulaLeadLabelIsNeutralized() 'csv.contains(QStringLiteral("'=cmd|' /C calc'!A0"))' returned FALSE. (the formula-lead label must carry the apostrophe neutralizer: Page,Type,Value,Unit,Calibrated,Scale,Label,Vertices?
+1,Perimeter,200.00,mm,yes,1 pt = 0.5 mm,=cmd|' /C calc'!A0,"0.0000,0.0000;100.0000,0.0000;100.0000,100.0000;0.0000,100.0000"?
+)
+D:/pdf/pdf/tests/TestMeasureCsvExport.cpp(211) : failure location
+FAIL!  : TestMeasureCsvExport::plainNumberLabelKeepsTheExemptionButOperatorLeadEscapes() 'csv2.contains(QStringLiteral("'-2+3+cmd"))' returned FALSE. (a signed operator chain is not a plain number: Page,Type,Value,Unit,Calibrated,Scale,Label,Vertices?
+1,Perimeter,200.00,mm,yes,1 pt = 0.5 mm,-2+3+cmd,"0.0000,0.0000;100.0000,0.0000;100.0000,100.0000;0.0000,100.0000"?
+)
+D:/pdf/pdf/tests/TestMeasureCsvExport.cpp(242) : failure location
+PASS   : TestMeasureCsvExport::uncalibratedRowIsTruthfulPt()
+PASS   : TestMeasureCsvExport::panelExportRequiresViewer()
+PASS   : TestMeasureCsvExport::exportWritesFileRoundTrip()
+PASS   : TestMeasureCsvExport::cleanupTestCase()
+Totals: 9 passed, 2 failed, 0 skipped, 0 blacklisted, 393ms
+********* Finished testing of TestMeasureCsvExport *********

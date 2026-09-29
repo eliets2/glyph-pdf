@@ -9,6 +9,7 @@
 #include "core/interfaces/IOcrEngine.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/SafeSave.h"          // R26: the preset candidate chain commits through SafeSave
+#include "engines/ConversionManager.h" // §1.1: the shared CSV formula-lead neutralizer
 #include "engines/VeraPdfValidator.h"  // R26: pdfa-check step (the registry's PdfAValidation probe)
 #include "engines/ocr/OcrPipeline.h"
 #include "engines/podofo/PdfPageOps.h"
@@ -3510,8 +3511,15 @@ QByteArray BatchMode::runReportCsv(const QList<BatchFileResult>& results) {
     // doubled. One row per step (chain order); a file without step records
     // (skipped / not-run) is one row with empty step fields — the
     // files-not-attempted list rides the artifact.
+    // §1.1 (PGR-16/17 class): the Detail/Skip-reason columns carry PDF-derived
+    // diagnostics, and quoting is structure, not neutralization — a field
+    // whose FIRST character is '=', '+', '-' or '@' (or TAB/CR) evaluates as
+    // a formula/DDE payload when the report is opened in a spreadsheet.
+    // Every field goes through the conversion export's csvFormulaSafeCell
+    // (apostrophe prefix, OWASP guidance, the M3 plain-number exemption) —
+    // the single contract CommentsWidget and ConversionManager already use.
     auto esc = [](const QString& s) {
-        QString t = s;
+        QString t = ConversionManager::csvFormulaSafeCell(s);
         t.replace(QLatin1Char('"'), QStringLiteral("\"\""));
         return QStringLiteral("\"%1\"").arg(t);
     };

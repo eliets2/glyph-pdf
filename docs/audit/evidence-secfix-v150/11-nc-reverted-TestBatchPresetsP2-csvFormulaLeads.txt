@@ -1,0 +1,11 @@
+********* Start testing of TestBatchPresetsP2 *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresetsP2::initTestCase()
+FAIL!  : TestBatchPresetsP2::runReportCsvFormulaLeadsNeutralized() 'text.contains(QStringLiteral("\"'=cmd|' /C calc'!A0\"\r\n"))' returned FALSE. ("File","Output","Status","Step","Op","StepStatus","BytesIn","BytesOut","DurationMs","FirstBates","LastBates","Detail"?
+"C:/in/e.pdf","C:/out/e.pdf","failed","","","","","","","","","=cmd|' /C calc'!A0"?
+"C:/in/n.pdf","C:/out/n.pdf","failed","","","","","","","","","-42"?
+)
+D:/pdf/pdf/tests/TestBatchPresetsP2.cpp(1529) : failure location
+PASS   : TestBatchPresetsP2::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 1704ms
+********* Finished testing of TestBatchPresetsP2 *********

