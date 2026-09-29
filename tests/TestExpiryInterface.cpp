@@ -7,6 +7,7 @@
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/podofo/PoDoFoBackend.h"
 
 #include <QFile>
 #include <QTemporaryDir>
@@ -26,6 +27,15 @@ private slots:
     // marker; it used to survive only when both saves shared one wall-clock
     // second (the TestReadOnlyGate / TestCommandBinding load flake).
     void markerSurvivesTheSaveTimeModDateRefresh();
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.3: a document-property edit must not
+    // drop custom XMP. PoDoFoBackend::setMetadata used to call
+    // SyncXMPMetadata(true) — "reset the XMP packet unconditionally. This will
+    // loose custom entities" (PoDoFo's own contract, PdfMetadata.h). The expiry
+    // is a custom XMP entity (kGlyphNs), so a title/author edit made AFTER an
+    // expiry was set silently dropped the expiry. The sync must run WITHOUT
+    // the reset: update the resident packet in place. (The PDF/A export path
+    // keeps the reset on purpose — a fresh conformant packet is the point.)
+    void titleEditAfterExpiryKeepsTheCustomXMPMarker();
 };
 void TestExpiryInterface::callableThroughInterfacePointer() {
     MockPdfEditorEngine mock;
@@ -127,6 +137,58 @@ void TestExpiryInterface::markerSurvivesTheSaveTimeModDateRefresh() {
     QVERIFY2(reopen.loadDocumentForEditing(in), "the document must survive the in-place write intact");
     QVERIFY(second);
     QCOMPARE(PdfEditorEngine::readExpiryDate(in), later);
+}
+
+void TestExpiryInterface::titleEditAfterExpiryKeepsTheCustomXMPMarker() {
+    // The 1.3 scenario, in order: an expiry date is set first (a custom XMP
+    // entity injected by setExpiryDate), then the user edits document
+    // properties (PoDoFoBackend::setMetadata), and the document is saved.
+    // The expiry must read back.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString in = dir.filePath(QStringLiteral("in.pdf"));
+    // Minimal single-page PDF (same fixture pattern as
+    // writesAndReadsBackExpiryMarker above).
+    QFile f(in);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(
+        "%PDF-1.4\n"
+        "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n"
+        "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n"
+        "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\n"
+        "xref\n0 4\n"
+        "0000000000 65535 f \n"
+        "0000000009 00000 n \n"
+        "0000000058 00000 n \n"
+        "0000000115 00000 n \n"
+        "trailer<</Size 4/Root 1 0 R>>\n"
+        "startxref\n183\n%%EOF\n");
+    f.close();
+
+    PdfEditorEngine expiryEngine;
+    const QDate d(2026, 4, 1);
+    QVERIFY(expiryEngine.setExpiryDate(in, d, in));
+    QCOMPARE(PdfEditorEngine::readExpiryDate(in), d);
+
+    const QString out = dir.filePath(QStringLiteral("edited.pdf"));
+    {
+        PoDoFoBackend backend;
+        QVERIFY(backend.loadDocument(in));
+        PdfMetadata meta;
+        meta.title = QStringLiteral("Edited title");
+        meta.author = QStringLiteral("Edited author");
+        QVERIFY(backend.setMetadata(meta));
+        QVERIFY(backend.saveDocument(out));
+    }
+
+    // The property edit landed …
+    PoDoFoBackend reopened;
+    QVERIFY(reopened.loadDocument(out));
+    QCOMPARE(reopened.metadata().title, QStringLiteral("Edited title"));
+    QCOMPARE(reopened.metadata().author, QStringLiteral("Edited author"));
+    // … and the custom XMP entity survived it (pre-fix: SyncXMPMetadata(true)
+    // rebuilt the packet from /Info and the expiry vanished).
+    QCOMPARE(PdfEditorEngine::readExpiryDate(out), d);
 }
 
 QTEST_GUILESS_MAIN(TestExpiryInterface)

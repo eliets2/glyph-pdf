@@ -1,0 +1,12 @@
+********* Start testing of TestExpiryInterface *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestExpiryInterface::initTestCase()
+PASS   : TestExpiryInterface::callableThroughInterfacePointer()
+PASS   : TestExpiryInterface::rejectsInvalidDate()
+PASS   : TestExpiryInterface::requiresLoadedDocument()
+PASS   : TestExpiryInterface::writesAndReadsBackExpiryMarker()
+PASS   : TestExpiryInterface::markerSurvivesTheSaveTimeModDateRefresh()
+PASS   : TestExpiryInterface::titleEditAfterExpiryKeepsTheCustomXMPMarker()
+PASS   : TestExpiryInterface::cleanupTestCase()
+Totals: 8 passed, 0 failed, 0 skipped, 0 blacklisted, 149ms
+********* Finished testing of TestExpiryInterface *********

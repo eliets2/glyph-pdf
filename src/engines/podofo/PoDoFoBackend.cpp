@@ -780,8 +780,28 @@ bool PoDoFoBackend::setMetadata(const PdfMetadata &metadata) {
             kwVec.push_back(kw.trimmed().toStdString());
         }
         meta.SetKeywords(kwVec);
-        
-        meta.SyncXMPMetadata(true);
+
+        // PROGRAM-CONSOLIDATION-2026-09-25 §1.3: sync WITHOUT resetting the
+        // XMP packet. The reset variant rebuilds the packet from /Info and —
+        // per PoDoFo's own contract ("This will loose custom entities",
+        // PdfMetadata.h) — silently drops custom XMP entities such as the
+        // Set-Expiry-Date marker (kGlyphNs): an expiry set earlier vanished
+        // the next time the title or author was edited. The in-place sync
+        // updates the resident packet (the new title/author/keywords
+        // included), so nothing custom is lost. The PDF/A export path
+        // (convertToPdfA) KEEPS the reset on purpose — a fresh, conformant
+        // packet is the point there.
+        // PROGRAM-CONSOLIDATION-2026-09-25 1.3: sync WITHOUT resetting the
+        // XMP packet. The reset variant rebuilds the packet from /Info and --
+        // per PoDoFo's own contract ("This will loose custom entities",
+        // PdfMetadata.h) -- silently drops custom XMP entities such as the
+        // Set-Expiry-Date marker (kGlyphNs): an expiry set earlier vanished
+        // the next time the title or author was edited. The in-place sync
+        // updates the resident packet (the new title/author/keywords
+        // included), so nothing custom is lost. The PDF/A export path
+        // (convertToPdfA) KEEPS the reset on purpose -- a fresh, conformant
+        // packet is the point there.
+        meta.SyncXMPMetadata();
 #ifdef QT_DEBUG
         qDebug() << "Successfully updated document metadata.";
 #endif
