@@ -352,8 +352,8 @@ SweepTargets buildTargets(const QStringList& derived, const QStringList& extra)
 //   * a payload that parses as a PDF is opened and swept inside (object
 //     strings, decoded streams, its own attachments), to a fixed depth;
 //   * a payload carrying a compressed-container signature (ZIP/OOXML, GZIP,
-//     7z, RAR, XZ, BZIP2) or a PDF-like payload that cannot be parsed
-//     (encrypted, corrupt) is reported UNSWEPT — never Clean;
+//     7z, RAR, XZ, BZIP2, OLE compound document) or a PDF-like payload that
+//     cannot be parsed (encrypted, corrupt) is reported UNSWEPT — never Clean;
 //   * any other payload (plain text, JSON, CSV, ...) was fully visible to the
 //     literal scan, which already judged it — nothing more to claim.
 constexpr int kMaxAttachmentDepth = 3;
@@ -369,6 +369,11 @@ bool hasCompressedContainerSignature(const QByteArray& bytes)
         QByteArrayLiteral("Rar!\x1a\x07"),
         QByteArrayLiteral("\xfd7zXZ\x00"),
         QByteArrayLiteral("BZh"),          // BZIP2
+        // OLE compound document (CFBF): legacy .doc/.xls/.ppt and the shell
+        // OLE container family. An opaque structured store the sweep cannot
+        // decode — refusal keeps it from being certified on its literal bytes
+        // alone (PROGRAM-CONSOLIDATION §1.2, PGR-23 residual).
+        QByteArrayLiteral("\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1"),
     };
     for (const QByteArray& m : magics)
         if (bytes.startsWith(m)) return true;
@@ -568,9 +573,9 @@ void sweepAttachmentPayload(const QByteArray& payload, const QString& name,
     // Compressed containers the sweep cannot decode: Unswept, never Clean.
     if (hasCompressedContainerSignature(payload)) {
         out->problems.append(QStringLiteral("embedded file \"%1\": compressed container "
-                                            "(ZIP/OOXML/archive) — its decompressed content "
-                                            "cannot be swept, nothing inside it can be "
-                                            "certified").arg(name));
+                                            "(ZIP/OOXML/archive/legacy Office) — its "
+                                            "decompressed content cannot be swept, nothing "
+                                            "inside it can be certified").arg(name));
         return;
     }
 

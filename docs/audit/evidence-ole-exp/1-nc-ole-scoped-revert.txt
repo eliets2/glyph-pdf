@@ -1,0 +1,48 @@
+********* Start testing of TestRedactionProof *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestRedactionProof::initTestCase()
+PASS   : TestRedactionProof::survivorEncodingsCoverPdfStringForms()
+PASS   : TestRedactionProof::operatorCounterSkipsStringsAndDicts()
+Fontconfig error: Cannot load default config file: File not found
+PASS   : TestRedactionProof::proofPassesAfterRealRedactionWithManifest()
+PASS   : TestRedactionProof::packDisclaimerNamesXfaRefusalPolicy()
+PASS   : TestRedactionProof::annotationOnlyPageCarriesZeroUnsweptRows()
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+ERROR: Flate Decoding Error from ZLib: -3
+PASS   : TestRedactionProof::corruptStreamStillFailsHonestly()
+PASS   : TestRedactionProof::rotatedPageSecretIsExcisedAndProofPasses()
+PASS   : TestRedactionProof::proofPassesWhenNeighborLineSitsInOldHeadroomZone()
+PASS   : TestRedactionProof::metricBandStillCatchesSecretStraddlingTheMarkEdge()
+PASS   : TestRedactionProof::manifestRecordsRegionMethodAndCounts()
+PASS   : TestRedactionProof::legacyRunWithoutProofStaysProofFree()
+PASS   : TestRedactionProof::proofFailsOnMissedSpotOnSamePage()
+PASS   : TestRedactionProof::proofFailsOnInfoDictionarySurvivor()
+PASS   : TestRedactionProof::proofFailsOnXmpSurvivor()
+PASS   : TestRedactionProof::proofFailsOnAnnotationStringSurvivor()
+PASS   : TestRedactionProof::proofFailsOnAttachmentSurvivor()
+PASS   : TestRedactionProof::proofFailsOnNestedFlatePdfAttachmentSurvivor()
+PASS   : TestRedactionProof::proofFailsOnCompressedArchiveAttachment()
+FAIL!  : TestRedactionProof::proofFailsOnOleCompoundAttachment() '!r.proofPassed' returned FALSE. (a legacy Office (OLE compound) attachment the sweep cannot decode must FAIL the proof (Unswept))
+D:/pdf/keyA/tests/TestRedactionProof.cpp(1273) : failure location
+PASS   : TestRedactionProof::proofFailsOnUnparseablePdfAttachment()
+PASS   : TestRedactionProof::proofPassesWithCleanNestedPdfAttachment()
+PASS   : TestRedactionProof::proofFailsOnSecretInsideNestedCompressedAttachmentPdf()
+PASS   : TestRedactionProof::proofFailsOnUndecodableZipAttachment()
+PASS   : TestRedactionProof::proofFailsOnIncrementalUpdateRemnant()
+PASS   : TestRedactionProof::proofFailsLoudlyOnUnsweepableOutput()
+PASS   : TestRedactionProof::verifyRejectsIncompleteRequest()
+PASS   : TestRedactionProof::emptyRegionMarkIsRecordedHonestly()
+PASS   : TestRedactionProof::excisedButUnattributedGlyphsMakeTheEntryUnverifiable()
+PASS   : TestRedactionProof::blankMarkOnPageWithAttributedRemovalStaysVerifiedNoText()
+PASS   : TestRedactionProof::blankMarkWhereExcisedOpsExceedAttributionIsUnverifiable()
+PASS   : TestRedactionProof::extraSurvivorStringsAreSwept()
+PASS   : TestRedactionProof::proofWithSanitizeCoversSanitizedCopy()
+PASS   : TestRedactionProof::dialogDefaultsProofOnAndTransportsThroughPlan()
+PASS   : TestRedactionProof::presenterWordingIsHonestInBothDirections()
+PASS   : TestRedactionProof::cleanupTestCase()
+Totals: 35 passed, 1 failed, 0 skipped, 0 blacklisted, 4410ms
+********* Finished testing of TestRedactionProof *********
