@@ -31,6 +31,15 @@ if [ -d /c/msys64/ucrt64/bin ]; then
 else
   export PATH="$BUILD_DIR:$PATH"
 fi
+# Vendored/vendored-shaped runtime DLLs the CMake stage_runtime_dlls target
+# normally copies into BUILD_DIR — on PATH too, so the script also works from
+# a build that skipped that staging (guarded: absent dirs are skipped).
+for _dll_dir in \
+    "$ROOT/third_party/podofo/install/bin" \
+    "$ROOT/third_party/pdfium/bin" \
+    "$ROOT/onnxruntime-win-x64-1.17.3/lib"; do
+  [ -d "$_dll_dir" ] && export PATH="$_dll_dir:$PATH"
+done
 PYTHON="${PYTHON:-python}"
 DRV="$ROOT/fuzz/bin/redaction_driver.exe"
 SC="$ROOT/fuzz/scratch"

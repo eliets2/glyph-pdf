@@ -27,8 +27,14 @@
 set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-# ucrt64 toolchain when run from an MSYS2 environment; harmless elsewhere.
-[ -d /c/msys64/ucrt64/bin ] && export PATH="/c/msys64/ucrt64/bin:$PATH"
+# ucrt64 toolchain: prefer the ACTIVE msys2 root (/ucrt64 — under a CI
+# `shell: msys2 {0}` job '/' is the setup-msys2 install, not /c/msys64);
+# fall back to the historical /c/msys64 for local dev only.
+if [ -d /ucrt64/bin ]; then
+  export PATH="/ucrt64/bin:$PATH"
+elif [ -d /c/msys64/ucrt64/bin ]; then
+  export PATH="/c/msys64/ucrt64/bin:$PATH"
+fi
 CLANGXX="${CLANGXX:-clang++}"
 CLANG="${CLANG:-clang}"
 OUT="fuzz/build_clang"

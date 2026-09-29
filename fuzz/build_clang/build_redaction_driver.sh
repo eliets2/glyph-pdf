@@ -18,9 +18,24 @@ set -eu
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BUILD_DIR="${GLYPHPDF_BUILD_DIR:-$ROOT/build}"
 cd "$ROOT"
-export PATH="/c/msys64/ucrt64/bin:$PATH"
-Q=/c/msys64/ucrt64/include/qt6
-L=/c/msys64/ucrt64/lib
+# The active MSYS2 root: under a `shell: msys2 {0}` CI job '/' IS the active
+# installation — setup-msys2 installs to a runner temp dir (e.g.
+# D:/a/_temp/msys64), NOT /c/msys64, so the old hardcoded /c/msys64 include
+# and lib paths pointed at nothing on CI and the driver died at
+# '#include <QCoreApplication>' (found by the CX-13 acceptance dispatch,
+# run 36644229748). Keep /c/msys64 as the local-dev fallback only.
+if [ -d /ucrt64/include/qt6 ]; then
+  UCRT=/ucrt64
+  export PATH="/ucrt64/bin:$PATH"
+elif [ -d /c/msys64/ucrt64/include/qt6 ]; then
+  UCRT=/c/msys64/ucrt64
+  export PATH="/c/msys64/ucrt64/bin:$PATH"
+else
+  echo "ERROR: no ucrt64 Qt6 toolchain found (looked in /ucrt64 and /c/msys64/ucrt64) — refusing to link against unknown headers (INF06)." >&2
+  exit 1
+fi
+Q="$UCRT/include/qt6"
+L="$UCRT/lib"
 mkdir -p fuzz/bin fuzz/scratch
 
 for a in \

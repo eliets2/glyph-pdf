@@ -150,7 +150,13 @@ jobs:
           # Owner's normal build of pdfws_engines into build/ (see root README).
           # This step is project-specific; reuse the existing build cache.
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
-          cmake --build build --target pdfws_engines pdfws_commands pdfws_djot docmodel liblua libjbig2enc
+          # stage_runtime_dlls: `--target <list>` does NOT run other ALL
+          # targets, and without it build/ lacks libpodofo.dll, pdfium.dll and
+          # onnxruntime.dll — the driver would die at load (0xC0000135) and
+          # every oracle case would report DRIVER FAILED. The comment below
+          # ("the build stages runtime DLLs into build/") was aspirational
+          # until this target joined the list.
+          cmake --build build --target pdfws_engines pdfws_commands pdfws_djot docmodel liblua libjbig2enc stage_runtime_dlls
       - name: Build redaction driver
         run: bash fuzz/build_clang/build_redaction_driver.sh
       - name: Run P1/P2 oracle matrix (fails CI on residual leak regression)
