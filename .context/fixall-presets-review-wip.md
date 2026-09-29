@@ -61,30 +61,42 @@ known U6 LOW residual is already fixed on main (208b6c08) — not re-found.
 
 ## Final state
 
-STATUS: FINAL (2026-09-29, presets review lane)
+STATUS: FINAL (2026-09-29, presets review lane) — REBASED onto main `061fea2d`
 
 - **Branch `feat/fixall-presets-review`** (worktree `D:/pdf/pdf-presets-review`,
   junction `C:\Users\User\Projects\pdf-featplans`), linear on `main`
-  (`7eb5c67b`), 3 fix commits, 0 merges:
-  - `0c095dc1` PGR-50 — validate() re-checks the runnable-shape fields on the
+  (`061fea2d` — main ADVANCED +20 commits mid-lane; the branch was rebased,
+  which resolved the only clash: both sides appended pins at the
+  TestBatchPresetsP2 tail; the integrator's new U6 midway-failure pin is kept
+  intact alongside this lane's pins). 3 fix commits + 1 docs commit, 0 merges:
+  - `992daad6` PGR-50 — validate() re-checks the runnable-shape fields on the
     save path (naming containment via the W1-01 choke point, policy enums,
     minAppVersion shape). Pins ×4 (3 adversarial + 1 positive control).
-  - `8a151c8f` PGR-51 — U5 run-report export through the SafeSave commit idiom
+  - `3f526601` PGR-51 — U5 run-report export through the SafeSave commit idiom
     (the truncate-then-write loss class). Pin with the FailBeforeCommit seam.
-  - `4a96f10f` PGR-53 — the store re-checks the id grammar at its own boundary
+  - `b0d5261d` PGR-53 — the store re-checks the id grammar at its own boundary
     (the fixture PROVED remove("../evil") deleted a file outside the store).
     Pin.
-- **Gates**: TestBatchPresetsP2 41P/0F; TestBatchPresets 15P/0F; 14
-  touched-surface suites (everything including modes/BatchMode.h or
-  core/BatchPreset.h; R14ProbeBatchSkip is a DISABLED probe, not run by
-  design) ×3 consecutive green: 13/13 active per run, 0 failures
-  (`docs/audit/evidence-presets-review/4-touched-suites-run{1,2,3}.txt`).
+  - `2992113e` docs — handoff + gates evidence.
+  (Pre-rebase SHAs `0c095dc1`/`8a151c8f`/`4a96f10f`/`dab7254a` are superseded;
+  evidence files are unchanged — the fail-before runs were captured against
+  the identical source content.)
+- **Pick verification**: `git cherry-pick 992daad6 3f526601 b0d5261d` onto
+  `main` `061fea2d` applies CLEAN end-to-end (verified in a throwaway worktree
+  and discarded; resulting picks `07e42e55`/`474262f4`/`4cce1b8d`). The chain
+  is order-dependent only in that PGR-50 introduces the `isValidStoreId`
+  helper PGR-53 consumes — pick in ledger order.
+- **Gates (on the rebased head)**: TestBatchPresetsP2 42 slots green (this
+  lane's 8 pins + main's new exportToMidwayFailure pin + the 33 pre-existing);
+  TestBatchPresets 15P/0F; the 14 active touched-surface suites (everything
+  including modes/BatchMode.h or core/BatchPreset.h; R14ProbeBatchSkip is a
+  DISABLED probe, not run by design) ×3 consecutive green: 13/13 per run,
+  0 failures
+  (`docs/audit/evidence-presets-review/4-touched-suites-rebase-run{1,2,3}.txt`;
+  the pre-rebase ×3 runs `4-touched-suites-run{1,2,3}.txt` remain on file).
   Fail-before/pass-after per cluster under
   `docs/audit/evidence-presets-review/1|2|3-*.txt` — every fix has a red-only
   fail-before run.
-- **Cherry-pick list for the integrator (R13 discipline)**: the three commits
-  above, in order `0c095dc1` → `8a151c8f` → `4a96f10f` (all independent; 1+2
-  are order-free, 3's helper `isValidStoreId` lands in `0c095dc1` so 3 needs 1).
 - **Residuals (recorded, not fixed)**:
   - PGR-52 (MEDIUM, owner item): shareable preset redact `patterns` run with
     no per-match timeout (Qt 6 exposes none; PCRE2 default MATCH_LIMIT is the

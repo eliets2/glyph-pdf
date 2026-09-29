@@ -1,0 +1,58 @@
+Test project D:/pdf/pdf-presets-review/build-presets-review
+      Start  42: TestSweepW3UxFlows
+ 1/13 Test  #42: TestSweepW3UxFlows ...............   Passed   51.89 sec
+      Start  60: TestBatchMode
+ 2/13 Test  #60: TestBatchMode ....................   Passed    1.29 sec
+      Start  61: TestBatchPresets
+ 3/13 Test  #61: TestBatchPresets .................   Passed    0.49 sec
+      Start  62: TestBatchPresetsP2
+ 4/13 Test  #62: TestBatchPresetsP2 ...............   Passed    2.78 sec
+      Start  63: TestBatchOcrLanguage
+ 5/13 Test  #63: TestBatchOcrLanguage .............   Passed    0.10 sec
+      Start  64: TestBatchOcrSkipText
+ 6/13 Test  #64: TestBatchOcrSkipText .............   Passed    1.54 sec
+      Start  69: TestBatchOpsCoverage
+ 7/13 Test  #69: TestBatchOpsCoverage .............   Passed    0.76 sec
+      Start  84: TestBatchOcrConfidence
+ 8/13 Test  #84: TestBatchOcrConfidence ...........   Passed    0.05 sec
+      Start 171: TestSep13LeadBatchMerge
+ 9/13 Test #171: TestSep13LeadBatchMerge ..........   Passed    0.92 sec
+      Start 175: R14ProbeSep13Fixes
+10/13 Test #175: R14ProbeSep13Fixes ...............   Passed   20.18 sec
+      Start 178: TestSweepW1PresetAdversary
+11/13 Test #178: TestSweepW1PresetAdversary .......   Passed    0.06 sec
+      Start 184: TestGsdW2Probe
+12/13 Test #184: TestGsdW2Probe ...................   Passed    0.48 sec
+      Start 186: TestPgr35BatchCollision
+13/13 Test #186: TestPgr35BatchCollision ..........   Passed    0.17 sec
+
+100% tests passed, 0 tests failed out of 13
+
+Label Time Summary:
+adversary     =   0.06 sec*proc (1 test)
+batch         =   8.16 sec*proc (10 tests)
+confidence    =   0.05 sec*proc (1 test)
+core          =  20.18 sec*proc (1 test)
+gsd           =   0.48 sec*proc (1 test)
+headless      =  80.71 sec*proc (13 tests)
+language      =   0.10 sec*proc (1 test)
+merge         =   0.76 sec*proc (1 test)
+modes         =   5.48 sec*proc (4 tests)
+ocr           =   1.69 sec*proc (3 tests)
+pdfa          =   0.76 sec*proc (1 test)
+pgr35         =   0.17 sec*proc (1 test)
+presets       =   3.33 sec*proc (3 tests)
+probe         =   0.48 sec*proc (1 test)
+qt            =  80.71 sec*proc (13 tests)
+r14review     =  20.18 sec*proc (1 test)
+redact        =   0.76 sec*proc (1 test)
+sep13leads    =   0.92 sec*proc (1 test)
+skip-text     =   1.54 sec*proc (1 test)
+sweep-w1      =   0.06 sec*proc (1 test)
+sweep-w3      =  51.89 sec*proc (1 test)
+ui            =  56.45 sec*proc (4 tests)
+unit          =  80.71 sec*proc (13 tests)
+ux-audit      =  51.89 sec*proc (1 test)
+watermark     =   0.76 sec*proc (1 test)
+
+Total Test time (real) =  80.73 sec
