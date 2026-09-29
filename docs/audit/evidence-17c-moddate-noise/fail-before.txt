@@ -1,0 +1,23 @@
+********* Start testing of TestSignatureRealCrypto *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSignatureRealCrypto::initTestCase()
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1934
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1934
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1934
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 14 0 R"
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() SECURITY: downgrading trustStatus from "Valid" to ValidWithUnsignedChanges for field "Signature1"
+FAIL!  : TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded() 'info.trustStatus == QLatin1String("Valid")' returned FALSE. (a value-only /ModDate refresh is PoDoFo save noise, not a shadow attack — must keep Valid, got: ValidWithUnsignedChanges)
+D:/pdf/prodfix/tests/TestSignatureRealCrypto.cpp(788) : failure location
+PASS   : TestSignatureRealCrypto::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 725ms
+********* Finished testing of TestSignatureRealCrypto *********

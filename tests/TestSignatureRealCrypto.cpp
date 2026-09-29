@@ -24,7 +24,10 @@
 #include <QFileInfo>
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QImage>
+#include <QRegularExpression>
+#include <chrono>
 
 #include "engines/SignatureManager.h"
 #include "engines/SafeSave.h"
@@ -717,6 +720,77 @@ private slots:
                                     "unsigned-attack revision, got: %1").arg(info.trustStatus)));
         QVERIFY2(info.isValid,
                  "B_LT: the app's own DSS revision must keep isValid=true");
+    }
+
+    // -----------------------------------------------------------------------
+    // PROGRAM-CONSOLIDATION 1.7c: the DETERMINISTIC form of the
+    // testOwnBltDssRevisionNotDowngraded CI flake (run 36486624682). PoDoFo's
+    // SaveUpdate stamps the Info dictionary's /ModDate on EVERY incremental
+    // save; when the save crosses a second boundary the refreshed date
+    // differs, PoDoFo re-serializes the Info object INTO the app's own B-LT
+    // DSS update, and the raw object-header scan read it as a "modified
+    // non-catalog object" — downgrading the app's own revision. That pin
+    // stays time-dependent; this one forces the exact mechanism
+    // deterministically: sign, then append an unsigned SaveUpdate whose only
+    // change is a /ModDate refresh to a fixed later date. The revision must
+    // keep validating clean (the same verdict the allowlist gives PoDoFo's
+    // save noise inside the DSS update).
+    // -----------------------------------------------------------------------
+    void testOwnModDateRefreshNotDowngraded()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString output = m_tmpDir.filePath("inv1_moddate_noise.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "INV1-ModDate", "")
+                == SignOutcome::Success);
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto baseline = mgr.validateSignatures(output);
+        QVERIFY2(!baseline.isEmpty(), "signed fixture must report a signature");
+        QVERIFY2(baseline.first().trustStatus == QLatin1String("Valid"),
+                 qPrintable(QString("baseline must validate clean before the refresh, got: %1")
+                                .arg(baseline.first().trustStatus)));
+
+        // The save-noise revision: an unsigned incremental update whose only
+        // content change is the Info /ModDate — exactly what PoDoFo's
+        // SaveUpdate writes on top of the app's own B-LT revision when the
+        // wall clock crossed a second. (The Info identity is asserted from
+        // the raw trailer: PoDoFo normalizes the in-memory trailer's /Info.)
+        {
+            QFile signedFile(output);
+            QVERIFY(signedFile.open(QIODevice::ReadOnly));
+            const QByteArray bytes = signedFile.readAll();
+            signedFile.close();
+            static const QRegularExpression infoRe(
+                QStringLiteral("/Info\\s+(\\d+)\\s+\\d+\\s+R"));
+            QVERIFY2(infoRe.match(QString::fromUtf8(bytes)).hasMatch(),
+                     "fixture must carry an indirect trailer /Info");
+
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(output.toUtf8().constData());
+            doc.GetMetadata().SetModifyDate(PoDoFo::PdfDate(
+                std::chrono::seconds(QDateTime(QDate(2031, 2, 3), QTime(4, 5, 6), Qt::UTC)
+                                         .toSecsSinceEpoch()),
+                std::chrono::minutes(0)));
+            doc.SaveUpdate(output.toUtf8().constData());
+        }
+
+        auto sigs = mgr.validateSignatures(output);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "document must still report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.trustStatus == QLatin1String("Valid"),
+                 qPrintable(QString("a value-only /ModDate refresh is PoDoFo save noise, not a "
+                                    "shadow attack — must keep Valid, got: %1")
+                                .arg(info.trustStatus)));
+        QVERIFY2(info.isValid,
+                 "the ModDate-only revision must keep isValid=true");
     }
 
     // -----------------------------------------------------------------------
