@@ -12,6 +12,7 @@
 #include <QPushButton>
 #include <QSemaphore>
 #include <QSharedPointer>
+#include <QSignalSpy>
 #include <QTimer>
 #include <atomic>
 #include <podofo/podofo.h>
@@ -194,6 +195,7 @@ private slots:
     // and exactly one completion arrives. Closing the panel / switching
     // documents mid-tag: no deadlock, no crash.
     void repeatApplyRefusedWhileTagRuns();
+    void failedTagRunStillAnnouncesTheRunFinished();
     void closePanelMidTagNoDeadlock();
     void switchDocumentMidTagNoDeadlock();
 
@@ -792,4 +794,35 @@ void TestAccessibilityPanel::switchDocumentMidTagNoDeadlock() {
 }
 
 #include "TestAccessibilityPanel.moc"
+// Follow-up to 4187fe2b: tagRunFinished announces EVERY finished run. A failed
+// run (the tagger returns ok=false) must still emit it, or every listener that
+// fences on it (waitForTagRun, TestSweepW3UxFlows flow7c) waits forever.
+void TestAccessibilityPanel::failedTagRunStillAnnouncesTheRunFinished() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("taggable.pdf");
+    QVERIFY(makeTaggablePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    panel.setTagRunner([](const QString&, const gp::TaggerSessionState&) {
+        gp::TaggerReport r;
+        r.ok = false;
+        r.message = QStringLiteral("tagger said no");
+        return r;
+    });
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+
+    tagButtonOf(&panel)->click();
+    QVERIFY(waitForTagPreflight(&panel));
+    auto* apply = panel.findChild<QPushButton*>(QStringLiteral("a11yTagApplyButton"));
+    QVERIFY(apply != nullptr);
+    QSignalSpy finished(&panel, &gp::AccessibilityPanel::tagRunFinished);
+    apply->click();
+    QVERIFY2(finished.count() > 0 || finished.wait(15000),
+             "a failed tag run must still emit tagRunFinished");
+    QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("tagger said no")),
+             qPrintable(statusOf(&panel)->text()));
+}
+
 QTEST_MAIN(TestAccessibilityPanel)
