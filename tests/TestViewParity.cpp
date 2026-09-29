@@ -22,10 +22,10 @@
 //       - leaving Full Screen always lands in Continuous and maximizes the
 //         window, instead of restoring the previous layout and window state;
 //       - Presentation leaves automatically after the last page.
-//   * One current DEFECT is recorded with QEXPECT_FAIL
-//     (zoomInAfterFitLeavesFitMode). When the redesign fixes it, QtTest
-//     reports XPASS, which fails the suite. That forces whoever fixed it to
-//     remove the marker, so the fix cannot silently regress later.
+//   * One current DEFECT was recorded with QEXPECT_FAIL
+//     (zoomInAfterFitLeavesFitMode). FIXED (PROGRAM-CONSOLIDATION-2026-09-25
+//     §1.4, 06 §4.8): an explicit zoom now leaves the fit mode, the QEXPECT_FAIL
+//     marker was removed and the assertion is a permanent regression lock.
 #include <QtTest/QtTest>
 #include <QApplication>
 #include <QKeyEvent>
@@ -223,17 +223,18 @@ private slots:
         QVERIFY(qFuzzyCompare(viewer()->zoomLevel(), 1.0));
     }
 
-    // Known DEFECT at the redesign base: Zoom In / Zoom Out after Fit Width or
-    // Fit Page change the stored factor but leave QPdfView in the fit mode, so
-    // the page does not visibly zoom. 06 §4.8 requires "any manual zoom
-    // switches to Fixed". Remove the QEXPECT_FAIL when that lands (XPASS).
+    // Was a known DEFECT at the redesign base: Zoom In / Zoom Out after Fit
+    // Width or Fit Page changed the stored factor but left QPdfView in the fit
+    // mode, so the page did not visibly zoom. FIXED per 06 §4.8 ("any manual
+    // zoom switches to Fixed") — the QEXPECT_FAIL was removed when
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.4 landed; this is the regression
+    // lock now.
     void zoomInAfterFitLeavesFitMode()
     {
         openSample();
         trigger(ToolId::FitWidth);
         QCOMPARE(pageView()->zoomMode(), QPdfView::ZoomMode::FitToWidth);
         trigger(ToolId::ZoomIn);
-        QEXPECT_FAIL("", "pre-redesign defect: zoomIn()/zoomOut() do not leave the fit mode (06 §4.8 fixes it)", Continue);
         QCOMPARE(pageView()->zoomMode(), QPdfView::ZoomMode::Custom);
     }
 

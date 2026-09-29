@@ -1,0 +1,12 @@
+********* Start testing of TestViewParity *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewParity::initTestCase()
+QWARN  : TestViewParity::zoomInAfterFitLeavesFitMode() This plugin does not support propagateSizeHints()
+QDEBUG : TestViewParity::zoomInAfterFitLeavesFitMode() [HomeController] Pruned 1 missing recent file(s).
+FAIL!  : TestViewParity::zoomInAfterFitLeavesFitMode() Compared values are not the same
+   Actual   (pageView()->zoomMode())    : FitToWidth
+   Expected (QPdfView::ZoomMode::Custom): Custom
+D:/pdf/pdf-xmpzoom/tests/TestViewParity.cpp(238) : failure location
+PASS   : TestViewParity::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 573ms
+********* Finished testing of TestViewParity *********

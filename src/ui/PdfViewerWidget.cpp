@@ -472,6 +472,11 @@ void PdfViewerWidget::zoomIn()
     // bound (1.25^n) toward gigapixel spread renders.
     const qreal next = qIsFinite(m_zoomFactor) ? m_zoomFactor * 1.25 : kMaxZoom;
     m_zoomFactor = qBound(kMinZoom, next, kMaxZoom);
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.4 (06 §4.8): an explicit zoom leaves
+    // the fit mode — otherwise QPdfView stays in FitToWidth/FitInView and the
+    // factor is overridden by the next refit, so the page never visibly zooms.
+    // Same law as setZoomLevel below.
+    m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
@@ -481,6 +486,8 @@ void PdfViewerWidget::zoomOut()
     // R12: finite + lower clamp (existing floor made explicit with the guard).
     const qreal next = qIsFinite(m_zoomFactor) ? m_zoomFactor / 1.25 : kMinZoom;
     m_zoomFactor = qBound(kMinZoom, next, kMaxZoom);
+    // §1.4: an explicit zoom leaves the fit mode (06 §4.8) — see zoomIn().
+    m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
 }
