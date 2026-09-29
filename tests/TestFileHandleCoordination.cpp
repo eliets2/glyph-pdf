@@ -122,6 +122,223 @@ int runK5Child(int argc, char **argv)
     return 0;
 }
 
+// A real MainWindow displaying `pdf`, the exact coordinator owner the engine
+// writers reach through SafeSave. Returns null (with `stage` output) when the
+// document could not be opened.
+std::unique_ptr<MainWindow> openDisplayedDocument(const QString &pdf, const char *tag)
+{
+    auto win = std::make_unique<MainWindow>(Bootstrapper::createContext());
+    win->show();
+    win->openDocument(pdf);
+    stage(tag);
+    return win;
+}
+
+// ── K1 (ADR-UI-03 step 2b): the hop for commits to the DISPLAYED file was an
+// UNBOUNDED Qt::BlockingQueuedConnection. An in-place engine save to the
+// displayed path holds PdfEditorEngine's mutex across the whole save; the hop
+// then waits for the GUI thread, which — exactly as in K5 — may itself be
+// blocked ON that mutex (page change → refreshPageLinks → extractLinks). The
+// K5 fix (skip the hop for undisplayed destinations) cannot help here: the
+// park is required for the atomic replace, so the coordinator kept the
+// blocking hop and this deadlock with it. The fix replaces the hop with a
+// bounded wait: the writer gives the GUI thread its deadline, then proceeds —
+// the commit fails honestly ("Access is denied", destination untouched)
+// instead of hanging both threads.
+//
+// Child: rounds of {worker: engine in-place save to the DISPLAYED path;
+// GUI: engine->extractLinks (the K5 lock shape)}. Pre-fix this hangs and the
+// parent kills it. Post-fix each round completes in about the hop deadline and
+// the displayed file's bytes are untouched (the refused in-place save).
+int runK1Child(int argc, char **argv)
+{
+    QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("TestFileHandleCoordinationChildK1"));
+    const QString dir = qEnvironmentVariable("K1_DIR");
+    const QString pdf = dir + QStringLiteral("/displayed.pdf");
+    makeHeavyPdf(pdf, 6);
+    stage("pdf written");
+    auto win = openDisplayedDocument(pdf, "window shown, document displayed");
+    auto engine = win->appContext()->pdfEditor;
+    if (!engine || !engine->loadDocumentForEditing(pdf)) {
+        stage("engine could not load the document");
+        return 2;
+    }
+    const QString current = engine->currentFile();
+    const qint64 loadId = engine->documentLoadId();
+    const auto before = gp::SafeSave::captureDestinationIdentity(pdf);
+
+    // The bound under test. Production uses 10 s; the child shrinks it so the
+    // rounds are quick while keeping the shape identical.
+    MainWindow::setFileHandleHopTimeoutForTesting(3000);
+
+    for (int round = 0; round < 2; ++round) {
+        QElapsedTimer roundTimer;
+        roundTimer.start();
+        // In-place save onto the displayed path on a worker: the engine mutex
+        // is held from here until the save returns (including the hop).
+        QFuture<bool> save = QtConcurrent::run([engine, current, loadId] {
+            return engine->saveDocumentIfCurrent(current, loadId, current);
+        });
+        // Let the worker take the engine lock, then enter the engine from the
+        // GUI thread exactly as a page change does. The GUI thread is now
+        // blocked on the worker's mutex and cannot run the queued hop — the
+        // K5 lock shape, with the destination displayed.
+        QThread::msleep(15);
+        (void)engine->extractLinks(current, 0);
+        while (!save.isFinished())
+            QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+        std::fprintf(stderr, "K1 child: round %d completed (save %s) in %lld ms\n", round,
+                     save.result() ? "ok" : "refused", static_cast<long long>(roundTimer.elapsed()));
+        std::fflush(stderr);
+    }
+    // The in-place save was refused (the park could not run in time) — the
+    // displayed file must be byte-identical.
+    const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
+    if (!before.valid || after.sha256 != before.sha256) {
+        stage("the refused in-place save changed the displayed file");
+        return 4;
+    }
+    return 0;
+}
+
+// ── K2 (ADR-UI-03 step 2b): the hop's wait is UNBOUNDED, so a dialog-less
+// background writer committing to the DISPLAYED file stalls for as long as
+// the GUI thread stays busy — the coordinator's worker-path safety argument
+// ("every background writer parks a WindowModal progress dialog, so the GUI
+// thread stays in its event loop") covers only dialog'd writers; autosave
+// shows no dialog (K5's own note), and the signing/tagging workers hold the
+// transaction across the whole wait. A commit hopped out this late also LANDS
+// late: the park finally runs whenever the GUI frees up and the write then
+// replaces the displayed file unattended, long after the user's action.
+//
+// Child: a busy GUI (no event processing for 2 s) against a 250 ms hop bound
+// and a direct SafeSave commit to the displayed file. Pre-fix the worker is
+// still inside the hop when the busy window ends (exit 7 — the stall, and the
+// proof the hop engaged), and the late commit lands (exit 10). Post-fix it
+// returns inside the bound, the commit fails honestly, and the destination is
+// byte-identical.
+int runK2Child(int argc, char **argv)
+{
+    QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("TestFileHandleCoordinationChildK2"));
+    const QString dir = qEnvironmentVariable("K2_DIR");
+    const QString pdf = dir + QStringLiteral("/displayed.pdf");
+    makeHeavyPdf(pdf, 3);
+    stage("pdf written");
+    auto win = openDisplayedDocument(pdf, "window shown, document displayed");
+    // The direct SafeSave commit is a FOREIGN writer: like the signing fill
+    // step, it must drop the editing engine's file-backed resident (its
+    // lazy-parse device holds the file until dropped) so the VIEWER's handle —
+    // the one the coordinator parks — is the only obstacle to the atomic
+    // replace. The commit under test must fail (or succeed) for coordinator
+    // reasons, not because a second device pinned the file.
+    if (auto engine = win->appContext()->pdfEditor)
+        engine->releaseResidentFile(pdf);
+    MainWindow::setFileHandleHopTimeoutForTesting(250);
+    const auto before = gp::SafeSave::captureDestinationIdentity(pdf);
+    const QString candidate = dir + QStringLiteral("/candidate.pdf");
+    makeHeavyPdf(candidate, 1);
+
+    QFuture<bool> commit = QtConcurrent::run([pdf, candidate] {
+        QString err;
+        return gp::SafeSave::commitFileToDestination(candidate, pdf, &err);
+    });
+    // Busy GUI: no event processing for 2 s — 8× the hop bound.
+    QThread::msleep(2000);
+    if (!commit.isFinished()) {
+        stage("the commit attempt is still stuck on the hop 2 s in (unbounded stall)");
+        return 7;
+    }
+    stage("commit attempt returned while the GUI was still busy (bounded)");
+    if (commit.result()) {
+        stage("the late-hopped commit landed although the park deadline passed long before");
+        return 10;
+    }
+    const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
+    if (!before.valid || after.sha256 != before.sha256) {
+        stage("the refused commit changed the destination");
+        return 11;
+    }
+    return 0;
+}
+
+// ── K4 (ADR-UI-03 step 2b): the bounded hop's aftermath contract. When the
+// GUI thread does not service the park within the deadline, the writer must
+// PROCEED (bounded), the commit must fail honestly with the destination
+// byte-identical, and the viewer must recover — the late park and the late
+// restore run in queue order once the GUI thread frees up, leaving no
+// stranded park (the K3 latch fix keeps a late stale restore from latching).
+//
+// Child: a busy GUI (no event processing for 1 s) against a 250 ms hop bound.
+// Pre-fix the worker cannot return until the GUI drains (the commit then even
+// SUCCEEDS — exit 4). Post-fix it returns inside the bound (exit-7 check),
+// fails honestly (exit-4 check), leaves the destination byte-identical
+// (exit-5 check), and a second in-place commit succeeds again (exit-6 check).
+int runK4Child(int argc, char **argv)
+{
+    QApplication app(argc, argv);
+    QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("TestFileHandleCoordinationChildK4"));
+    const QString dir = qEnvironmentVariable("K4_DIR");
+    const QString pdf = dir + QStringLiteral("/displayed.pdf");
+    makeHeavyPdf(pdf, 3);
+    stage("pdf written");
+    auto win = openDisplayedDocument(pdf, "window shown, document displayed");
+    // The direct SafeSave commit is a FOREIGN writer: like the signing fill
+    // step, it must drop the editing engine's file-backed resident (its
+    // lazy-parse device holds the file until dropped) so the VIEWER's handle —
+    // the one the coordinator parks — is the only obstacle to the atomic
+    // replace. The commit under test must fail (or succeed) for coordinator
+    // reasons, not because a second device pinned the file.
+    if (auto engine = win->appContext()->pdfEditor)
+        engine->releaseResidentFile(pdf);
+    MainWindow::setFileHandleHopTimeoutForTesting(250);
+    const auto before = gp::SafeSave::captureDestinationIdentity(pdf);
+    const QString candidate = dir + QStringLiteral("/candidate.pdf");
+    makeHeavyPdf(candidate, 1);
+
+    QFuture<bool> commit = QtConcurrent::run([pdf, candidate] {
+        QString err;
+        return gp::SafeSave::commitFileToDestination(candidate, pdf, &err);
+    });
+    // Busy GUI: no event processing for 1 s — 4× the hop bound.
+    QThread::msleep(1000);
+    if (!commit.isFinished()) {
+        stage("the commit attempt outlived the hop deadline while the GUI was busy");
+        return 7;
+    }
+    stage("commit attempt returned while the GUI was still busy (bounded)");
+    if (commit.result()) {
+        stage("the commit succeeded although the park never ran in time");
+        return 4;
+    }
+    const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
+    if (!before.valid || after.sha256 != before.sha256) {
+        stage("the refused commit changed the destination");
+        return 5;
+    }
+    // Recovery: drain the events — the late park and the late restore run in
+    // queue order — then require a second in-place commit to work again.
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 200);
+    const QString candidate2 = dir + QStringLiteral("/candidate2.pdf");
+    makeHeavyPdf(candidate2, 2);
+    QFuture<bool> commit2 = QtConcurrent::run([pdf, candidate2] {
+        QString err;
+        return gp::SafeSave::commitFileToDestination(candidate2, pdf, &err);
+    });
+    while (!commit2.isFinished())
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 50);
+    if (!commit2.result()) {
+        stage("a second in-place commit after the timed-out hop failed (stranded park?)");
+        return 6;
+    }
+    stage("viewer recovered: the second in-place commit went through");
+    return 0;
+}
+
 } // namespace
 
 class TestFileHandleCoordination : public QObject {
@@ -206,12 +423,100 @@ private slots:
         QVERIFY(w.isLoaded());
         QCOMPARE(w.filePath(), switchedQ);
     }
+
+    // K1: an in-place worker save to the DISPLAYED file must not deadlock the
+    // GUI thread, and a save the park could not be obtained for must be
+    // refused with the destination untouched (the bounded-hop contract).
+    void noDeadlockWhenBackgroundSavesTheDisplayedFile()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QProcess child;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("K1_DIR"), dir.path());
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        child.setProcessEnvironment(env);
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(QCoreApplication::applicationFilePath(), { QStringLiteral("--k1-child") });
+        QVERIFY(child.waitForStarted(10000));
+        const bool finished = child.waitForFinished(120000);
+        if (!finished) {
+            child.kill();
+            child.waitForFinished(5000);
+        }
+        qInfo().noquote() << "child log:\n" << QString::fromLocal8Bit(child.readAll());
+        QVERIFY2(finished, "the child hung: an in-place worker save to the displayed file "
+                           "deadlocked the GUI thread on the coordinator's unbounded hop (K1)");
+        QCOMPARE(child.exitCode(), 0);
+    }
+
+    // K2: a background commit to the DISPLAYED file must not stall for as
+    // long as the GUI thread stays busy, and a commit whose park deadline
+    // passed must not land late and unattended.
+    void boundedHopReturnsWhileTheGuiIsBusy()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QProcess child;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("K2_DIR"), dir.path());
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        child.setProcessEnvironment(env);
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(QCoreApplication::applicationFilePath(), { QStringLiteral("--k2-child") });
+        QVERIFY(child.waitForStarted(10000));
+        const bool finished = child.waitForFinished(60000);
+        if (!finished) {
+            child.kill();
+            child.waitForFinished(5000);
+        }
+        qInfo().noquote() << "child log:\n" << QString::fromLocal8Bit(child.readAll());
+        QVERIFY2(finished, "the child hung: the coordinator's hop is not bounded (K2)");
+        QVERIFY2(child.exitCode() != 7,
+                 "the commit worker was still stuck on the hop long after its deadline: "
+                 "the displayed-file hop is unbounded (K2)");
+        QVERIFY2(child.exitCode() != 10,
+                 "a commit whose park deadline passed landed late and unattended (K2)");
+        QCOMPARE(child.exitCode(), 0);
+    }
+
+    // K4: a commit whose park hop times out must proceed boundedly, fail
+    // honestly, leave the destination byte-identical, and leave the viewer
+    // able to commit again afterwards (late park + late restore, no stranded
+    // park).
+    void timedOutHopKeepsTheDestinationUntouchedAndTheViewerRecovers()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        QProcess child;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        env.insert(QStringLiteral("K4_DIR"), dir.path());
+        env.insert(QStringLiteral("QT_QPA_PLATFORM"), QStringLiteral("offscreen"));
+        child.setProcessEnvironment(env);
+        child.setProcessChannelMode(QProcess::MergedChannels);
+        child.start(QCoreApplication::applicationFilePath(), { QStringLiteral("--k4-child") });
+        QVERIFY(child.waitForStarted(10000));
+        const bool finished = child.waitForFinished(60000);
+        if (!finished) {
+            child.kill();
+            child.waitForFinished(5000);
+        }
+        qInfo().noquote() << "child log:\n" << QString::fromLocal8Bit(child.readAll());
+        QVERIFY2(finished, "the child hung: the coordinator's hop is not bounded (K4)");
+        QCOMPARE(child.exitCode(), 0);
+    }
 };
 
 int main(int argc, char **argv)
 {
     if (argc > 1 && std::strcmp(argv[1], "--k5-child") == 0)
         return runK5Child(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--k1-child") == 0)
+        return runK1Child(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--k2-child") == 0)
+        return runK2Child(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--k4-child") == 0)
+        return runK4Child(argc, argv);
     QApplication app(argc, argv);
     TestFileHandleCoordination t;
     return QTest::qExec(&t, argc, argv);

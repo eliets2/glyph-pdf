@@ -124,6 +124,11 @@ public:
     static bool startupUpdateCheckEnabled();
     static QString startupUpdateChannel();
 
+    // K1/K2/K4 test seam: the file-handle coordinator's worker-hop deadline in
+    // milliseconds (production: 10 s). Tests shrink it to exercise the
+    // timed-out hop path quickly; see the bounded hop in GpMainWindow.cpp.
+    static void setFileHandleHopTimeoutForTesting(int ms);
+
     // Navigate to a named screen (delegates to onScreenSelected).
     // Usable by controllers that hold a MainWindow* but not ModeController*.
     void activateScreen(const QString& id);

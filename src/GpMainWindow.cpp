@@ -63,6 +63,9 @@
 #include <QCloseEvent>
 #include <QMimeData>
 #include <QRegularExpression>
+#include <QSemaphore>
+
+#include <atomic>
 
 #include "ui/ShortcutHelpDialog.h"
 #include "ui/PreferencesDialog.h"
@@ -108,6 +111,12 @@ QPointer<MainWindow> g_fileHandleCoordinatorOwner;
 // path to decide whether a commit needs the GUI hop at all.
 QMutex g_displayedPathMutex;
 QString g_displayedPath;
+
+// K1/K2/K4 (ADR-UI-03 step 2b): the deadline the coordinator's worker hop
+// waits for the GUI thread before the writer proceeds (an unanswered park
+// makes the commit fail honestly instead of hanging both threads). 10 s
+// covers any ordinary busy period of the GUI thread; tests shrink it.
+std::atomic<int> g_coordinatorHopTimeoutMs{10000};
 
 // F6-F1 (SWEEP-W3 UX): the open-failure path detects a certificate
 // (public-key) /Encrypt dictionary before falling back to the generic
@@ -283,14 +292,11 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
             return;
         }
         // Worker thread: QPdfDocument is GUI-thread-only, so the park/restore
-        // hop to the GUI thread BLOCKS until done — a background commit runs
-        // with the handle genuinely released and restores on every outcome,
-        // the same contract save-in-place gets. Safe: every background writer
-        // parks a WindowModal progress dialog while its worker runs, so the
-        // GUI thread stays in its event loop and the blocking hop cannot
-        // deadlock it. The owner check runs on BOTH threads: a stale
-        // coordinator (owner torn down) still no-ops instead of touching a
-        // dead window.
+        // hop to the GUI thread marshals the park to where the document lives —
+        // a background commit runs with the handle genuinely released and
+        // restores on every outcome, the same contract save-in-place gets. The
+        // owner check runs on BOTH threads: a stale coordinator (owner torn
+        // down) still no-ops instead of touching a dead window.
         // K5 (ADR-UI-03 §3.4, reproduced by TestFileHandleCoordination): a
         // worker commit to a destination the viewer does NOT display has
         // nothing to park: parkDocumentForWrite/restoreDocumentAfterWrite
@@ -303,24 +309,58 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         // engine->getEmbeddedFiles, or refreshPageLinks -> extractLinks).
         // The comparison is the same exact-string one the viewer uses, so park
         // outcomes are unchanged; only the needless blocking hop is gone.
-        // Commits to the DISPLAYED file keep the blocking hop, because the
-        // park is required for the atomic replace; ADR-UI-03 step 2b replaces
-        // it with write leases and a bounded hop.
+        // K1/K2/K4 (ADR-UI-03 step 2b): commits to the DISPLAYED file still
+        // need the park for the atomic replace, but the hop is now BOUNDED.
+        // The unbounded Qt::BlockingQueuedConnection inherited two defects:
+        // K1 — the same lock cycle K5 found, kept alive for the displayed
+        //      destination: an in-place engine save holds PdfEditorEngine's
+        //      mutex across the whole save, and a GUI thread blocked ON that
+        //      mutex (page change → extractLinks, pane refresh) can never run
+        //      the queued hop, so both threads waited forever;
+        // K2 — no dialog-less writer safety: the "every background writer
+        //      parks a WindowModal progress dialog" argument covers only
+        //      dialog'd writers, so a busy GUI thread stalled a commit (and
+        //      everything its transaction held) indefinitely — and the late
+        //      hop then let the write land unattended.
+        // The bounded hop posts the call (a plain queued connection — a call
+        // whose receiver dies is simply purged, and Qt 6.11's QLatch releases
+        // a blocked sender, verified by the K2 teardown probe) and waits at
+        // most g_coordinatorHopTimeoutMs for it to run. The semaphore is
+        // released only AFTER the park/restore completed, so a successful wait
+        // keeps the old blocking semantics: the writer proceeds with the
+        // handle genuinely released. On a timeout the writer proceeds anyway —
+        // the queued call still runs when the GUI thread frees up (park then
+        // restore, in queue order), and the commit's QSaveFile rename fails
+        // honestly with the destination byte-identical instead of hanging the
+        // writer. The viewer recovers through the late restore; the K3 latch
+        // fix keeps even a stale late restore from latching.
         {
             QMutexLocker lock(&g_displayedPathMutex);
             if (g_displayedPath.isEmpty() || g_displayedPath != p)
                 return;
         }
+        QSemaphore hopRan;
         QMetaObject::invokeMethod(
             this,
-            [this, p, park]() {
-                if (g_fileHandleCoordinatorOwner != this) return;
+            [this, p, park, &hopRan]() {
+                if (g_fileHandleCoordinatorOwner != this) {
+                    hopRan.release();
+                    return;
+                }
                 if (auto *v = pdfViewer()) {
                     if (park) v->parkDocumentForWrite(p);
                     else v->restoreDocumentAfterWrite(p);
                 }
+                hopRan.release();
             },
-            Qt::BlockingQueuedConnection);
+            Qt::QueuedConnection);
+        const int timeoutMs = g_coordinatorHopTimeoutMs.load(std::memory_order_relaxed);
+        if (!hopRan.tryAcquire(1, timeoutMs)) {
+            qWarning() << "file-handle coordinator: the GUI hop for" << p
+                       << (park ? "(park)" : "(restore)") << "did not run within" << timeoutMs
+                       << "ms; the writer proceeds — the commit will fail honestly rather "
+                          "than block the GUI thread";
+        }
     };
     SafeSave::setFileHandleCoordinator(
         [this, hopToGui](const QString &p) { hopToGui(p, true); },
@@ -701,6 +741,11 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
             }
         });
     }
+}
+
+void MainWindow::setFileHandleHopTimeoutForTesting(int ms)
+{
+    g_coordinatorHopTimeoutMs.store(ms, std::memory_order_relaxed);
 }
 
 MainWindow::~MainWindow() {
