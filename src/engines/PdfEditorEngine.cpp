@@ -1147,42 +1147,69 @@ QByteArray injectExpiry(const QByteArray& existing, const QString& dateStr) {
 bool PdfEditorEngine::setExpiryDate(const QString& pdfPath, const QDate& date, const QString& outputPath)
 {
     if (!date.isValid()) return false;
+    // SafeSave transaction: serialize to a unique candidate, prove the marker
+    // is in it, then commit atomically — never a direct Save() onto
+    // outputPath. The shell's call is IN PLACE (outputPath == pdfPath) and
+    // PoDoFo loads objects on demand from the open source, so writing that
+    // same file overwrote bytes the writer was still reading: a second expiry
+    // write left a file that no longer parsed as a PDF.
+    QString candidate;
+    QString err;
+    if (!gp::SafeSave::makeUniqueCandidate(&candidate, &err)) {
+        qWarning() << "setExpiryDate: no candidate:" << err;
+        return false;
+    }
+    bool written = false;
     try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdfPath.toUtf8().constData());
 
-        // Ensure the catalog has an XMP /Metadata stream, then read it back.
-        doc.GetMetadata().SyncXMPMetadata(true);
+        // Refresh /ModDate and sync the XMP packet NOW, inject the marker into
+        // the synced stream, and save with NoMetadataUpdate. Leaving the
+        // refresh to Save() re-serialized PoDoFo's cached packet (parsed at
+        // load, without the marker) over the stream whenever the source's
+        // /ModDate lay in an earlier second — the marker was silently dropped.
+        auto& meta = doc.GetMetadata();
+        meta.SetModifyDate(PoDoFo::PdfDate::LocalNow());
+        meta.SyncXMPMetadata();
 
         auto& catDict = doc.GetCatalog().GetDictionary();
         PoDoFo::PdfObject* metaObj = catDict.FindKey("Metadata");
         if (!metaObj) {
             qWarning() << "setExpiryDate: no /Metadata stream after sync";
-            return false;
-        }
-
-        QByteArray existing;
-        if (metaObj->HasStream()) {
-            if (const PoDoFo::PdfObjectStream* s = metaObj->GetStream()) {
-                PoDoFo::charbuff buf;
-                s->CopyTo(buf);
-                existing = QByteArray(buf.data(), static_cast<int>(buf.size()));
+        } else {
+            QByteArray existing;
+            if (metaObj->HasStream()) {
+                if (const PoDoFo::PdfObjectStream* s = metaObj->GetStream()) {
+                    PoDoFo::charbuff buf;
+                    s->CopyTo(buf);
+                    existing = QByteArray(buf.data(), static_cast<int>(buf.size()));
+                }
             }
+
+            const QByteArray newXmp = injectExpiry(existing, date.toString(QStringLiteral("yyyy-MM-dd")));
+
+            metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Metadata"));
+            metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("XML"));
+            metaObj->GetOrCreateStream().SetData(
+                PoDoFo::bufferview(newXmp.constData(), static_cast<size_t>(newXmp.size())));
+
+            doc.Save(candidate.toUtf8().constData(), PoDoFo::PdfSaveOptions::NoMetadataUpdate);
+            written = true;
         }
-
-        const QByteArray newXmp = injectExpiry(existing, date.toString(QStringLiteral("yyyy-MM-dd")));
-
-        metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("Metadata"));
-        metaObj->GetDictionary().AddKey(PoDoFo::PdfName("Subtype"), PoDoFo::PdfName("XML"));
-        metaObj->GetOrCreateStream().SetData(
-            PoDoFo::bufferview(newXmp.constData(), static_cast<size_t>(newXmp.size())));
-
-        doc.Save(outputPath.toUtf8().constData());
-        return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning() << "setExpiryDate error:" << e.what();
-        return false;
     }
+    // `doc` is closed here, so the commit can replace the source in place.
+    bool ok = written && readExpiryDate(candidate) == date;
+    if (written && !ok)
+        qWarning() << "setExpiryDate: the candidate does not carry the expiry marker";
+    if (ok && !gp::SafeSave::commitFileToDestination(candidate, outputPath, &err)) {
+        qWarning() << "setExpiryDate: commit failed:" << err;
+        ok = false;
+    }
+    QFile::remove(candidate);
+    return ok;
 }
 
 // §9.1: clickable link annotations on one page (URI + internal GoTo).

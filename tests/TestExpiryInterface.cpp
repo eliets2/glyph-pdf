@@ -20,6 +20,12 @@ private slots:
     void requiresLoadedDocument();
     // ── Engine-level: the real XMP marker round-trips ──
     void writesAndReadsBackExpiryMarker();
+    // PoDoFo stamps /ModDate on every Save and, when the date changed,
+    // re-serializes its XMP packet over the /Metadata stream. A document last
+    // saved in an earlier second — every real in-place use — must keep the
+    // marker; it used to survive only when both saves shared one wall-clock
+    // second (the TestReadOnlyGate / TestCommandBinding load flake).
+    void markerSurvivesTheSaveTimeModDateRefresh();
 };
 void TestExpiryInterface::callableThroughInterfacePointer() {
     MockPdfEditorEngine mock;
@@ -75,6 +81,52 @@ void TestExpiryInterface::writesAndReadsBackExpiryMarker() {
     // In-place write, exactly as SecurityController::setExpiryDocument does.
     QVERIFY(engine.setExpiryDate(in, d, in));
     QCOMPARE(PdfEditorEngine::readExpiryDate(in), d);
+}
+
+void TestExpiryInterface::markerSurvivesTheSaveTimeModDateRefresh() {
+    // Single-page PDF whose /Info carries an old /ModDate, so the save inside
+    // setExpiryDate always takes PoDoFo's "ModDate changed → re-sync XMP" path.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString in = dir.filePath(QStringLiteral("dated.pdf"));
+    const QList<QByteArray> objects = {
+        "<</Type/Catalog/Pages 2 0 R>>",
+        "<</Type/Pages/Kids[3 0 R]/Count 1>>",
+        "<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>",
+        "<</Producer(synthetic)/ModDate(D:20200101000000Z)>>",
+    };
+    QByteArray pdf = "%PDF-1.4\n";
+    QList<qint64> offsets;
+    for (int i = 0; i < objects.size(); ++i) {
+        offsets.append(pdf.size());
+        pdf += QByteArray::number(i + 1) + " 0 obj" + objects.at(i) + "endobj\n";
+    }
+    const qint64 xref = pdf.size();
+    pdf += "xref\n0 " + QByteArray::number(objects.size() + 1) + "\n0000000000 65535 f \n";
+    for (qint64 off : offsets)
+        pdf += QByteArray::number(off).rightJustified(10, '0') + " 00000 n \n";
+    pdf += "trailer<</Size " + QByteArray::number(objects.size() + 1)
+         + "/Root 1 0 R/Info 4 0 R>>\nstartxref\n" + QByteArray::number(xref) + "\n%%EOF\n";
+    QFile f(in);
+    QVERIFY(f.open(QIODevice::WriteOnly));
+    f.write(pdf);
+    f.close();
+
+    PdfEditorEngine engine;
+    const QDate d(2026, 4, 1);
+    // In place, exactly as SecurityController::setExpiryDocument does.
+    QVERIFY(engine.setExpiryDate(in, d, in));
+    QCOMPARE(PdfEditorEngine::readExpiryDate(in), d);
+    // A second in-place write — the source now carries an XMP packet with the
+    // marker — replaces the marker, and the document stays intact whatever
+    // the outcome: PoDoFo reads objects on demand from the open source, so the
+    // old direct Save() onto that same path wrote over bytes it still read.
+    const QDate later(2027, 1, 15);
+    const bool second = engine.setExpiryDate(in, later, in);
+    PdfEditorEngine reopen;
+    QVERIFY2(reopen.loadDocumentForEditing(in), "the document must survive the in-place write intact");
+    QVERIFY(second);
+    QCOMPARE(PdfEditorEngine::readExpiryDate(in), later);
 }
 
 QTEST_GUILESS_MAIN(TestExpiryInterface)
