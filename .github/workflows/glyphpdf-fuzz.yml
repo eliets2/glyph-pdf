@@ -189,20 +189,50 @@ jobs:
     # through pkg-config and fails honestly when it is missing (found by the
     # CX-13 acceptance dispatch on 2026-09-29 — run 36643482560, job
     # djot-libfuzzer: "fatal error: 'QString' file not found").
+    # The SAME dispatch chain then exposed the chain's podofo include
+    # (PdfStructureMapper.cpp:39 <podofo/podofo.h>, run 36644229748), so the
+    # job also builds the SAME pinned vendored podofo 1.1.0 the engine and
+    # the redaction-oracles job use — never a distro podofo whose API drifts
+    # against the pin.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang + libFuzzer + Qt6 Core
-        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config
+      - name: Install clang + libFuzzer + Qt6 Core + freetype
+        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config libfreetype-dev
+      - name: Restore vendored podofo cache (ubuntu)
+        id: podofo-cache-lx
+        uses: actions/cache@v4
+        with:
+          path: third_party/podofo/install
+          key: podofo-1.1.0-g712fb0e80e0e9404525d8db54fa0baa4ae469963-linux-r1
+      - name: Build vendored podofo 1.1.0 (ubuntu)
+        if: steps.podofo-cache-lx.outputs.cache-hit != 'true'
+        run: |
+          git init podofo-src
+          git -C podofo-src fetch --depth 1 https://github.com/podofo/podofo.git 712fb0e80e0e9404525d8db54fa0baa4ae469963
+          git -C podofo-src checkout FETCH_HEAD
+          cmake -S podofo-src -B podofo-src/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPODOFO_BUILD_TOOLS=OFF \
+            -DPODOFO_BUILD_TEST=OFF \
+            -DPODOFO_BUILD_EXAMPLES=OFF \
+            -DPODOFO_BUILD_SHARED=OFF \
+            -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
+          cmake --build podofo-src/build --parallel
+          cmake --install podofo-src/build
       - name: Build djot fuzzer (clang)
         run: bash fuzz/build_clang/build_djot_clang.sh
       - name: Short fuzz run (PR smoke)
         # LeakSanitizer off on purpose (same rationale as the CX-15 gate):
         # the harness now links the uninstrumented Qt6Core, and LSan over
         # Qt's allocator is noise — the gate targets memory errors and UB.
+        # LD_LIBRARY_PATH: belt-and-braces if podofo still installs a shared
+        # lib despite PODOFO_BUILD_SHARED=OFF (a static libpodofo.a needs
+        # nothing at runtime).
         env:
           ASAN_OPTIONS: detect_leaks=0
+          LD_LIBRARY_PATH: ${{ github.workspace }}/third_party/podofo/install/lib
         run: |
           if [ ! -x fuzz/bin/djot_fuzzer ]; then
             echo "FAIL: fuzz/bin/djot_fuzzer missing — the harness must be built before this job can be green (INF06)" >&2

@@ -63,8 +63,19 @@ fi
 QT_CFLAGS="$(pkg-config --cflags Qt6Core)"
 QT_LIBS="$(pkg-config --libs Qt6Core)"
 
+# PdfStructureMapper (the save-time dual-write chain, M6-P4 D3) includes
+# <podofo/podofo.h>. Resolve the SAME pinned vendored prefix the engine and
+# the redaction-oracles job use (GLYPHPDF_PODOFO_DIR; default
+# <root>/third_party/podofo/install) — never a distro podofo, whose version
+# drifts against the pinned 1.1.0 API the rest of the chain is written to.
+PODOFO_DIR="${GLYPHPDF_PODOFO_DIR:-$ROOT/third_party/podofo/install}"
+if [ ! -f "$PODOFO_DIR/include/podofo/podofo.h" ]; then
+  echo "ERROR: podofo headers not found at $PODOFO_DIR/include/podofo/podofo.h — build the vendored podofo 1.1.0 (commit 712fb0e80e0e9404525d8db54fa0baa4ae469963) into that prefix first; CI: the glyphpdf-fuzz.yml djot job provisions it (INF06)." >&2
+  exit 1
+fi
+
 SAN="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1"
-INC="-Isrc -Isrc/pdfws_djot -Isrc/core/interfaces -Isrc/docmodel -Ithird_party/lua-5.4/src"
+INC="-Isrc -Isrc/pdfws_djot -Isrc/core/interfaces -Isrc/docmodel -Ithird_party/lua-5.4/src -I$PODOFO_DIR/include"
 
 echo "[1] rebuild liblua (C) with clang"
 for f in third_party/lua-5.4/src/*.c; do
@@ -84,6 +95,7 @@ echo "[3] build + link the fuzzer"
 "$CLANGXX" -std=c++17 $SAN -fsanitize=fuzzer $INC $QT_CFLAGS \
   -DDJOT_LIB_PATH="\"$ROOT/third_party/djot\"" \
   fuzz/harnesses/harness_djot.cpp "$OUT"/obj/*.o $QT_LIBS \
+  -L"$PODOFO_DIR/lib" -lpodofo \
   -o fuzz/bin/djot_fuzzer
 
 # INF06: a build that produces no executable must not exit 0.
