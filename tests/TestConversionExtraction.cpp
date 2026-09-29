@@ -27,12 +27,20 @@
 #include <QFile>
 #include <QRegularExpression>
 #include <zip.h>
+#include <memory>
 #include "engines/ConversionManager.h"
 #include "engines/pdfium/PdfiumBackend.h"
 
 class TestConversionExtraction : public QObject {
     Q_OBJECT
 private slots:
+    // Removes debris of the former app-dir seam: a fake soffice left in
+    // <appDir>/libreoffice by an older build of this suite shadows every
+    // converter lookup in the build directory.
+    void initTestCase();
+    // Undoes the CX-03 fake-soffice plant after every test function, including
+    // one that failed before reaching its own removal.
+    void cleanup() { removeFakeSoffice(); }
     // The premise: the existing backend boundary already decodes these fonts.
     void backendPlainExtractDecodesSubsetEncoding();
     void backendPlainExtractDecodesWinAnsiAccents();
@@ -100,24 +108,43 @@ private:
 
 private:
     // ── CX-03 seam ──────────────────────────────────────────────────────────
-    // Copies the fake soffice stand-in (built as the fake_soffice target, its
-    // path arrives via GLYPHPDF_FAKE_SOFFICE_EXE) to the app-dir "bundled"
-    // location — ConversionManager::locateSoffice's FIRST candidate — so
-    // convertOfficeToPdf runs a controllable converter instead of a real
-    // LibreOffice. Returns the installed path (empty on failure).
+    // Plants the fake soffice stand-in (built as the fake_soffice target, its
+    // path arrives via GLYPHPDF_FAKE_SOFFICE_EXE) in a private temp folder
+    // prepended to THIS process's PATH, so ConversionManager::locateSoffice
+    // resolves it and convertOfficeToPdf runs a controllable converter instead
+    // of a real LibreOffice. It deliberately avoids the app-dir "bundled"
+    // location: that folder is shared by every test binary in the build
+    // directory and wins over PATH, so a fake left there — by a parallel ctest
+    // run, or by a failed check returning before the removal — hijacked
+    // TestOfficeImport's own converter. Returns the planted path (empty on
+    // failure); cleanup() undoes the plant after every test function.
     static QString installFakeSoffice() {
+        removeFakeSoffice();
         const QByteArray exe = qgetenv("GLYPHPDF_FAKE_SOFFICE_EXE");
         if (exe.isEmpty()) return {};
-        const QString appDir = QCoreApplication::applicationDirPath();
-        const QString dest = appDir + "/libreoffice/program/soffice.exe";
-        QDir().mkpath(appDir + "/libreoffice/program");
-        if (QFile::exists(dest)) QFile::remove(dest);
-        return QFile::copy(QString::fromLocal8Bit(exe), dest) ? dest : QString();
+        s_fakeDir = std::make_unique<QTemporaryDir>();
+        if (!s_fakeDir->isValid()) return {};
+#ifdef Q_OS_WIN
+        const QString dest = s_fakeDir->filePath(QStringLiteral("soffice.exe"));
+#else
+        const QString dest = s_fakeDir->filePath(QStringLiteral("soffice"));
+#endif
+        if (!QFile::copy(QString::fromLocal8Bit(exe), dest)) return {};
+        s_savedPath = qgetenv("PATH");
+        qputenv("PATH", QDir::toNativeSeparators(s_fakeDir->path()).toLocal8Bit()
+                            + QDir::listSeparator().toLatin1() + s_savedPath);
+        return dest;
     }
     static void removeFakeSoffice() {
-        const QString appDir = QCoreApplication::applicationDirPath();
-        QDir(appDir + "/libreoffice").removeRecursively();
+        if (s_fakeDir) {
+            qputenv("PATH", s_savedPath);
+            s_fakeDir.reset();
+        }
+        qunsetenv("GLYPHPDF_FAKE_SOFFICE_MODE");
+        qunsetenv("GLYPHPDF_FAKE_SOFFICE_PRODUCT");
     }
+    static inline std::unique_ptr<QTemporaryDir> s_fakeDir;
+    static inline QByteArray s_savedPath;
     // A standalone office file with a supported extension (content is
     // irrelevant to the fake converter).
     static QString makeOfficeInput(const QString& dir, const QString& name) {
@@ -832,6 +859,16 @@ void TestConversionExtraction::fontRunsSplitButProseStaysWhole() {
 }
 
 // ── CX-03 — the converter's product must be owned, validated, and committed ──
+void TestConversionExtraction::initTestCase() {
+    const QByteArray exe = qgetenv("GLYPHPDF_FAKE_SOFFICE_EXE");
+    const QString bundledDir = QCoreApplication::applicationDirPath() + "/libreoffice";
+    const QString stale = bundledDir + "/program/soffice.exe";
+    // Only ever the old seam's own copy: a byte-identical fake_soffice.
+    if (!exe.isEmpty() && QFile::exists(stale)
+        && readFile(stale) == readFile(QString::fromLocal8Bit(exe)))
+        QDir(bundledDir).removeRecursively();
+}
+
 // LibreOffice always names its output <input-basename>.pdf in --outdir. With
 // --outdir = the destination's own folder that consumed any pre-existing
 // sibling of that name (even on success), and when the converter produced

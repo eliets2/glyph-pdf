@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // CX-03 test seam: a standalone stand-in for LibreOffice's soffice.exe.
-// TestConversionExtraction copies this executable to
-// <appDir>/libreoffice/program/soffice.exe — ConversionManager::locateSoffice
-// checks the bundled location FIRST — so convertOfficeToPdf runs this instead
-// of a real LibreOffice. The production code invokes it with the fixed argv
+// TestConversionExtraction copies this executable into a private temp folder
+// as soffice.exe and prepends that folder to its own PATH, so
+// ConversionManager::locateSoffice resolves it and convertOfficeToPdf runs
+// this instead of a real LibreOffice. (It never uses the shared app-dir
+// "bundled" location, which would shadow every other test binary's converter
+// lookup.) The production code invokes it with the fixed argv
 //
 //   fake_soffice [--env:UserInstallation=<uri>] --headless
 //                --convert-to pdf:writer_pdf_Export --outdir <dir> <input>
