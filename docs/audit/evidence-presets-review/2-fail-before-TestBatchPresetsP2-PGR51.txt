@@ -1,0 +1,82 @@
+Test project D:/pdf/pdf-presets-review/build-presets-review
+    Start 62: TestBatchPresetsP2
+1/1 Test #62: TestBatchPresetsP2 ...............***Failed    6.53 sec
+********* Start testing of TestBatchPresetsP2 *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchPresetsP2::initTestCase()
+PASS   : TestBatchPresetsP2::batesStepSchemaAdmittedAndRangeChecked()
+Fontconfig error: Cannot load default config file: File not found
+PASS   : TestBatchPresetsP2::batesOrderedLaneContinuity()
+PASS   : TestBatchPresetsP2::batesExplicitStartNumberPinsRunStart()
+QWARN  : TestBatchPresetsP2::batesFaultAtFileTwoKeepsFileOneCommitted() QIODevice::read (QFile, "D:\pdf\pdf-presets-review\build-presets-review\test-tmp\TestBatchPresetsP2\TestBatchPresetsP2-IszWHd\fixtures\a.pdf"): device not open
+QWARN  : TestBatchPresetsP2::batesFaultAtFileTwoKeepsFileOneCommitted() QIODevice::read (QFile, "D:\pdf\pdf-presets-review\build-presets-review\test-tmp\TestBatchPresetsP2\TestBatchPresetsP2-IszWHd\fixtures\a.pdf"): device not open
+PASS   : TestBatchPresetsP2::batesFaultAtFileTwoKeepsFileOneCommitted()
+PASS   : TestBatchPresetsP2::batesLaneCancelAtBoundaryIsTruthful()
+PASS   : TestBatchPresetsP2::batesLaneDisclosesOrderedRun()
+PASS   : TestBatchPresetsP2::renamePolicySchemaAndRoundTrip()
+QDEBUG : TestBatchPresetsP2::renameConflictCreatesStem2KeepsOriginal() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::renameConflictCreatesStem2KeepsOriginal()
+QDEBUG : TestBatchPresetsP2::renameSkipsOccupiedChainToFirstFree() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::renameSkipsOccupiedChainToFirstFree()
+QDEBUG : TestBatchPresetsP2::renameRaceBetweenStagingAndCommitRetries() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::renameRaceBetweenStagingAndCommitRetries()
+PASS   : TestBatchPresetsP2::renameBoundedExhaustionFailsHonestly()
+PASS   : TestBatchPresetsP2::renameCandidatesStayContained()
+QDEBUG : TestBatchPresetsP2::hotFolderAutoRunDegradesAskToRename() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::hotFolderAutoRunDegradesAskToRename()
+PASS   : TestBatchPresetsP2::stopPolicySchemaAdmittedAndRoundTrip()
+QDEBUG : TestBatchPresetsP2::stopAtFileTwoStopsAndReportsRemaining() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::stopAtFileTwoStopsAndReportsRemaining()
+QDEBUG : TestBatchPresetsP2::continueDefaultRunsAllFiles() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresetsP2::continueDefaultRunsAllFiles() optimizeDocument: unused-object sweep removed 0 object(s)
+QDEBUG : TestBatchPresetsP2::continueDefaultRunsAllFiles() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::continueDefaultRunsAllFiles()
+PASS   : TestBatchPresetsP2::batchAbortBeforeStartWhenOutputDirMissing()
+PASS   : TestBatchPresetsP2::batchAbortBeforeStartTouchesNothing()
+PASS   : TestBatchPresetsP2::batchScopedMidRunAbortsOrderedLaneAndDrainsRemainder()
+PASS   : TestBatchPresetsP2::batchAbortUnattendedNotesHotFolderStaysArmed()
+QDEBUG : TestBatchPresetsP2::measuredBytesTwoStepChainHandComputed() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::measuredBytesTwoStepChainHandComputed()
+QDEBUG : TestBatchPresetsP2::runReportJsonShapePinned() optimizeDocument: unused-object sweep removed 0 object(s)
+PASS   : TestBatchPresetsP2::runReportJsonShapePinned()
+PASS   : TestBatchPresetsP2::runReportCsvShapePinned()
+PASS   : TestBatchPresetsP2::runReportCsvFormulaLeadsNeutralized()
+PASS   : TestBatchPresetsP2::importExportRoundTripByteIdentical()
+PASS   : TestBatchPresetsP2::importRefusesIdStemMismatchKeepsStore()
+PASS   : TestBatchPresetsP2::importRefusesExistingIdUnlessReplaced()
+PASS   : TestBatchPresetsP2::exportConfirmedOverwriteKeepsTargetWhenCommitFails()
+PASS   : TestBatchPresetsP2::managerDisclosesPresetsAndBrokenFiles()
+PASS   : TestBatchPresetsP2::managerDuplicateRenameDeleteFlows()
+PASS   : TestBatchPresetsP2::managerImportExportReplaceFlows()
+PASS   : TestBatchPresetsP2::editorClampsWidgetsAndSavesValidPreset()
+QWARN  : TestBatchPresetsP2::editorUnavailableRuntimeStepDisclosed() CapabilityRegistry: no probe registered for CapId(8)
+QWARN  : TestBatchPresetsP2::editorUnavailableRuntimeStepDisclosed() CapabilityRegistry: no probe registered for CapId(19)
+PASS   : TestBatchPresetsP2::editorUnavailableRuntimeStepDisclosed()
+PASS   : TestBatchPresetsP2::reviewSaveRefusesNamingTraversal()
+PASS   : TestBatchPresetsP2::reviewSaveRefusesUnknownPolicyValues()
+PASS   : TestBatchPresetsP2::reviewSaveRefusesMalformedMinAppVersion()
+PASS   : TestBatchPresetsP2::reviewSaveStillAcceptsCustomNaming()
+QDEBUG : TestBatchPresetsP2::reviewRunReportExportKeepsPriorWhenCommitFails() optimizeDocument: unused-object sweep removed 0 object(s)
+FAIL!  : TestBatchPresetsP2::reviewRunReportExportKeepsPriorWhenCommitFails() '!exported' returned FALSE. (a faulted commit must fail the report export, not report success)
+D:/pdf/pdf-presets-review/tests/TestBatchPresetsP2.cpp(2147) : failure location
+PASS   : TestBatchPresetsP2::cleanupTestCase()
+Totals: 39 passed, 1 failed, 0 skipped, 0 blacklisted, 5243ms
+********* Finished testing of TestBatchPresetsP2 *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+batch       =   6.53 sec*proc (1 test)
+headless    =   6.53 sec*proc (1 test)
+modes       =   6.53 sec*proc (1 test)
+presets     =   6.53 sec*proc (1 test)
+qt          =   6.53 sec*proc (1 test)
+ui          =   6.53 sec*proc (1 test)
+unit        =   6.53 sec*proc (1 test)
+
+Total Test time (real) =   6.56 sec
+
+The following tests FAILED:
+	 62 - TestBatchPresetsP2 (Failed)                       batch headless modes presets qt ui unit
+Errors while running CTest

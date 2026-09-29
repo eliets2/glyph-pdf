@@ -3564,13 +3564,32 @@ bool BatchMode::exportRunReport(const QString& path) const {
     const QByteArray payload = path.endsWith(QLatin1String(".csv"), Qt::CaseInsensitive)
         ? runReportCsv(m_lastRunResults)
         : runReportJson(m_lastRunResults);
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    // PGR-51 (presets-review 2026-09-29): the old truncate-then-write destroyed
+    // the prior report at OPEN, so a mid-write IO failure left NO report — the
+    // exact loss class the U6 exportTo fix (PROGRAM-CONSOLIDATION §1.6)
+    // eliminated for preset exports. The payload lands on a unique SafeSave
+    // candidate and only the atomic commit touches the destination: a failed
+    // write or commit leaves the prior report byte-identical, and the
+    // candidate never survives the call.
+    QString candidate;
+    QString err;
+    if (!SafeSave::makeUniqueCandidate(&candidate, &err, QStringLiteral(".json")))
         return false;
-    const qint64 written = f.write(payload);
-    // Verify the full payload was written without an IO error before claiming
-    // success (the ErrorLog::export* discipline).
-    return written == payload.size() && f.error() == QFileDevice::NoError;
+    {
+        QFile out(candidate);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QFile::remove(candidate);
+            return false;
+        }
+        if (out.write(payload) != payload.size() || out.error() != QFileDevice::NoError) {
+            QFile::remove(candidate);
+            return false;
+        }
+    }
+    const bool committed = SafeSave::commitFileToDestination(candidate, path, &err);
+    // The candidate is ours — it never survives the call, on any outcome.
+    QFile::remove(candidate);
+    return committed;
 }
 
 } // namespace gp

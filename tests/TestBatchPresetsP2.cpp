@@ -185,6 +185,10 @@ private slots:
     void reviewSaveRefusesUnknownPolicyValues();
     void reviewSaveRefusesMalformedMinAppVersion();
     void reviewSaveStillAcceptsCustomNaming();
+    // PGR-51: the U5 report export must replace an existing report through the
+    // SafeSave commit, never truncate-then-write (the prior report is a real
+    // artifact; a mid-write failure must leave it byte-identical).
+    void reviewRunReportExportKeepsPriorWhenCommitFails();
 
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
@@ -2131,6 +2135,73 @@ void TestBatchPresetsP2::reviewSaveStillAcceptsCustomNaming() {
     BatchPreset loaded;
     QVERIFY2(store.get(p.id, &loaded, &err), qPrintable(err));
     QCOMPARE(loaded.outputNaming, QStringLiteral("{basename}_{n}_x.pdf"));
+}
+
+// ── Presets review lane (PGR-51) ──────────────────────────────────────────────
+// The U5 export wrote the report with QFile(WriteOnly|Truncate): the prior
+// report was destroyed at OPEN, so a mid-write IO failure left NO report —
+// the exact loss class the U6 exportTo fix (PROGRAM-CONSOLIDATION §1.6)
+// eliminated for preset exports. The export now lands on a unique SafeSave
+// candidate and only the atomic commit touches the destination; the
+// deterministic stand-in for the crash is the commit-fault seam (the same
+// pin shape as exportConfirmedOverwriteKeepsTargetWhenCommitFails).
+void TestBatchPresetsP2::reviewRunReportExportKeepsPriorWhenCommitFails() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString src = createTextPdf(fx, QStringLiteral("doc.pdf"),
+                                      { QStringLiteral("alpha") });
+    QVERIFY(!src.isEmpty());
+
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("report-run"),
+                           QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"report-run\",\n"
+        "    \"name\": \"Report Run\",\n"
+        "    \"created\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-24T00:00:00.000Z\",\n"
+        "    \"steps\": [ { \"op\": \"compress\", \"params\": { \"quality\": 60 } } ]\n"
+        "}\n").toUtf8()));
+
+    AppContext ctx = makeCtx();
+    BatchMode bm;
+    bm.setAppContext(&ctx);
+    bm.setOperationForTest(7);
+    bm.refreshPresetsForTest();
+    QVERIFY(bm.selectPresetForTest(QStringLiteral("report-run")));
+    QDir().mkpath(m_runDir->filePath(QStringLiteral("out")));
+    presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out")));
+    bm.addFilesForTest({ src });
+    runAndWait(bm);
+    QCOMPARE(bm.successCount(), 1);
+
+    const auto results = bm.runResultsForTest();
+    QCOMPARE(results.size(), 1);
+    const QString target = m_runDir->filePath(QStringLiteral("run-report.json"));
+    {
+        QFile prior(target);
+        QVERIFY(prior.open(QIODevice::WriteOnly));
+        prior.write("{\"prior\": \"report\"}");
+    }
+    const QByteArray priorBytes = readFileBytes(target);
+    QVERIFY(!priorBytes.isEmpty());
+
+    gp::SafeSave::setCommitFaultForTesting(
+        gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+    const bool exported = bm.exportRunReportForTest(target);
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+
+    // The simulated failure reports honestly…
+    QVERIFY2(!exported,
+             "a faulted commit must fail the report export, not report success");
+    // …and the prior report survives byte-identical (never truncated at open).
+    QCOMPARE(readFileBytes(target), priorBytes);
+
+    // Disarmed, the same export succeeds and replaces the prior report with
+    // the real payload.
+    QVERIFY2(bm.exportRunReportForTest(target),
+             "the disarmed re-export must succeed");
+    QCOMPARE(readFileBytes(target), BatchMode::runReportJson(results));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)
