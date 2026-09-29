@@ -47,6 +47,39 @@ QString normalizedLanguage(const QString &language)
     return language.trimmed().toLower();
 }
 
+// Locate a language pack installed by a SYSTEM Tesseract, so an
+// MSYS2/distro package install can seed a first run with zero network
+// access. Mirrored by probeOcrLanguageData (core/Capability.cpp), which
+// deliberately does not depend on the engines layer.
+QString discoverInstalledTrainedData(const QString &language)
+{
+    const QString filename = normalizedLanguage(language) + QStringLiteral(".traineddata");
+    QStringList candidates;
+    // TESSDATA_PREFIX is honored by Tesseract itself; accept both the
+    // historical (parent-of-tessdata) and the modern (the tessdata dir
+    // itself) readings.
+    const QString prefix = qEnvironmentVariable("TESSDATA_PREFIX");
+    if (!prefix.isEmpty()) {
+        candidates << (prefix + QStringLiteral("/tessdata/") + filename);
+        candidates << (prefix + QStringLiteral("/") + filename);
+    }
+    // Package layouts: <prefix>/bin/tesseract + <prefix>/share/tessdata
+    // (MSYS2 mingw-w64-tesseract-data-eng, Debian/ Fedora), and the rare
+    // exe-adjacent tessdata/ layout.
+    const QString exe = QStandardPaths::findExecutable(QStringLiteral("tesseract"));
+    if (!exe.isEmpty()) {
+        candidates << QDir::cleanPath(QFileInfo(exe).absolutePath()
+                                      + QStringLiteral("/../share/tessdata/") + filename);
+        candidates << QDir::cleanPath(QFileInfo(exe).absolutePath()
+                                      + QStringLiteral("/tessdata/") + filename);
+    }
+    for (const QString &candidate : candidates) {
+        if (QFileInfo::exists(candidate))
+            return candidate;
+    }
+    return {};
+}
+
 bool downloadTrainedData(const QString &language, const QString &filepath)
 {
     const QString filename = language + ".traineddata";
@@ -207,6 +240,22 @@ bool OcrEngine::initialize(const QString &language, const QString &dataPath)
         if (QFile::exists(bundled)) {
             if (!QFile::copy(bundled, filepath)) {
                 qWarning() << "OCR: failed to seed bundled language pack from" << bundled;
+            }
+        }
+    }
+
+    // Seed from an INSTALLED Tesseract's language data before any network
+    // fallback: an MSYS2/distro package install already ships
+    // <prefix>/share/tessdata/<lang>.traineddata, and honoring TESSDATA_PREFIX
+    // matches what the Tesseract runtime itself would read. Copying into
+    // AppLocalData keeps the strict path validation above intact — the engine
+    // never points Tesseract outside the application data directory.
+    if (!QFile::exists(filepath)) {
+        const QString installed = discoverInstalledTrainedData(safeLanguage);
+        if (!installed.isEmpty()) {
+            if (!QFile::copy(installed, filepath)) {
+                qWarning() << "OCR: failed to seed language pack from the installed"
+                           << " Tesseract data at" << installed;
             }
         }
     }
