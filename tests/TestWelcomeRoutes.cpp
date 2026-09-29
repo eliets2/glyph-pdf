@@ -113,9 +113,27 @@ void pickFilesInSequence(const QStringList &paths, QElapsedTimer deadline, int b
         if (auto *dlg = qobject_cast<QFileDialog *>(QApplication::activeModalWidget())) {
             const QString path = paths.first();
             const QStringList selected = dlg->selectedFiles();
+            // A delivery counts only when it is OBSERVED: either the requested
+            // path is in the selection, or the selection's last entry is an
+            // EXISTING file whose canonical path equals the target's. The
+            // canonical-vs-canonical comparison alone is UNSOUND for files
+            // that do not exist yet — QFileInfo::canonicalFilePath() returns
+            // the empty string for a nonexistent file, so the save dialog's
+            // own default ("images.pdf" under the process CWD, not yet on
+            // disk) compared "" == "" against the not-yet-written output and
+            // the driver accepted it WITHOUT delivering anything. The route
+            // then wrote the artifact to the default and the test's
+            // QFileInfo::exists(out) contract failed — the load-dependent
+            // imagesRouteProducesAndOpensTheOutput red (PROGRAM-CONSOLIDATION
+            // §1.7b): whether the first save-dialog turn observed the
+            // populated default or the still-empty selection was a pure
+            // populate-timing race.
+            const QString selectedCanonical = selected.isEmpty()
+                ? QString()
+                : QFileInfo(selected.last()).canonicalFilePath();
             const bool delivered = selected.contains(path)
-                || (!selected.isEmpty()
-                    && QFileInfo(selected.last()).canonicalFilePath() == QFileInfo(path).canonicalFilePath());
+                || (!selectedCanonical.isEmpty()
+                    && selectedCanonical == QFileInfo(path).canonicalFilePath());
             if (!delivered) {
                 dlg->selectFile(path);
                 pickFilesInSequence(paths, deadline, budgetMs);
