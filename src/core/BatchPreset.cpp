@@ -1067,15 +1067,29 @@ bool BatchPresetStore::exportTo(const QString& id, const QString& targetPath,
         return fail(err, QStringLiteral(
                              "%1 already exists — export refused (never a silent "
                              "overwrite; confirm first)").arg(targetPath));
-    if (QFileInfo::exists(targetPath) && !QFile::remove(targetPath))
-        return fail(err, QStringLiteral("%1: confirmed overwrite could not remove "
-                                        "the existing file — %2")
-                              .arg(targetPath, QFile(targetPath).errorString()));
+    // §1.6: the SafeSave commit idiom — candidate first, atomic replace at
+    // the end. The old body REMOVED the target and then copied, so a failure
+    // (or crash) between the two steps destroyed a target the user already
+    // had (the batch-presets LOW residual recorded by the Phase-1 fold).
+    // Reading the bytes up front moves every failure BEFORE the target is
+    // touched, and QSaveFile's commit replaces it atomically — the same
+    // primitive importFrom (and the store's own save path) already commits
+    // through.
+    QFile in(src);
+    if (!in.open(QIODevice::ReadOnly))
+        return fail(err, QStringLiteral("%1: could not read the preset to "
+                                        "export — %2")
+                              .arg(id, in.errorString()));
+    const QByteArray bytes = in.readAll();
+    if (bytes.isEmpty())
+        return fail(err, QStringLiteral("%1: the preset file is empty — "
+                                        "export refused").arg(id));
     // Byte-identical copy — no re-serialization: the file on disk IS the
     // shareable artifact and its bytes are already canonical per the codec.
-    if (!QFile::copy(src, targetPath))
+    QString writeErr;
+    if (!VersionedJson::atomicWrite(targetPath, bytes, &writeErr))
         return fail(err, QStringLiteral("%1: could not export to %2 — %3")
-                              .arg(id, targetPath, QFile(src).errorString()));
+                              .arg(id, targetPath, writeErr));
     return true;
 }
 
