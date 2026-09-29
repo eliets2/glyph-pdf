@@ -218,12 +218,17 @@ jobs:
           git init podofo-src
           git -C podofo-src fetch --depth 1 https://github.com/podofo/podofo.git 712fb0e80e0e9404525d8db54fa0baa4ae469963
           git -C podofo-src checkout FETCH_HEAD
+          # Static per podofo 1.1.0's own rule (its CMakeLists.txt:89 refuses
+          # an external PODOFO_BUILD_SHARED: 'Set PODOFO_BUILD_STATIC to TRUE
+          # if you need a static build') — found by acceptance run
+          # 36646070984; a static libpodofo.a also spares the fuzzer a
+          # runtime .so dependency.
           cmake -S podofo-src -B podofo-src/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPODOFO_BUILD_TOOLS=OFF \
             -DPODOFO_BUILD_TEST=OFF \
             -DPODOFO_BUILD_EXAMPLES=OFF \
-            -DPODOFO_BUILD_SHARED=OFF \
+            -DPODOFO_BUILD_STATIC=TRUE \
             -DCMAKE_INSTALL_PREFIX="$PWD/third_party/podofo/install"
           cmake --build podofo-src/build --parallel
           cmake --install podofo-src/build
