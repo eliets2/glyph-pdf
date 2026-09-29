@@ -1,0 +1,74 @@
+********* Start testing of TestWelcomeRoutes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestWelcomeRoutes::initTestCase()
+QWARN  : TestWelcomeRoutes::qtConcurrentDeliveryProbe() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::qtConcurrentDeliveryProbe()
+QWARN  : TestWelcomeRoutes::welcomeExposesTheTwelveTaskRoutesAndOpen() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::welcomeExposesTheTwelveTaskRoutesAndOpen()
+QWARN  : TestWelcomeRoutes::openRouteOpensTheFixture() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::openRouteOpensTheFixture() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::openRouteOpensTheFixture() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-AKLiZn" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::openRouteOpensTheFixture()
+QWARN  : TestWelcomeRoutes::editRouteLandsOnTheEditTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::editRouteLandsOnTheEditTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::editRouteLandsOnTheEditTab() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-uBydJv" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::editRouteLandsOnTheEditTab()
+QWARN  : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-TyePqX" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-TphMwG" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-OjXBdA" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::splitExtractRouteLandsOnPages()
+QWARN  : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-lhGvDJ" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool()
+QWARN  : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-LqSAaK" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel()
+QWARN  : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-tDsRUw" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab()
+QWARN  : TestWelcomeRoutes::compressRouteOpensTheCompressTask() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::compressRouteOpensTheCompressTask() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::compressRouteOpensTheCompressTask() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-MpuPTN" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::compressRouteOpensTheCompressTask()
+QWARN  : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-ucrGce" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability()
+QWARN  : TestWelcomeRoutes::officeRouteMatchesTheOfficeImportCapability() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::officeRouteMatchesTheOfficeImportCapability()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-ubdQay" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact()
+QWARN  : TestWelcomeRoutes::batchAndCompareLinksReachTheirTasks() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::batchAndCompareLinksReachTheirTasks()
+QWARN  : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-CEDijd" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent()
+QWARN  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestWelcomeRoutes-JwmJjD" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing()
+PASS   : TestWelcomeRoutes::cleanupTestCase()
+Totals: 20 passed, 0 failed, 0 skipped, 0 blacklisted, 5405ms
+********* Finished testing of TestWelcomeRoutes *********

@@ -1,0 +1,3 @@
+Totals: 8 passed, 0 failed, 0 skipped, 0 blacklisted, 198ms
+Totals: 8 passed, 0 failed, 0 skipped, 0 blacklisted, 80ms
+Totals: 8 passed, 0 failed, 0 skipped, 0 blacklisted, 57ms

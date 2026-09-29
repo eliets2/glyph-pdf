@@ -1,0 +1,5 @@
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+FAIL!  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() 'QFileInfo::exists(out)' returned FALSE. ()
+D:/a/glyph-pdf/glyph-pdf/tests/TestWelcomeRoutes.cpp(498) : failure location
