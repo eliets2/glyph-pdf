@@ -1,6 +1,6 @@
 # AUDIT VERIFICATION — 2026-09-25 (Wave 1, gsd-verifier)
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE (Wave 1 — coverage per Appendix A; residuals named for Wave 2)
 **Scope:** entire `src/` tree (379 files, ~98.9k LOC) on `audit/sweep-all` @ `7eb5c67b`
 **Method:** goal-backward verification adapted to correctness auditing — for every module, verify
 (1) contract correctness (preconditions/postconditions/invariants), (2) edge cases, (3) error-path
@@ -142,8 +142,125 @@ hand-checked, edge guards present, error paths honest, RAII complete):
 
 ---
 
+### V-11 · LOW · ui — `saveAnnotations` fire-and-forget writer races application shutdown
+`src/ui/PdfViewerWidget.cpp:763-775`
+The `.ann` envelope write is dispatched to a detached `QThread::create` worker with no
+completion tracking; if the application quits while the thread runs, the QThread object can
+be destroyed before `finished` is delivered ("QThread: Destroyed while thread is still
+running" — undefined behavior window for the file write). The write is also unchecked: a
+failed `open()` silently drops the annotation sidecar (the G14 contract says the envelope
+is the annotation state of record for non-embedded annotations).
+
+### V-12 · INFO · engines — OcrPipeline lambdas capture raw `LayoutEnsemble*`/engine pointers
+`src/engines/ocr/OcrPipeline.cpp:240-283`
+`[=]` captures of `layoutEns`, `primaryEngine`, `secondaryEngine` (raw pointers into
+pipeline state) are correct only while the pipeline object outlives the returned
+`QFuture`. Every in-tree caller awaits before tearing down, but the contract is implicit —
+a caller that drops the pipeline keeps a future whose worker dereferences freed pointers.
+Deserves an ownership comment or a shared_ptr capture.
+
+### V-13 · INFO · type safety — the >2 GiB buffer class narrows through `int`
+`src/engines/PdfEditorEngine.cpp:1186,1237`, `src/core/PoDoFoBackend.cpp:303,1162,1274,
+3063,4116,6521,6646`, `src/core/RedactionProof.cpp:443,450,462` (representative set of ~30
+`static_cast<int>(…size())` hits)
+Whole-file/stream buffers (`QByteArray(char*, int)`, `SetData(int)`, OCR staging) truncate
+above `INT_MAX`. No reachable in-tree path produces a >2 GiB single stream today (the OCR
+matrix guard caps at 10k×10k; preset/import paths enforce size caps), and PoDoFo itself is
+int-bounded — this is a documented class boundary, not a live defect. The mutation
+baseline at `PoDoFoBackend.cpp:303` also holds the whole file in RAM.
+
+### V-14 · LOW · ui — `MainWindow::confirmSaveBeforeInPlaceWrite` blocking hop has an unguarded receiver-lifetime window
+`src/GpMainWindow.cpp:1801-1812`
+The worker blocks on `Qt::BlockingQueuedConnection` with a raw `this`. The comment's
+liveness argument (the GUI thread is back in its event loop) holds for QtConcurrent
+runners, but if `MainWindow` is destroyed between the worker's thread check and the
+metacall delivery, the blocked worker is never released (Qt discards pending events for a
+dead receiver). Shutdown-order dependent; a `QPointer` guard + `abort` path or
+`QMetaObject::invokeMethod` with a context object lifetime check would close it.
+
+### V-15 · INFO · shell — worker mutation of controller members relies on a documented, un-enforced invariant
+`src/shell/controllers/EditController.cpp:1034-1058`
+The OCR worker initializes `self->_ocrRapid` / `_ocrEnsemble` (non-atomic members) from the
+worker thread; the race-freedom argument is the `_ocrRunning` flag (comment in place).
+The invariant is real but enforced only by convention — no assert documents it. INFO:
+works today; fragile under refactoring.
+
+### V-16 · VERIFIED-CLEAN · second-wave deep reads and sweeps
+- `src/core/FormStaleFieldTracker.cpp` — mutex-disciplined; empty-map pruning on every
+  mutation; `acknowledge` erases the document entry when drained.
+- `src/core/SigningRequestModel.cpp` — fail-closed parse: strict magic **value** handshake
+  (SWEEP-W1 FZ-3), schema gate, per-signer shape validation, sentinel-rejecting
+  `rectFromJson`, the W1-02 alias lint (trimmed comparison) at the untrusted boundary.
+- `src/core/RedactionProof.cpp` — attachment sweep is honest-by-construction: depth-capped
+  recursion (`kMaxAttachmentDepth`), compressed-container magics (incl. the OLE CFBF magic,
+  PROGRAM-CONSOLIDATION §1.2) → Unswept never Clean, PDF-declared-but-unparseable → dark,
+  raw-only streams disclose "content not certified", scratch-file staging removed on every
+  path, verdict aggregation fails closed (any Unswept ⇒ FAIL, `RedactionProof.cpp:1560`).
+- `src/core/BatchPreset.cpp` — `exportTo` (§1.6 fix verified): candidate staging, cleanup
+  on all four failure branches, only the commit touches the destination; import refuses
+  silently re-keyed copies; store root owned at every boundary (F2b-D1).
+- `src/engines/ConversionManager.cpp:497-510` — `csvFormulaSafeCell` single contract
+  (OWASP apostrophe prefix, narrow plain-number exemption); verified routed from ALL sinks:
+  `MeasureMode.cpp:43`, `BatchMode.cpp:3522`, `ErrorInfo.cpp:51`, `CommentsWidget.cpp:829`
+  (PROGRAM-CONSOLIDATION §1.1 fix confirmed wired, not just claimed).
+- `src/engines/podofo/PoDoFoBackend.cpp:790-794` vs `:3565` — §1.3 fix confirmed: property
+  edits sync XMP **without** packet reset (custom entities preserved); PDF/A export keeps
+  its deliberate reset.
+- Worker-thread census: 25 `QThread::create` sites, all with `finished → worker
+  deleteLater` (per-file counts 10/10, 5/5, 1/1, …); engines captured via weak_ptr/
+  shared_ptr (`SecurityController`, `CertEncryptController`, `SendForSigningController`);
+  the encryption worker wraps its body in `try/catch(...)` (`SecurityController.cpp:537-546`).
+- `src/app/main.cpp` — guarded `files.first()`; splash deleted via `deleteLater`; tray
+  parented to the window; lambda receiver contexts correct.
+- `src/core/PolicyController.cpp` — see V-10 note: admin-tier ownership gate fail-closed.
+- pdfws_djot — no raw indexing found (Qt container `at()/value()` discipline).
+
+---
+
 ## Appendix A — Verification coverage log
 
 | Area | Files | Method | Status |
 |---|---|---|---|
-| (pending) | | | |
+| core geometry/labels/JSON/temp/secrets/policy/signing-request/proof/presets | PageSpaceTransform.h, ItemSpaceTransform.h, PageLabels.*, VersionedJson.cpp, TempFileManager.cpp, EncryptedFileSecretStore.cpp, CredentialManager.cpp, PolicyController.cpp, SigningRequestRunner.cpp, SigningRequestModel.cpp, FormStaleFieldTracker.cpp, RedactionProof.cpp (key paths), BatchPreset.cpp (store), Capability.cpp | full line-by-line read + math hand-check | VERIFIED (V-03, V-08, V-09 findings) |
+| scheduling | LaneScheduler.{h,cpp}, RenderCache.h | full read | VERIFIED (V-01, V-02 findings; hash invariant clean) |
+| engines: OCR/conversion/signing crypto/backends | OcrEngine.cpp (recognize/getRawText), ConversionManager.cpp (addZipFile, csvFormulaSafeCell), SignatureManager.cpp (DSS/VRI memcpy), PdfEncryptPubSec.cpp, PdfEditorEngine.cpp (D-09), PoDoFoBackend.cpp (save/sync boundaries) | targeted reads + bounds hand-check | VERIFIED (V-07, V-12, V-13 findings) |
+| commands/undo | CheckedHistory.h | full read | VERIFIED |
+| shell/ui workers | GpMainWindow.cpp (closeEvent, confirmSave, policy wiring), SendForSigningController.cpp (full), SecurityController.cpp (worker sites), ConvertController.cpp (worker sites), EditController.cpp (OCR worker), PdfViewerWidget.cpp (saveAnnotations), main.cpp, PdfViewerWidget lifetime sweep | targeted reads + census greps | VERIFIED (V-04..V-06, V-11, V-14, V-15 findings) |
+| whole-tree pattern sweeps | 379 files | narrowing casts, erase-while-iterating, unchecked first/last, raw C functions, dynamic_cast discipline, DirectConnection/BlockingQueued, mutable members, parentless widgets, QThread::create cleanup | SWEPT (V-13 class finding; idiom otherwise correct) |
+| NOT fully read this wave | PoDoFoBackend.cpp (6756 lines — read at save/sync/redact/metadata boundaries only), SignatureManager.cpp (3153 — LTV section), AccessibilityTagger.cpp (2483), BatchMode.cpp (3576 — CSV sink + worker sites), FormManager.cpp (2016 — validation/commit regions), PdfViewerWidget paint math, ui/AnnotationLayer, modes/CompareMode, mrc/, ai/, formjs/ internals | residual for Wave 2 | RESIDUAL |
+
+## Summary
+
+| Severity | Count |
+|---|---|
+| CRITICAL | 0 |
+| HIGH | 0 |
+| MEDIUM | 3 (V-01, V-02, V-03) |
+| LOW | 6 (V-04, V-05, V-07, V-11, V-14, V-15* informational-low) |
+| INFO | 5 (V-06, V-08, V-09, V-12, V-13) |
+| **Total findings** | **14** (+2 verified-clean registers V-10/V-16) |
+
+**Top items (by user impact):**
+1. **V-03** — signing-request commit-failure records a candidate hash as the prepared
+   identity → guaranteed false `DocumentChanged` refusal on retry (confusing, recoverable).
+2. **V-01** — LaneScheduler shutdown race can hang a submitter and leak the GPU slot.
+3. **V-02** — non-`std::exception` escape in a scheduler worker terminates the process.
+4. **V-04** — update-installer download: no transfer timeout (stuck `m_downloading`) and
+   no byte cap (unbounded RAM) — the exact S4-1 hole closed for the manifest only.
+5. **V-11** — annotation sidecar write is fire-and-forget and unchecked (silent loss on
+   write failure; shutdown race).
+6. **V-14** — blocking GUI hop unguarded against receiver destruction (shutdown deadlock
+   window).
+7. **V-05** — semver pre-release tags mis-compare in the update gate.
+8. **V-07** — unchecked Tesseract `BoundingBox` can export garbage geometry.
+9. **V-13** — the >2 GiB `int`-narrowing class (documented boundary, no live trigger).
+10. **V-15** — worker mutation of controller members guarded by an un-enforced invariant.
+
+**Residuals for a Wave 2:** PoDoFoBackend.cpp, SignatureManager.cpp (LTV internals),
+AccessibilityTagger.cpp, BatchMode.cpp, FormManager.cpp, ui paint math (PdfViewerWidget,
+AnnotationLayer), CompareMode, mrc/, ai/, formjs/ internals — named above with the method
+that should cover them.
+
+**Audit-only compliance:** no production file touched; commits contain only
+`docs/audit/AUDIT-VERIFICATION-2026-09-25.md`. The pre-existing unstaged modification to
+`tests/TestSignatureRealCrypto.cpp` (117 deletions, not ours) was left untouched.
