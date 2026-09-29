@@ -29,4 +29,18 @@ Every one of these capabilities must behave the same through every later phase:
 - **Task screens:** all 13 TaskNav screens are reachable.
 
 ## UI sweep baseline
-The R17 matrix: 1366×768 and 1920×1080 × `QT_SCALE_FACTOR` 1.0 / 1.5 / 2.0. It is recorded in the follow-up commit that adds `docs/audit/evidence-ui-redesign/baseline/uisweep/`.
+The R17 matrix: 1366×768 and 1920×1080 × `QT_SCALE_FACTOR` 1.0 / 1.5 / 2.0, one probe process per cell.
+
+**Commands:**
+```
+bash tools/uisweep/build_probe.sh build-ui
+bash tools/uisweep/run_matrix.sh <ABSOLUTE build dir>
+```
+Pass an absolute path: the runner changes directory per cell, so a relative one fails every cell with rc 127.
+
+**Result:** all 6 cells ran with `rc=0`. Each produced 38 screenshots and an `audit-<cell>.json` covering actual sizes, device pixel ratio, CJK fonts, dialogs and qrc icons.
+- The final `MATRIX END … rcFailures=6` line is a **counting bug in `run_matrix.sh`**. It captures the cell's whole output line into `rc` instead of the bare exit code, so no cell ever compares equal to 0. The per-cell `rc=0` lines in `matrix.log` are the truth.
+
+**Evidence in the repo** (`docs/audit/evidence-ui-redesign/baseline/uisweep/`): `matrix.log`, and per cell `audit-*.json`, `rc-*.txt` and `screenshots.txt` (the screenshot manifest).
+
+**Screenshots not committed.** The 228 PNGs (25 MB) are kept out of the public history. They are archived with the audits in the owner's local backup (`glyphpdf-backup-2026-09-29/ui-migration/uisweep-baseline/`). Later phases diff the audit JSONs and re-shoot the same manifest.
