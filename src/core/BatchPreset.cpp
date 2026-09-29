@@ -4,6 +4,7 @@
 #include "core/Capability.h"
 #include "core/VersionedJson.h"
 #include "engines/PatternRedactor.h" // namedPattern(): the built-in redaction preset keys
+#include "engines/SafeSave.h"        // the §1.6 export commit idiom (candidate, atomic replace)
 
 #include <QDate>
 #include <QDir>
@@ -1067,16 +1068,48 @@ bool BatchPresetStore::exportTo(const QString& id, const QString& targetPath,
         return fail(err, QStringLiteral(
                              "%1 already exists — export refused (never a silent "
                              "overwrite; confirm first)").arg(targetPath));
-    if (QFileInfo::exists(targetPath) && !QFile::remove(targetPath))
-        return fail(err, QStringLiteral("%1: confirmed overwrite could not remove "
-                                        "the existing file — %2")
-                              .arg(targetPath, QFile(targetPath).errorString()));
+    // PROGRAM-CONSOLIDATION §1.6: SafeSave commit idiom (the U6 import shape,
+    // mirrored on the way out). The old remove-then-copy had a window in which
+    // a crash left the target deleted: the copy lands on a unique candidate
+    // first and only the commit touches the destination (QSaveFile's atomic
+    // rename), so a crash or a failed commit leaves the prior target
+    // byte-identical.
+    QString candidate;
+    if (!SafeSave::makeUniqueCandidate(&candidate, err, QStringLiteral(".json")))
+        return false;
     // Byte-identical copy — no re-serialization: the file on disk IS the
     // shareable artifact and its bytes are already canonical per the codec.
-    if (!QFile::copy(src, targetPath))
-        return fail(err, QStringLiteral("%1: could not export to %2 — %3")
-                              .arg(id, targetPath, QFile(src).errorString()));
-    return true;
+    // (Streamed rather than QFile::copy: the reserved candidate exists —
+    // size 0, ours by contract — and QFile::copy refuses an existing
+    // destination.)
+    {
+        QFile in(src);
+        if (!in.open(QIODevice::ReadOnly)) {
+            QFile::remove(candidate);
+            return fail(err, QStringLiteral("%1: could not read the preset to "
+                                            "export — %2")
+                              .arg(id, in.errorString()));
+        }
+        const QByteArray bytes = in.readAll();
+        QFile out(candidate);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            QFile::remove(candidate);
+            return fail(err, QStringLiteral("%1: could not stage the export "
+                                            "candidate — %2")
+                              .arg(id, out.errorString()));
+        }
+        if (out.write(bytes) != bytes.size()) {
+            QFile::remove(candidate);
+            return fail(err, QStringLiteral("%1: could not write the export "
+                                            "candidate — %2")
+                              .arg(id, out.errorString()));
+        }
+    }
+    const bool committed =
+        SafeSave::commitFileToDestination(candidate, targetPath, err);
+    // The candidate is ours — it never survives the call, on any outcome.
+    QFile::remove(candidate);
+    return committed;
 }
 
 } // namespace gp

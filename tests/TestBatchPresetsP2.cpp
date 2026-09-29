@@ -38,6 +38,7 @@
 #include "core/AppContext.h"
 #include "core/BatchPreset.h"
 #include "core/Capability.h"
+#include "engines/SafeSave.h"
 #include "engines/pdfium/PdfiumBackend.h"
 #include "mocks/MockPdfEditorEngine.h"
 #include "modes/BatchMode.h"
@@ -165,6 +166,7 @@ private slots:
     void importExportRoundTripByteIdentical();
     void importRefusesIdStemMismatchKeepsStore();
     void importRefusesExistingIdUnlessReplaced();
+    void exportConfirmedOverwriteKeepsTargetWhenCommitFails();
 
     // ── U7: manager + multi-step editor dialogs ───────────────────────────────
     void managerDisclosesPresetsAndBrokenFiles();
@@ -1657,6 +1659,54 @@ void TestBatchPresetsP2::importRefusesExistingIdUnlessReplaced() {
     QVERIFY2(storeA.get(id, &after, &err), qPrintable(err));
     QCOMPARE(after.name, QStringLiteral("Clash Modified"));
     QCOMPARE(storeA.list().size(), 1);
+}
+
+// PROGRAM-CONSOLIDATION §1.6: the confirmed-overwrite export must use the
+// SafeSave commit idiom — a unique candidate, then an atomic replace — so the
+// window in which the prior target was removed cannot lose it. The
+// deterministic stand-in for a crash at the commit step is the SafeSave
+// commit-fault seam (FailBeforeCommit): the export must fail honestly AND
+// leave the prior target byte-identical — a crash between "remove target" and
+// "copy" (the old shape) destroyed it instead.
+void TestBatchPresetsP2::exportConfirmedOverwriteKeepsTargetWhenCommitFails() {
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Crash Window");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p, &err), qPrintable(err));
+    const QString id = p.id;
+
+    // A prior export the user must not lose, on the confirmed-overwrite path.
+    const QString exported =
+        m_runDir->filePath(QStringLiteral("crash-window.glyphpreset.json"));
+    {
+        QFile prior(exported);
+        QVERIFY(prior.open(QIODevice::WriteOnly));
+        prior.write("{\"prior\": \"target\"}");
+    }
+    const QByteArray priorBytes = readFileBytes(exported);
+    QVERIFY(!priorBytes.isEmpty());
+
+    gp::SafeSave::setCommitFaultForTesting(
+        gp::SafeSave::CommitFaultForTesting::FailBeforeCommit);
+    const bool committed = storeA.exportTo(id, exported, true, &err);
+    gp::SafeSave::setCommitFaultForTesting(gp::SafeSave::CommitFaultForTesting::None);
+
+    // The simulated crash fails the export honestly…
+    QVERIFY2(!committed,
+             "a faulted commit must fail the export, not report success");
+    QVERIFY2(!err.isEmpty(), "the faulted export must carry its diagnostic");
+    // …and the prior target survives byte-identical.
+    QCOMPARE(readFileBytes(exported), priorBytes);
+
+    // Disarmed, the same confirmed export succeeds and replaces the target
+    // byte-identically — the atomic path keeps the round-trip contract.
+    QVERIFY2(storeA.exportTo(id, exported, true, &err), qPrintable(err));
+    QCOMPARE(readFileBytes(exported),
+             readFileBytes(dirA + QStringLiteral("/") + id
+                                       + QStringLiteral(".glyphpreset.json")));
 }
 
 // ── U7 pins ────────────────────────────────────────────────────────────────────
