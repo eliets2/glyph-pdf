@@ -1,0 +1,13 @@
+********* Start testing of TestWelcomeRoutes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestWelcomeRoutes::initTestCase()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+FAIL!  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() Compared values are not the same
+   Actual   (m_win->pdfViewer()->pageCount()): 0
+   Expected (1)                              : 1
+D:/pdf/prodfix/tests/TestWelcomeRoutes.cpp(506) : failure location
+PASS   : TestWelcomeRoutes::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 76351ms
+********* Finished testing of TestWelcomeRoutes *********

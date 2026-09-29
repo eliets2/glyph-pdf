@@ -66,6 +66,19 @@ ConversionManager::ConversionManager(QObject *parent)
 
 ConversionManager::~ConversionManager() = default;
 
+QThreadPool& ConversionManager::uiConversionPool()
+{
+    // PROGRAM-CONSOLIDATION 1.7b — see the header contract. Two workers: a
+    // UI conversion waits at most behind one other UI conversion, never
+    // behind the global pool's background burst (render prefetch, autosave,
+    // OCR batches, capability probes), and two simultaneous card conversions
+    // still share the pool sanely. Function-local static: outlives every
+    // QFutureWatcher the routes create.
+    static QThreadPool pool;
+    pool.setMaxThreadCount(2);
+    return pool;
+}
+
 // R10 (F08): truthful capability. Both writers exist unconditionally (vendored
 // lib when compiled in, in-house OOXML otherwise), so Word/Excel export is
 // always genuinely available — see the header contract and ExportEngine.

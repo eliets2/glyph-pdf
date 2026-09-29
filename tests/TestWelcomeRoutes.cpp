@@ -490,17 +490,20 @@ private slots:
         pickFilesInSequence({ png, out });
         c->click();
         // The route's committed contract: the artifact is written and is a
-        // PDF both production readers accept. (The watcher's open-the-output
-        // hop is driven by a QProgressDialog completion whose cancel signal
-        // spuriously fires on the offscreen plugin — pinned as an env
-        // residual, not a route failure; the artifact contract below is the
-        // committed truth.)
+        // PDF both production readers accept. 1.7b also pins the OPEN hop
+        // now that the finished-handler reads its cancel state before
+        // closing the progress dialog: closing a QProgressDialog emits
+        // canceled(), which used to flip isCanceled() on the already-finished
+        // future and skip openDocument on EVERY fast conversion (the "env
+        // residual" noted below was this bug, not the platform).
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(out), 30000);
         PdfEditorEngine probeEngine;
         QVERIFY2(probeEngine.loadDocumentForEditing(out),
                  "the images route must produce a PDF the engine opens");
         QPdfDocument qtDoc;
         QCOMPARE(qtDoc.load(out), QPdfDocument::Error::None);
+        // The output must land in the viewer, not merely exist on disk.
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
     }
 
     // ── Merge: route completes on a real artifact and NAMES the output ──────

@@ -840,9 +840,14 @@ void HomeController::onImportOffice()
     auto* watcher = new QFutureWatcher<bool>(_mainWindow);
     QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
     QObject::connect(watcher, &QFutureWatcher<bool>::finished, _mainWindow, [=]() {
+        // 1.7b: read the cancel state BEFORE closing the dialog — closing a
+        // QProgressDialog emits canceled() (closeEvent → cancel()), which
+        // canceled the ALREADY-FINISHED future and flipped isCanceled(), so
+        // the success hop below was skipped on every fast conversion.
+        const bool canceled = watcher->isCanceled();
         progress->close();
         progress->deleteLater();
-        if (watcher->isCanceled()) {
+        if (canceled) {
             watcher->deleteLater();
             return;
         }
@@ -862,7 +867,9 @@ void HomeController::onImportOffice()
         }
     });
 
-    watcher->setFuture(QtConcurrent::run([officePath, outputPath]() {
+    // 1.7b: the dedicated UI-conversion pool — a background burst on the
+    // global pool must never stall a Welcome-card route.
+    watcher->setFuture(QtConcurrent::run(&ConversionManager::uiConversionPool(), [officePath, outputPath]() {
         ConversionManager mgr;
         return mgr.convertOfficeToPdf(officePath, outputPath);
     }));
@@ -896,9 +903,14 @@ void HomeController::onImagesToPdf()
     auto* watcher = new QFutureWatcher<bool>(_mainWindow);
     QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
     QObject::connect(watcher, &QFutureWatcher<bool>::finished, _mainWindow, [=]() {
+        // 1.7b: read the cancel state BEFORE closing the dialog — closing a
+        // QProgressDialog emits canceled() (closeEvent → cancel()), which
+        // canceled the ALREADY-FINISHED future and flipped isCanceled(), so
+        // the success hop below was skipped on every fast conversion.
+        const bool canceled = watcher->isCanceled();
         progress->close();
         progress->deleteLater();
-        if (watcher->isCanceled()) {
+        if (canceled) {
             watcher->deleteLater();
             return;
         }
@@ -917,7 +929,9 @@ void HomeController::onImagesToPdf()
         }
     });
 
-    watcher->setFuture(QtConcurrent::run([imagePaths, outputPath]() {
+    // 1.7b: the dedicated UI-conversion pool — a background burst on the
+    // global pool must never stall a Welcome-card route.
+    watcher->setFuture(QtConcurrent::run(&ConversionManager::uiConversionPool(), [imagePaths, outputPath]() {
         ConversionManager mgr;
         return mgr.convertImagesToPdf(imagePaths, outputPath);
     }));
