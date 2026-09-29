@@ -779,9 +779,10 @@ private slots:
             const QByteArray bytes = signedFile.readAll();
             signedFile.close();
             static const QRegularExpression infoRe(
-                QStringLiteral("/Info\s+(\d+)\s+\d+\s+R"));
+                QStringLiteral("/Info\\s+(\\d+)\\s+\\d+\\s+R"));
             QVERIFY2(infoRe.match(QString::fromUtf8(bytes)).hasMatch(),
                      "fixture must carry an indirect trailer /Info");
+
             PoDoFo::PdfMemDocument doc;
             doc.Load(output.toUtf8().constData());
             doc.GetMetadata().SetModifyDate(PoDoFo::PdfDate(
@@ -790,6 +791,7 @@ private slots:
                 std::chrono::minutes(0)));
             doc.SaveUpdate(output.toUtf8().constData());
         }
+
         auto sigs = mgr.validateSignatures(output);
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
