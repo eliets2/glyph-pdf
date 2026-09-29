@@ -30,6 +30,28 @@ The world had advanced past the stage-2 briefing:
   `feat/ci-failure-investigation`, `feat/ui-redesign-p0`, `feat/xmp-zoom-ci`,
   `feat/k-fixes`) plus 263 `archive/*` tags.
 
+## 0-bis. Mid-flight event: the parallel integrator salvaged this lane (recorded 2026-09-30)
+
+While this lane's gate ran, a PARALLEL integrator became active (evidence: main
+moved `7eb5c67b` -> `73830ee4`; the pdf-secfix and prodfix worktree registrations
+were removed from the shared repo and their dotfiles deleted; new
+`fixall-*-review` worktrees appeared):
+
+- It folded the LIVE audit lane (`audit/sweep-all` Wave-1, 9 commits -- docs-only,
+  zero src/CMake changes verified by diff) into local `main`.
+- It cherry-picked this lane's three unique commits (repair `90006a45`->`22b4dea7`,
+  pin fold `176c6cb2`->`85abab41`, regex fix `447b3103`->`7e73cc1c`) onto main.
+- It salvaged THIS document from the deregistered worktree and committed the
+  PRE-gate draft as `73830ee4` (183 lines; missing the E2 100% result and the
+  final head -- this file is the authoritative, completed version and supersedes
+  the salvaged copy in a follow-up commit on this branch).
+
+**Reconciliation:** this lane's branch was rebased onto `73830ee4` -- the three
+salvaged commits auto-skipped (patch-identical), the six picks replayed cleanly.
+The remaining delta of this branch over `main` is exactly the six picks (section 3):
+the 1.7b images-route fix, the 1.7a staged-seed pin, and the ui-redesign
+P0-1 batch -- the content the parallel integrator had NOT folded at salvage time.
+
 ## 1. Safety net FIRST (critique A1/E4; per-step committed)
 
 - **9 new annotated freeze tags** (no `-f`, no overwrites; `archive/final/main`
@@ -71,12 +93,12 @@ The world had advanced past the stage-2 briefing:
 
 | Pick | Source | Result | Notes |
 |---|---|---|---|
-| docs(ui-redesign) Phase-0 baseline | `3adc0d99` | `e340bcc9` | clean |
-| docs(ui-redesign) R17 evidence | `3cc60632` | `76d9b0ce` | clean |
-| feat(ui-redesign) P0-1 CommandRegistry | `bf2a9543` | `f6447f9f` | clean (CMakeLists applied; new files only) |
-| fix(routes) §1.7b uncancellable dialog | `5bd6a34f` | `24be0671` | **COMPLEMENTARY, not superseded**: main's pool fix (`6bd5bcfa`, prodfix's) + this = the union; main's `onImagesToPdf` still carried `tr("Cancel")` + the `canceled→watcher cancel` wiring — the exact spurious-canceled-before-start skip observed in CI run 36538793928. Resolutions: TestWelcomeRoutes conflict took main's comment (superset); the lane's own duplicated 14-line comment block de-duplicated (documented cosmetic resolution); pool + cancel-state-read kept |
-| fix(ocr) §1.7a staged-seed pin | `9eb15e50` | `81bf508e` | CMake staging already in main (`e41dffda`) — CMake conflicts resolved to main's side (comment-only); the pick's value (TestOcrPreprocessPrefs `firstRunOcrSeedIsStagedBesideTheBuild` fast-fail pin + evidence dir) merged clean |
-| test(ocr) §1.7a x3 evidence | `9575cb56` | `b0f263ae` | clean |
+| docs(ui-redesign) Phase-0 baseline | `3adc0d99` | `3807caba` | clean |
+| docs(ui-redesign) R17 evidence | `3cc60632` | `cb206b10` | clean |
+| feat(ui-redesign) P0-1 CommandRegistry | `bf2a9543` | `75380b87` | clean (CMakeLists applied; new files only) |
+| fix(routes) §1.7b uncancellable dialog | `5bd6a34f` | `8acba0a9` | **COMPLEMENTARY, not superseded**: main's pool fix (`6bd5bcfa`, prodfix's) + this = the union; main's `onImagesToPdf` still carried `tr("Cancel")` + the `canceled→watcher cancel` wiring — the exact spurious-canceled-before-start skip observed in CI run 36538793928. Resolutions: TestWelcomeRoutes conflict took main's comment (superset); the lane's own duplicated 14-line comment block de-duplicated (documented cosmetic resolution); pool + cancel-state-read kept |
+| fix(ocr) §1.7a staged-seed pin | `9eb15e50` | `b270858f` | CMake staging already in main (`e41dffda`) — CMake conflicts resolved to main's side (comment-only); the pick's value (TestOcrPreprocessPrefs `firstRunOcrSeedIsStagedBesideTheBuild` fast-fail pin + evidence dir) merged clean |
+| test(ocr) §1.7a x3 evidence | `9575cb56` | `3094739f` | clean |
 
 ## 4. feat/xmp-zoom-ci — the other four commits, dispositioned with content probes
 
@@ -134,6 +156,14 @@ main's tip was pushed unverified.
 
 ## 7. Gates at the consolidated head `447b3103`
 
+- **Re-gate at the final head `1b3fe0b8`** (after the rebase + this doc): build
+  reconfigured + full rebuild green (1065/1065 targets, exit 0; the parallel
+  integrator's cleanup had swept build-sec/CMakeCache.txt and this worktree's
+  dotfiles -- restored from HEAD, cache regenerated with the lane flags); the 9
+  touched suites green; fresh full serial `ctest -j 1` offscreen:
+  **100% tests passed, 0 failed out of 188** (`/d/stage2-ctest-serial3.txt`;
+  R14ProbeBatchSkip disabled by design). Earlier runs: 188/188 at the
+  pre-rebase gated tree (serial2), 186/188 serial1 with both reds green solo x3.
 - **E1 build:** full Release rebuild of the switched base (PCH purged after the
   base switch brought PCH-fed header changes; Ninja recompiled the tree, 697
   targets, exit 0; vendored PoDoFo 1.1.0 DLL verified
@@ -142,15 +172,21 @@ main's tip was pushed unverified.
   TestBatchPresetsP2, TestOcrPreprocessPrefs, TestRedactionProof, TestViewParity,
   TestCommandRegistry — **8/8 PASS**; the flake-prone trio
   (WelcomeRoutes/BatchPresetsP2/CommandRegistry) **×3 consecutive greens**.
-- **E2 full serial gate:** `ctest -j 1` offscreen at `447b3103` — result recorded
-  in `/d/stage2-ctest-serial.txt` and in the final report below (100% required).
+- **E2 full serial gate:** `ctest -j 1` offscreen at `447b3103` — **run 2:
+  100% tests passed, 0 failed out of 188** (`R14ProbeBatchSkip` disabled by
+  design; transcripts `/d/stage2-ctest-serial2.txt`). Run 1 had 186/188 —
+  `TestSidecarReopenState` + `TestFileHandleCoordination` red under serial load;
+  both suites are byte-identical to main's (no pick touches their surfaces) and
+  passed **solo ×3 immediately after** (Sidecar 1.3–21 s, FileHandle 17–21 s;
+  the serial reds were an "Access denied" commit race and a modal-timing flag,
+  the documented load-flake class of the FIXALL gate precedent).
 - **E3-style:** linear (0 merge commits `origin/main..HEAD`); purge intact
   (no CLAUDE.md/SECURITY.md touches); no secrets added; `-x` trailers verified
   on all 6 picks.
 
 ## 8. Push
 
-`feat/consolidated-exec` → `origin review/consolidated-parity` (ref CREATION —
+`feat/consolidated-exec` @ the head below (the doc commit rides the branch, consol-exec2 precedent) → `origin review/consolidated-parity` (ref CREATION —
 the name is free since the merged PR #2's head branch was deleted; no force, no
 main push, `audit/sweep-all` untouched). This doc rides the pushed branch.
 
