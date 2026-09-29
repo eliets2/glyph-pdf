@@ -1,0 +1,8 @@
+********* Start testing of TestOcrPreprocessPrefs *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrPreprocessPrefs::initTestCase()
+FAIL!  : TestOcrPreprocessPrefs::firstRunOcrSeedIsStagedBesideTheBuild() 'QFileInfo::exists(staged)' returned FALSE. (the first-run OCR seed must be staged at D:/pdf/pdf-xmpzoom/build-w2c/tessdata/eng.traineddata (CMake GLYPHPDF_TESSDATA_DIR staging) — without it first-run OCR honestly fails with 'Tesseract language data for eng is unavailable' on any pristine machine)
+D:/pdf/pdf-xmpzoom/tests/TestOcrPreprocessPrefs.cpp(138) : failure location
+PASS   : TestOcrPreprocessPrefs::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 10ms
+********* Finished testing of TestOcrPreprocessPrefs *********

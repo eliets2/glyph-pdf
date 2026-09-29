@@ -1,0 +1,5 @@
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F1 live lifecycle surface during run1: 'Running OCR — initializing OCR models (first use can take several minutes)…'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() OCR download disabled
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 3s; Run enabled=1 textLen=0 statusBar='OCR failed: Tesseract language data for 'eng' is unavailable.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 6s; Run enabled=1 textLen=0 statusBar='OCR failed: Tesseract language data for 'eng' is unavailable.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 9s; Run enabled=1 textLen=0 statusBar=''
