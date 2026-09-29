@@ -6055,6 +6055,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPgr36StaleSigningPanel.cpp")
     )
 endif()
 
+# ── TestFileHandleCoordination (K5, ADR-UI-03 §3.4): background save vs GUI engine call ──
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFileHandleCoordination.cpp")
+    add_executable(TestFileHandleCoordination
+        tests/TestFileHandleCoordination.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
+    )
+    target_include_directories(TestFileHandleCoordination PRIVATE src tests)
+    target_compile_definitions(TestFileHandleCoordination PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
+    target_link_libraries(TestFileHandleCoordination PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestFileHandleCoordination POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestFileHandleCoordination>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestFileHandleCoordination>/platforms/${GLYPH_QPA_PLUGIN}"
+    )
+    add_test(NAME TestFileHandleCoordination COMMAND TestFileHandleCoordination)
+    set_tests_properties(TestFileHandleCoordination PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;safesave;coordinator;k5;qt;headless"
+    )
+endif()
+
 # ── Per-test temp roots ─────────────────────────────────────────────────────
 # SafeSave stages every write under <QDir::tempPath()>/glyphpdf-candidates, and
 # several suites prove "no candidate left behind" by listing that directory
