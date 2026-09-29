@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QRectF>
 #include <QList>
+#include <QThreadPool>
 #include <memory>
 #include <QPageSize>
 
@@ -43,6 +44,18 @@ public:
 
     // Convenience: true when an Office→PDF converter is available on this machine.
     static bool isOfficeImportAvailable() { return !locateSoffice().isEmpty(); }
+
+    // PROGRAM-CONSOLIDATION 1.7b: the pool UI-initiated conversions run on.
+    // Welcome-card conversions (images / office / merge) used QtConcurrent::run
+    // on the GLOBAL pool, where render prefetch, autosave, OCR batches and
+    // capability probes can occupy every worker on a small machine — the
+    // conversion then never completes, the progress dialog waits forever and
+    // the route's output never appears (the CI
+    // TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput signature). A
+    // dedicated pool guarantees a UI conversion always gets a worker regardless
+    // of background-pool saturation.
+    static QThreadPool& uiConversionPool();
+
     // R10 (F08) truthful capability queries: real Word/Excel export is
     // AVAILABLE in every build of this project — a vendored OOXML lib writes
     // the file when compiled in (ExportEngine::NativeOoxml), and GlyphPDF's

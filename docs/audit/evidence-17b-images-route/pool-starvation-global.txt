@@ -1,0 +1,1 @@
+global pool: conversion completed = false after 10s (conversion itself takes ~50ms)

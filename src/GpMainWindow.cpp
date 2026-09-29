@@ -1655,9 +1655,14 @@ void MainWindow::runConversion(const QString& progressLabel,
     auto* watcher = new QFutureWatcher<bool>(this);
     QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
     QObject::connect(watcher, &QFutureWatcher<bool>::finished, this, [=]() {
+        // 1.7b: read the cancel state BEFORE closing the dialog — closing a
+        // QProgressDialog emits canceled() (closeEvent → cancel()), which
+        // canceled the ALREADY-FINISHED future and flipped isCanceled(), so
+        // the success hop below was skipped on every fast conversion.
+        const bool canceled = watcher->isCanceled();
         progress->close();
         progress->deleteLater();
-        if (watcher->isCanceled()) {
+        if (canceled) {
             watcher->deleteLater();
             return;
         }
@@ -1671,7 +1676,9 @@ void MainWindow::runConversion(const QString& progressLabel,
         }
     });
 
-    watcher->setFuture(QtConcurrent::run(work));
+    // 1.7b: the dedicated UI-conversion pool — a background burst on the
+    // global pool must never stall a unified-flow conversion.
+    watcher->setFuture(QtConcurrent::run(&ConversionManager::uiConversionPool(), work));
     progress->show();
 }
 
