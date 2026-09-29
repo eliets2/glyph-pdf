@@ -486,23 +486,25 @@ void AccessibilityPanel::onTagFinished() {
     if (m_submittedTagPath != m_currentDocPath) return;
 
     const TaggerReport r = m_tagWatcher->result();
+    // Every run that reaches this point has FINISHED, whatever its outcome:
+    // tagRunFinished announces it on failure and on success alike
+    // (waitForTagRun and TestSweepW3UxFlows flow7c's teardown fence wait
+    // on it). The signals may reach direct-connected slots that destroy
+    // this panel (close mid-tag is a supported flow, see the CX-04
+    // destructor contract), so the guard exists BEFORE the first emit and
+    // no member is touched after an emit without checking it.
+    QPointer<AccessibilityPanel> guard(this);
     if (!r.ok) {
         m_statusLabel->setText(tr("Tagging not applied: %1").arg(r.message));
+        emit tagRunFinished();
         return;
     }
     // Success ⇒ re-scan the SAME identity: the struct-tree finding resolves
     // and the tag action now refuses (already tagged).
-    //
-    // The signals below are emitted to whoever listens — including
-    // direct-connected slots that may destroy this panel (close mid-tag is
-    // a supported flow, see the CX-04 destructor contract). Guard the
-    // continuation so a destroyed receiver can never be re-entered here.
     emit tagRunFinished();
-    {
-        QPointer<AccessibilityPanel> guard(this);
-        emit documentMutated(r.message);
-        if (!guard) return;
-    }
+    if (!guard) return;
+    emit documentMutated(r.message);
+    if (!guard) return;
     m_statusLabel->setText(tr("Tagged — re-running check…"));
     setDocument(m_currentDocPath);
 }
