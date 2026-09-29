@@ -22,10 +22,10 @@
 //       - leaving Full Screen always lands in Continuous and maximizes the
 //         window, instead of restoring the previous layout and window state;
 //       - Presentation leaves automatically after the last page.
-//   * One current DEFECT is recorded with QEXPECT_FAIL
-//     (zoomInAfterFitLeavesFitMode). When the redesign fixes it, QtTest
-//     reports XPASS, which fails the suite. That forces whoever fixed it to
-//     remove the marker, so the fix cannot silently regress later.
+//   * The one recorded QEXPECT_FAIL defect (zoomInAfterFitLeavesFitMode) was
+//     fixed pre-redesign by PROGRAM-CONSOLIDATION 1.4 (06 §4.8): explicit
+//     zooms leave the fit mode. The marker was removed per its own
+//     instruction; the test now pins the fixed behavior directly.
 #include <QtTest/QtTest>
 #include <QApplication>
 #include <QKeyEvent>
@@ -223,17 +223,23 @@ private slots:
         QVERIFY(qFuzzyCompare(viewer()->zoomLevel(), 1.0));
     }
 
-    // Known DEFECT at the redesign base: Zoom In / Zoom Out after Fit Width or
-    // Fit Page change the stored factor but leave QPdfView in the fit mode, so
-    // the page does not visibly zoom. 06 §4.8 requires "any manual zoom
-    // switches to Fixed". Remove the QEXPECT_FAIL when that lands (XPASS).
+    // Fixed at the pre-redesign base by PROGRAM-CONSOLIDATION 1.4 (was the
+    // QEXPECT_FAIL pin "zoomInAfterFitLeavesFitMode"): Zoom In / Zoom Out after
+    // Fit Width or Fit Page now leave the fit mode, per 06 §4.8 "any manual
+    // zoom switches to Fixed". The QEXPECT_FAIL marker was removed per its own
+    // instruction once the behavior landed (it would have reported XPASS).
     void zoomInAfterFitLeavesFitMode()
     {
         openSample();
         trigger(ToolId::FitWidth);
         QCOMPARE(pageView()->zoomMode(), QPdfView::ZoomMode::FitToWidth);
         trigger(ToolId::ZoomIn);
-        QEXPECT_FAIL("", "pre-redesign defect: zoomIn()/zoomOut() do not leave the fit mode (06 §4.8 fixes it)", Continue);
+        QCOMPARE(pageView()->zoomMode(), QPdfView::ZoomMode::Custom);
+        // Zoom Out is the same manual-zoom class and must also stay out of the
+        // fit mode (it used to share the defect).
+        trigger(ToolId::FitPage);
+        QCOMPARE(pageView()->zoomMode(), QPdfView::ZoomMode::FitInView);
+        trigger(ToolId::ZoomOut);
         QCOMPARE(pageView()->zoomMode(), QPdfView::ZoomMode::Custom);
     }
 
