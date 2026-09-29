@@ -28,6 +28,19 @@ public:
     // deterministically reachable. Never called by production code.
     void forceEmptyPostConditionForTesting(bool on);
 
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.7c regression seam (same test-only
+    // status as setTrustStoreForTest): runs the PRODUCTION DSS append
+    // (Private::buildDssDictionary — the code signDocument calls for PAdES
+    // B-LT) as a standalone incremental update, so the suite can force the
+    // wall-clock condition that is only stochastic in production: a >=1s gap
+    // between the signing write and the DSS append. Without the production
+    // block's NoMetadataUpdate (the 1.7c fix), PoDoFo's save-time metadata
+    // refresh re-emits /Info in the appended revision and the INV-1
+    // shadow-attack scan downgrades the document — exactly the once-on-CI
+    // failure of testOwnBltDssRevisionNotDowngraded (run 36486624682). Never
+    // called by production code.
+    bool appendDssRevisionForTesting(const QString &signedFilePath);
+
     // ------------------------------------------------------------------
     // §9.7 P0 — visible signature appearance (ETSI EN 319 142-6 §5.2)
     // ------------------------------------------------------------------

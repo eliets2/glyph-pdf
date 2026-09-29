@@ -587,6 +587,23 @@ public:
             // run 36486624682: got ValidWithUnsignedChanges).
             FileStreamDevice output(signedFilePath.toStdString(), FileMode::Append);
             doc.SaveUpdate(output, PdfSaveOptions::NoMetadataUpdate);
+            // Write as incremental update.
+            // PROGRAM-CONSOLIDATION-2026-09-25 §1.7c: the DSS revision must be
+            // DSS-ONLY by construction — that is the invariant isLegitimate-
+            // IncrementalAppend (INV-1) enforces on every B-LT document, and a
+            // PAdES long-term-validation update must not touch anything else.
+            // Without NoMetadataUpdate, PoDoFo's save-time metadata refresh
+            // stamps /Info's /ModDate; when this append lands in a LATER
+            // wall-clock second than the signing write (CI-load territory),
+            // the refresh changes /Info and SaveUpdate re-emits it as a
+            // redefinition of a BASE object — the shadow-attack scan then
+            // (correctly) downgrades the app's own revision to
+            // ValidWithUnsignedChanges. Probe-proven: a >=1.1s gap between
+            // sign and append reproduced the exact CI failure of run
+            // 36486624682 (testOwnBltDssRevisionNotDowngraded, "modified
+            // non-catalog object 14 0 R" = /Info); with NoMetadataUpdate the
+            // append stays DSS-only and the verdict holds.
+            doc.SaveUpdate(output, PoDoFo::PdfSaveOptions::NoMetadataUpdate);
             return true;
         } catch (const PdfError &e) {
             qWarning() << "DSS dictionary build failed:" << e.what();
@@ -986,6 +1003,15 @@ void SignatureManager::setTrustStoreForTest(X509_STORE *store) { d->testTrustSto
 
 // SEP13:4 regression seam — see the header note. Test-only.
 void SignatureManager::forceEmptyPostConditionForTesting(bool on) { d->forceEmptyPostCondition = on; }
+
+bool SignatureManager::appendDssRevisionForTesting(const QString &signedFilePath)
+{
+    // Minimal legitimate DSS: an empty /DSS dict off the catalog — the same
+    // production append path (and post-fix, the same NoMetadataUpdate save)
+    // as signDocument's B-LT step, with no cert/OCSP payload to keep the
+    // seam focused on the revision structure.
+    return d->buildDssDictionary(signedFilePath, {}, {}, {}, {});
+}
 // ---------------------------------------------------------------------------
 SignOutcome SignatureManager::signDocument(const QString &inputPath,
                                     const QString &outputPath,

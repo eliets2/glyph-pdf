@@ -1,0 +1,15 @@
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1922
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() Found DSS dict. IsRef: false
+QWARN  : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 14 0 R"
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: OCSPs not found or not array
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() validateSignatures: field "Signature1" ByteRange: 0 490 66028 1922
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() Found DSS dict. IsRef: false
+QWARN  : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 14 0 R"
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: catalog keys: true
+QDEBUG : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() extractOcspFromDss: OCSPs not found or not array
+QWARN  : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() SECURITY: downgrading trustStatus from "ValidWithDSS" to ValidWithUnsignedChanges for field "Signature1"
+FAIL!  : TestSignatureRealCrypto::testOwnBltDssRevisionNotDowngraded() 'info.trustStatus == QLatin1String("Valid") || info.trustStatus == QLatin1String("ValidWithDSS")' returned FALSE. (B_LT: the app's own DSS revision must not be treated as an unsigned-attack revision, got: ValidWithUnsignedChanges)
+D:/a/glyph-pdf/glyph-pdf/tests/TestSignatureRealCrypto.cpp(714) : failure location
