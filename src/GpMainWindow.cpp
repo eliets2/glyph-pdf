@@ -14,6 +14,7 @@
 #include "modes/OCRMode.h"   // R07: lifecycle recovery is relayed to the review panel
 #include "ui/WelcomeWidget.h"
 #include "core/ToolId.h"
+#include <QMutexLocker>
 #include <QStackedWidget>
 #include "modes/AIChatPanel.h"
 #include "modes/SignaturesPanel.h"
@@ -100,6 +101,13 @@ namespace gp {
 // destroy windows in sequence).
 namespace {
 QPointer<MainWindow> g_fileHandleCoordinatorOwner;
+
+// K5 (ADR-UI-03 §3.4): the path the owner window's viewer displays, readable
+// from worker threads without touching a GUI object. Written on the GUI thread
+// (PdfViewerWidget::displayedFileChanged), read by the coordinator's worker
+// path to decide whether a commit needs the GUI hop at all.
+QMutex g_displayedPathMutex;
+QString g_displayedPath;
 
 // F6-F1 (SWEEP-W3 UX): the open-failure path detects a certificate
 // (public-key) /Encrypt dictionary before falling back to the generic
@@ -246,6 +254,17 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     // save-in-place, redaction commit and form import coordinates through the
     // same boundary (no per-call-site coordination).
     g_fileHandleCoordinatorOwner = this;
+    {
+        QMutexLocker lock(&g_displayedPathMutex);
+        g_displayedPath = pdfViewer() ? pdfViewer()->filePath() : QString();
+    }
+    if (auto *v = pdfViewer()) {
+        connect(v, &PdfViewerWidget::displayedFileChanged, this, [this](const QString &path) {
+            if (g_fileHandleCoordinatorOwner != this) return;
+            QMutexLocker lock(&g_displayedPathMutex);
+            g_displayedPath = path;
+        });
+    }
     // F4d-D1 (SWEEP-W3 UX): the coordinator no longer no-ops off the GUI
     // thread. The prepare-signing-request fill step runs its engine + commit
     // on a signing worker thread and writes the OPEN document in place, so a
@@ -272,6 +291,26 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
         // deadlock it. The owner check runs on BOTH threads: a stale
         // coordinator (owner torn down) still no-ops instead of touching a
         // dead window.
+        // K5 (ADR-UI-03 §3.4, reproduced by TestFileHandleCoordination): a
+        // worker commit to a destination the viewer does NOT display has
+        // nothing to park: parkDocumentForWrite/restoreDocumentAfterWrite
+        // return at their `path != m_filePath` check. So it must not hop at
+        // all. The hop BLOCKS the worker until the GUI thread runs it, and
+        // autosave and other engine writers reach this commit while holding
+        // PdfEditorEngine's lock. A GUI thread that was itself waiting on that
+        // lock could never run the hop, and both threads waited forever (for
+        // example pageChanged -> Sidebar::updateFilesList ->
+        // engine->getEmbeddedFiles, or refreshPageLinks -> extractLinks).
+        // The comparison is the same exact-string one the viewer uses, so park
+        // outcomes are unchanged; only the needless blocking hop is gone.
+        // Commits to the DISPLAYED file keep the blocking hop, because the
+        // park is required for the atomic replace; ADR-UI-03 step 2b replaces
+        // it with write leases and a bounded hop.
+        {
+            QMutexLocker lock(&g_displayedPathMutex);
+            if (g_displayedPath.isEmpty() || g_displayedPath != p)
+                return;
+        }
         QMetaObject::invokeMethod(
             this,
             [this, p, park]() {
@@ -670,6 +709,8 @@ MainWindow::~MainWindow() {
     if (g_fileHandleCoordinatorOwner == this) {
         g_fileHandleCoordinatorOwner = nullptr;
         SafeSave::setFileHandleCoordinator({}, {});
+        QMutexLocker lock(&g_displayedPathMutex);
+        g_displayedPath.clear();
     }
     if (_ctx && _ctx->autosave) {
         _ctx->autosave->stop();

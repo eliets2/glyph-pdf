@@ -379,6 +379,7 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
         m_saveDebounceTimer->stop();
     }
     m_filePath = fileName;
+    emit displayedFileChanged(m_filePath);   // K5: the shell's thread-safe copy
     clearPageCache();
     m_linksForPage = -1;   // §9.1: document changed → link cache is stale
     m_document->load(fileName);

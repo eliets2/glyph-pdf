@@ -218,6 +218,10 @@ signals:
     void cropRequested(int pageIndex, QRectF cropRect);
     void textSelected(const QString& selectedText);
     void fieldPlacementRequested(int pageIndex, QRectF pdfRect, ToolMode mode);
+    // K5 (ADR-UI-03 §3.4): the path this viewer displays changed. The shell
+    // keeps a thread-safe copy so background commits can tell, without touching
+    // this widget off the GUI thread, whether their destination is displayed.
+    void displayedFileChanged(const QString& path);
 
 public slots:
     void zoomIn();
