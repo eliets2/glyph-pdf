@@ -167,6 +167,7 @@ private slots:
     void importExportRoundTripByteIdentical();
     void importRefusesIdStemMismatchKeepsStore();
     void importRefusesExistingIdUnlessReplaced();
+    void exportToMidwayFailureLeavesTheTargetIntact();
     void exportConfirmedOverwriteKeepsTargetWhenCommitFails();
 
     // ── U7: manager + multi-step editor dialogs ───────────────────────────────
@@ -1697,6 +1698,53 @@ void TestBatchPresetsP2::importRefusesExistingIdUnlessReplaced() {
     QVERIFY2(storeA.get(id, &after, &err), qPrintable(err));
     QCOMPARE(after.name, QStringLiteral("Clash Modified"));
     QCOMPARE(storeA.list().size(), 1);
+}
+
+// §1.6 (secfix lane, PROGRAM-CONSOLIDATION-2026-09-25): exportTo used to REMOVE
+// the target and then copy — a failure (or crash) between the two steps
+// destroyed a target the user already had (the batch-presets LOW residual from
+// the Phase-1 fold). The commit idiom is the SafeSave one — candidate first,
+// atomic replace at the end, the source bytes read before anything is staged —
+// so a mid-export failure must leave the pre-existing target byte-intact and
+// refuse honestly. The mid-step failure is forced deterministically: the store
+// entry exists but cannot be read for copying (a directory standing at
+// <id>.glyphpreset.json passes the exists check and defeats the byte read).
+void TestBatchPresetsP2::exportToMidwayFailureLeavesTheTargetIntact() {
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Midway");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p, &err), qPrintable(err));
+    const QString id = p.id;
+
+    // The target the user already has — the bytes a crash window must not
+    // be able to destroy.
+    const QString target = m_runDir->filePath(QStringLiteral("sentinel.glyphpreset.json"));
+    const QByteArray sentinel("{ \"sentinel\": true }");
+    {
+        QFile f(target);
+        QVERIFY2(f.open(QIODevice::WriteOnly), qPrintable(target));
+        f.write(sentinel);
+    }
+
+    // Replace the store entry with an unreadable stand-in: same name, so the
+    // exists check passes, but there are no bytes to copy.
+    const QString storeEntry = dirA + QStringLiteral("/") + id
+                             + QStringLiteral(".glyphpreset.json");
+    QVERIFY(QFile::remove(storeEntry));
+    QVERIFY(QDir().mkpath(storeEntry));
+
+    QVERIFY2(!storeA.exportTo(id, target, true, &err),
+             "an unreadable store entry must refuse the export honestly");
+    QVERIFY2(!err.isEmpty(), "the refusal carries a diagnostic");
+
+    // The contract: the failure happened AFTER the confirm, and the target
+    // survives byte-intact (pre-fix this is exactly the window where the
+    // remove had already happened and the copy never did).
+    QVERIFY2(QFileInfo::exists(target), "the target must survive a mid-export failure");
+    QCOMPARE(readFileBytes(target), sentinel);
 }
 
 // PROGRAM-CONSOLIDATION §1.6: the confirmed-overwrite export must use the
