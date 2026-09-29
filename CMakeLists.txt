@@ -590,6 +590,40 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/models/pp_doclayout")
     file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/models/pp_doclayout"
          DESTINATION "${CMAKE_BINARY_DIR}/models")
 endif()
+
+# PROGRAM-CONSOLIDATION 1.7a: stage the Tesseract language data beside the
+# build output the same way. OcrEngine::initialize seeds its strict
+# AppLocalData copy from applicationDirPath()/tessdata (the location the MSI
+# ships), and never reads the MSYS2 prefix's share/tessdata — so on a pristine
+# machine (every CI runner) first-run OCR honestly failed with "Tesseract
+# language data for 'eng' is unavailable" (TestSweepW3UxFlows flow5), while a
+# developer machine that had run the app once carried the seed in AppLocalData
+# and passed. Staging eng.traineddata into ${CMAKE_BINARY_DIR}/tessdata lets
+# the tests exercise the same zero-network first-run path a production install
+# uses, with no new download and no policy change. Set GLYPHPDF_TESSDATA_DIR
+# to override the auto-detection.
+set(GLYPHPDF_TESSDATA_DIR "" CACHE PATH
+    "Directory holding eng.traineddata staged beside the build output for OCR tests (auto-detected from the MSYS2 prefix when empty)")
+if(NOT GLYPHPDF_TESSDATA_DIR)
+    foreach(_tessdata_cand
+            "$ENV{MSYSTEM_PREFIX}/share/tessdata"
+            "${MSYS2_ROOT}/share/tessdata"
+            "C:/msys64/ucrt64/share/tessdata")
+        if(EXISTS "${_tessdata_cand}/eng.traineddata")
+            set(GLYPHPDF_TESSDATA_DIR "${_tessdata_cand}")
+            break()
+        endif()
+    endforeach()
+endif()
+if(EXISTS "${GLYPHPDF_TESSDATA_DIR}/eng.traineddata")
+    file(COPY "${GLYPHPDF_TESSDATA_DIR}/eng.traineddata"
+         DESTINATION "${CMAKE_BINARY_DIR}/tessdata")
+    message(STATUS "Staging OCR tessdata for tests from ${GLYPHPDF_TESSDATA_DIR}")
+else()
+    message(STATUS "OCR tessdata staging skipped: no eng.traineddata found "
+                   "(set GLYPHPDF_TESSDATA_DIR; OCR tests will fail their "
+                   "recognition probes without a seed)")
+endif()
 if(qpdf_FOUND AND (TARGET qpdf::qpdf OR TARGET qpdf::libqpdf))
     if(TARGET qpdf::qpdf)
         target_link_libraries(pdfws_engines PUBLIC qpdf::qpdf)

@@ -1,0 +1,74 @@
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 start: image-only fixture OCRME 42 (FIRST-RUN default prefs — F5-F2 pin)
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F-route: clicking welcome card 'ocr'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step1: OCR verify screen open via the welcome route
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F2 shipped defaults as shown on screen: deskew=0 binarize=0 denoise=0
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F1 live lifecycle surface during run1: 'Running OCR — initializing OCR models (first use can take several minutes)…'
+[0;93m2026-09-29 21:01:44.3041432 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3045668 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3049254 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.0.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3052795 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3602244 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.4.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3605919 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.26.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3610630 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.2.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3615739 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.46.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3620235 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.6.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3624279 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.35.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3628523 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.7.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3632603 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.39.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3637292 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.3.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3641290 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.50.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3645507 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.34.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3649691 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.53.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3653946 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.21.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3658144 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.36.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3662358 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.47.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3666547 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.38.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3671564 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.40.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3675580 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.41.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3679485 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.42.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3682877 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.43.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3686275 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.1.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3689532 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.48.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3692951 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.49.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3696447 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full_int_array.51.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3699861 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.8.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3703408 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.9.0'. It is not used by any node and should be removed from the model.[m
+[0;93m2026-09-29 21:01:44.3706650 [W:onnxruntime:, graph.cc:3593 onnxruntime::Graph::CleanUnusedInitializersAndNodeArgs] Removing initializer 'p2o.pd_op.full.13.0'. It is not used by any node and should be removed from the model.[m
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() OCR download disabled
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 3s; Run enabled=1 textLen=0 statusBar='OCR failed: Tesseract language data for 'eng' is unavailable.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 6s; Run enabled=1 textLen=0 statusBar='OCR failed: Tesseract language data for 'eng' is unavailable.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 9s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 12s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 15s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 18s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 21s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 24s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 27s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 30s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 45s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 60s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 75s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 90s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 105s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 120s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 135s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 150s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 165s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 180s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 195s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 210s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 225s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 240s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 255s; Run enabled=1 textLen=0 statusBar=''
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): budget 255s exhausted; Run enabled=1 textLen=0
+FAIL!  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() 'narratedOcrWait(250000, QStringLiteral("run1(image page)"))' returned FALSE. (F5: OCR produced no recognized text within the narrated 250s budget (Run re-enabled with text pane empty = the panel showed an honest failure state; see transcript above))
+D:/pdf/prodfix/tests/TestSweepW3UxFlows.cpp(1723) : failure location
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestSweepW3UxFlows-dpQugX" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 255492ms
+********* Finished testing of TestSweepW3UxFlows *********
