@@ -990,10 +990,19 @@ QList<BatchPresetStore::BrokenFile> BatchPresetStore::brokenFiles() const {
 }
 
 bool BatchPresetStore::contains(const QString& id) const {
+    // PGR-53 (presets-review 2026-09-29): the id IS the file name stem — the
+    // grammar is re-checked at the store boundary so a hostile id can never
+    // name a path outside the root (contains/get/remove/exportTo are public
+    // API; "callers pass list() ids" is a convention, not a guarantee).
+    if (!isValidStoreId(id))
+        return false;
     return QFileInfo::exists(QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json")));
 }
 
 bool BatchPresetStore::get(const QString& id, BatchPreset* out, QString* err) const {
+    if (!isValidStoreId(id))
+        return fail(err, QStringLiteral("invalid preset id \"%1\" (schema v1 store "
+                                        "layout)").arg(id));
     return BatchPresetCodec::loadFile(
         QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json")), out, err);
 }
@@ -1057,6 +1066,9 @@ bool BatchPresetStore::rename(const QString& id, const QString& newName, QString
 }
 
 bool BatchPresetStore::remove(const QString& id, QString* err) {
+    if (!isValidStoreId(id))
+        return fail(err, QStringLiteral("invalid preset id \"%1\" (schema v1 store "
+                                        "layout)").arg(id));
     const QString path =
         QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json"));
     if (!QFileInfo::exists(path))
@@ -1105,6 +1117,9 @@ bool BatchPresetStore::importFrom(const QString& path, bool replaceExisting,
 
 bool BatchPresetStore::exportTo(const QString& id, const QString& targetPath,
                                 bool overwriteConfirmed, QString* err) {
+    if (!isValidStoreId(id))
+        return fail(err, QStringLiteral("invalid preset id \"%1\" (schema v1 store "
+                                        "layout)").arg(id));
     const QString src =
         QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json"));
     if (!QFileInfo::exists(src))

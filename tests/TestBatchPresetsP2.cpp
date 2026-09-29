@@ -189,6 +189,10 @@ private slots:
     // SafeSave commit, never truncate-then-write (the prior report is a real
     // artifact; a mid-write failure must leave it byte-identical).
     void reviewRunReportExportKeepsPriorWhenCommitFails();
+    // PGR-53: the store builds PATHS from caller-supplied ids — the slug
+    // grammar is re-checked at the store boundary so a hostile id can never
+    // name a file outside the root.
+    void reviewStoreRefusesHostileIds();
 
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
@@ -2202,6 +2206,59 @@ void TestBatchPresetsP2::reviewRunReportExportKeepsPriorWhenCommitFails() {
     QVERIFY2(bm.exportRunReportForTest(target),
              "the disarmed re-export must succeed");
     QCOMPARE(readFileBytes(target), BatchMode::runReportJson(results));
+}
+
+// ── Presets review lane (PGR-53) ──────────────────────────────────────────────
+// contains/get/remove/exportTo built the store path from the raw caller id.
+// The id grammar ([a-z0-9-]{1,64}) is what makes those paths safe — the store
+// now re-checks it at its own boundary, because "healthy callers pass list()
+// ids" is a convention, not a guarantee: remove("../evil") DELETED
+// <root>/../evil.glyphpreset.json, and exportTo("../evil", …) copied an
+// arbitrary outside .json out of its directory.
+void TestBatchPresetsP2::reviewStoreRefusesHostileIds() {
+    // A NESTED store so the hostile id "../evil" names a file OUTSIDE the root
+    // but still inside the test's own temp tree.
+    const QString base = m_storeDir->path();
+    BatchPresetStore store(base + QStringLiteral("/store"));
+    const QString outside = base + QStringLiteral("/evil.glyphpreset.json");
+    {
+        QFile f(outside);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{\"outside\": true}");
+    }
+    const QByteArray outsideBytes = readFileBytes(outside);
+    QVERIFY(!outsideBytes.isEmpty());
+
+    QString err;
+    QVERIFY2(!store.remove(QStringLiteral("../evil"), &err),
+             "a hostile id must not delete through a traversal path");
+    QVERIFY2(err.contains(QStringLiteral("invalid preset id")), qPrintable(err));
+    QCOMPARE(readFileBytes(outside), outsideBytes);   // the outside file survives
+
+    BatchPreset loaded;
+    QString gerr;
+    QVERIFY2(!store.get(QStringLiteral("../evil"), &loaded, &gerr),
+             "a hostile id must not load a preset from outside the store");
+    QVERIFY2(gerr.contains(QStringLiteral("invalid preset id")), qPrintable(gerr));
+
+    const QString target = m_runDir->filePath(QStringLiteral("smuggled.json"));
+    QString xerr;
+    QVERIFY2(!store.exportTo(QStringLiteral("../evil"), target, false, &xerr),
+             "a hostile id must not export a file from outside the store");
+    QVERIFY2(!QFileInfo::exists(target),
+             "nothing may be exported from outside the store");
+    QVERIFY2(!store.contains(QStringLiteral("../evil")),
+             "a hostile id must not be seen as an existing preset");
+    QVERIFY2(xerr.contains(QStringLiteral("invalid preset id")), qPrintable(xerr));
+
+    // Healthy ids keep working end-to-end on the same store.
+    BatchPreset p;
+    p.name = QStringLiteral("Healthy");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QVERIFY2(store.save(&p, &err), qPrintable(err));
+    QVERIFY(store.contains(p.id));
+    QVERIFY2(store.remove(p.id, &err), qPrintable(err));
+    QVERIFY(!store.contains(p.id));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)
