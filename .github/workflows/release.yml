@@ -155,8 +155,13 @@ jobs:
       # shipped app/engine targets to be present in the evidence, and FAILS on a
       # missing evidence file or on any GLYPH_TESTING outside CMakeFiles/Test*.dir
       # (test executables may keep intentional test-only defines).
+      #
+      # Runs under the runner's pwsh, NOT the job default (msys2): the MSYS2 shell
+      # does not inherit the Windows PATH, so `pwsh -File ...` there failed with
+      # "pwsh: command not found" (exit 127) on the v1.5.0 tag — the gate never ran.
       - name: Assert GLYPH_TESTING not defined in release build
-        run: pwsh -File packaging/check-release-defines.ps1 -BuildDir build
+        shell: pwsh
+        run: ./packaging/check-release-defines.ps1 -BuildDir build
 
       - name: Test
         # ONNX model files (models/) are gitignored — tests that need them QSKIP gracefully
