@@ -6,6 +6,8 @@
 #include <QtTest/QtTest>
 #include <QSettings>
 #include <QCheckBox>
+#include <QCoreApplication>
+#include <QFileInfo>
 
 #include "modes/OCRMode.h"
 
@@ -116,6 +118,29 @@ private slots:
                  "pipeline will honor");
         QVERIFY2(denoise && denoise->isChecked(),
                  "persisted Denoise=on must restore checked");
+    }
+
+    void firstRunOcrSeedIsStagedBesideTheBuild() {
+        // PROGRAM-CONSOLIDATION-2026-09-25 §1.7a: first-run OCR is zero-network
+        // by design — the policy download gate is off in tests — so the only
+        // seed OcrEngine::initialize may use is applicationDirPath()/tessdata
+        // (the location the MSI ships, packaging/deploy.ps1), copied into the
+        // strict AppLocalData path on first use. The build therefore stages
+        // eng.traineddata beside the test executables exactly like the models/
+        // staging; when that staging is missing, every pristine machine (CI
+        // runner, fresh clone) fails first-run OCR with "Tesseract language
+        // data for 'eng' is unavailable" and TestSweepW3UxFlows flow5 burns
+        // its whole 250s recognition budget (CI run 36538793928). This pin
+        // makes a missing staging fail fast, everywhere, with the reason.
+        const QString staged =
+            QCoreApplication::applicationDirPath()
+            + QStringLiteral("/tessdata/eng.traineddata");
+        QVERIFY2(QFileInfo::exists(staged),
+                 qPrintable(QStringLiteral("the first-run OCR seed must be staged at %1 "
+                                          "(CMake GLYPHPDF_TESSDATA_DIR staging) — without it "
+                                          "first-run OCR honestly fails with 'Tesseract "
+                                          "language data for eng is unavailable' on any "
+                                          "pristine machine").arg(staged)));
     }
 };
 
