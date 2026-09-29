@@ -47,6 +47,22 @@ if ! command -v "$CLANG" >/dev/null 2>&1; then
   exit 1
 fi
 
+# M6-P4 D3 (save-time dual-write, commit 6cf0c267) gave src/pdfws_djot a
+# QtCore dependency: DjotToRichTextXhtml includes <QString>/<QStringList>.
+# The clang rebuild therefore needs the Qt6Core include paths and the final
+# link needs Qt6Core libraries. Resolve through pkg-config and fail honestly
+# (INF06) when the dependency is not provisioned — never silently skip.
+if ! command -v pkg-config >/dev/null 2>&1; then
+  echo "ERROR: pkg-config not found — the djot chain links QtCore (M6-P4 D3) and its paths cannot be resolved (INF06)." >&2
+  exit 1
+fi
+if ! pkg-config --exists Qt6Core; then
+  echo "ERROR: Qt6Core not found via pkg-config — the djot chain needs QtCore since M6-P4 D3 (DjotToRichTextXhtml includes <QString>). Ubuntu: sudo apt-get install -y qt6-base-dev pkg-config; MSYS2: pacman -S mingw-w64-ucrt-x86_64-qt6-base (INF06)." >&2
+  exit 1
+fi
+QT_CFLAGS="$(pkg-config --cflags Qt6Core)"
+QT_LIBS="$(pkg-config --libs Qt6Core)"
+
 SAN="-fsanitize=fuzzer-no-link,address,undefined -fno-omit-frame-pointer -g -O1"
 INC="-Isrc -Isrc/pdfws_djot -Isrc/core/interfaces -Isrc/docmodel -Ithird_party/lua-5.4/src"
 
@@ -61,13 +77,13 @@ done
 echo "[2] rebuild docmodel + pdfws_djot (C++) with clang"
 for f in $(find src/docmodel src/pdfws_djot -name '*.cpp'); do
   b=$(echo "$f" | tr '/' '_')
-  "$CLANGXX" -std=c++17 $SAN $INC -c "$f" -o "$OUT/obj/${b%.cpp}.o"
+  "$CLANGXX" -std=c++17 $SAN $INC $QT_CFLAGS -c "$f" -o "$OUT/obj/${b%.cpp}.o"
 done
 
 echo "[3] build + link the fuzzer"
-"$CLANGXX" -std=c++17 $SAN -fsanitize=fuzzer $INC \
+"$CLANGXX" -std=c++17 $SAN -fsanitize=fuzzer $INC $QT_CFLAGS \
   -DDJOT_LIB_PATH="\"$ROOT/third_party/djot\"" \
-  fuzz/harnesses/harness_djot.cpp "$OUT"/obj/*.o \
+  fuzz/harnesses/harness_djot.cpp "$OUT"/obj/*.o $QT_LIBS \
   -o fuzz/bin/djot_fuzzer
 
 # INF06: a build that produces no executable must not exit 0.

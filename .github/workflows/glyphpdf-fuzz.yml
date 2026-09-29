@@ -179,15 +179,25 @@ jobs:
     # `if: always()` so the failure keeps its evidence.
     # If this configuration is ever deliberately unavailable, represent that
     # as an explicit job-level skip condition — never as a successful run.
+    # qt6-base-dev + pkg-config: since M6-P4 D3 the pdfws_djot chain includes
+    # <QString> (DjotToRichTextXhtml), so build_djot_clang.sh resolves QtCore
+    # through pkg-config and fails honestly when it is missing (found by the
+    # CX-13 acceptance dispatch on 2026-09-29 — run 36643482560, job
+    # djot-libfuzzer: "fatal error: 'QString' file not found").
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - name: Install clang + libFuzzer
-        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Install clang + libFuzzer + Qt6 Core
+        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config
       - name: Build djot fuzzer (clang)
         run: bash fuzz/build_clang/build_djot_clang.sh
       - name: Short fuzz run (PR smoke)
+        # LeakSanitizer off on purpose (same rationale as the CX-15 gate):
+        # the harness now links the uninstrumented Qt6Core, and LSan over
+        # Qt's allocator is noise — the gate targets memory errors and UB.
+        env:
+          ASAN_OPTIONS: detect_leaks=0
         run: |
           if [ ! -x fuzz/bin/djot_fuzzer ]; then
             echo "FAIL: fuzz/bin/djot_fuzzer missing — the harness must be built before this job can be green (INF06)" >&2
