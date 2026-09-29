@@ -1001,6 +1001,9 @@ add_library(pdfws_ui STATIC
     src/core/NetworkTouchpoints.h    src/core/NetworkTouchpoints.cpp
 
     src/core/ToolId.h                       src/core/ToolId.cpp
+    # UI redesign Phase 0 (plan 06 7.1): command metadata catalogue + its bundled JSON
+    src/core/CommandRegistry.h              src/core/CommandRegistry.cpp
+    resources/commands.qrc
     src/shell/ToolRegistry.h                src/shell/ToolRegistry.cpp
     src/core/interfaces/IToolController.h
 
@@ -6152,6 +6155,21 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFileHandleCoordination.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 300
         LABELS "unit;safesave;coordinator;k5;qt;headless"
+    )
+endif()
+
+# ── UI redesign Phase 0: TestCommandRegistry (the CommandRegistry catalogue) ──
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCommandRegistry.cpp")
+    add_executable(TestCommandRegistry tests/TestCommandRegistry.cpp)
+    target_include_directories(TestCommandRegistry PRIVATE src)
+    target_link_libraries(TestCommandRegistry PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Test Qt6::Core Qt6::Widgets
+    )
+    add_test(NAME TestCommandRegistry COMMAND TestCommandRegistry)
+    set_tests_properties(TestCommandRegistry PROPERTIES
+        TIMEOUT 60
+        LABELS "unit;ui-redesign;commands;headless"
     )
 endif()
 
