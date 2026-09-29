@@ -15,15 +15,15 @@
 // per-toggle recompute is O(rows) instead of O(rows x anchors).
 //
 // This probe is now the GUARD against regression: it measures exactly the
-// per-toggle work (N lookups over N anchors) at two sizes 4x apart and asserts
-// the growth stays NEAR-LINEAR. Measured at the tip (evidence, followups
-// lane): regressed (linear scan) ≈ 15.8–16.5x; fixed (memo) ≈ 6–8x — the
-// residual growth above the naive ~4x is memory hierarchy (the memo table
-// itself outgrows cache at 8000 entries), which is why the guard sits at
-// < 10.0x, the measured midpoint with wide margins on both sides. The probe
-// calibrates its repeat count to a 100 ms floor per sample so the ratio is
-// stable run-to-run (a 20 ms floor produced 6.3–8.2x scatter on the FIXED
-// code — the guard must never flake on timer quantization).
+// per-toggle work (N lookups over N anchors) at two sizes 16x apart and
+// asserts the growth stays NEAR-LINEAR. Each size calibrates its own repeat
+// count to a 100 ms floor per sample, so timer quantization never decides.
+// History: the first version used sizes 4x apart (2000/8000) with a < 10x
+// line between fixed (~6-8x) and regressed (~16x). The optimized -flto
+// Release build pushed the FIXED code to 8.8-12x (the memo table leaving
+// L1/L2 is a bigger share of a cheaper lookup) and failed both checks in
+// turn — so the spread is now 16x, where the two regimes sit an order of
+// magnitude apart (see kCeiling for the measured evidence).
 #include <QtTest/QtTest>
 #include <QElapsedTimer>
 
@@ -95,6 +95,35 @@ qint64 measureStructuralToggleWorkMs(CompareWidget& widget, int rows, int repeat
     return timer.elapsed();
 }
 
+// Per-pass time (ms) at `rows`, each size calibrated on its own so every
+// sample spans >= 100 ms — timer quantization can never dominate either side.
+double calibratedPassMs(CompareWidget& widget, int rows,
+                        qint64 (*measure)(CompareWidget&, int, int)) {
+    int repeats = 1;
+    qint64 total = measure(widget, rows, repeats);
+    while (total < 100 && repeats < (1 << 24)) {
+        repeats *= 4;
+        total = measure(widget, rows, repeats);
+    }
+    return double(total) / repeats;
+}
+
+// The guard compares two sizes kSpread apart. A 4x spread could not separate
+// the two regimes on an optimized (-flto) Release build: the FIXED memo lookup
+// is cheap enough that cache effects alone (the 8000-entry table leaves L1/L2)
+// pushed its ratio to 8.8-12x, straddling the old < 10x line that the
+// O(rows x anchors) regression (~16x) sat just above. At 16x the regimes are
+// an order of magnitude apart: linear is ~16x plus the same cache factor,
+// quadratic is ~256x before cache effects.
+constexpr int kSmall = 500;
+constexpr int kLarge = 8000;
+// Measured 2026-09-29 (release verification, 500 -> 8000 rows):
+//   FIXED memo      dev Release 27.7-46.7x, -flto Release 30.8-42.4x
+//   REGRESSED scan  (negative control: anchorIndexFor* linear scan) 228.9-291.8x
+// 100x is the geometric midpoint: >= 2.1x headroom above the worst fixed
+// sample and >= 2.3x below the best regressed one.
+constexpr double kCeiling = 100.0;
+
 } // namespace
 
 class TestSep13LeadComparePerf : public QObject {
@@ -104,33 +133,20 @@ private slots:
     void anchorRoleRecomputeStaysNearLinear() {
         CompareWidget widget;
 
-        const int small = 2000;
-        const int large = 8000;
-
-        widget.setDiffResult(makeResultWithChanges(small));
-        int repeats = 1;
-        qint64 tSmallTotal = measureToggleWorkMs(widget, small, repeats);
-        while (tSmallTotal < 100 && repeats < (1 << 20)) {
-            repeats *= 4;
-            tSmallTotal = measureToggleWorkMs(widget, small, repeats);
-        }
-        const double tSmall = double(tSmallTotal) / repeats;
-
-        widget.setDiffResult(makeResultWithChanges(large));
-        const qint64 tLargeTotal = measureToggleWorkMs(widget, large, repeats);
-        const double tLarge = double(tLargeTotal) / repeats;
+        widget.setDiffResult(makeResultWithChanges(kSmall));
+        const double tSmall = calibratedPassMs(widget, kSmall, measureToggleWorkMs);
+        widget.setDiffResult(makeResultWithChanges(kLarge));
+        const double tLarge = calibratedPassMs(widget, kLarge, measureToggleWorkMs);
 
         const double ratio = tLarge / tSmall;
-        qInfo() << "anchor-role recompute: rows =" << small << "->" << tSmall << "ms/pass"
-                << "over" << repeats << "repeats;"
-                << "rows =" << large << "->" << tLarge << "ms/pass; ratio =" << ratio
-                << "(linear expectation ~4x, memo cache effects push the fixed "
-                   "baseline to ~6-8x; the O(rows x anchors) regression measured "
-                   "15.8-16.5x)";
-        QVERIFY2(ratio < 10.0,
+        qInfo() << "anchor-role recompute: rows =" << kSmall << "->" << tSmall << "ms/pass;"
+                << "rows =" << kLarge << "->" << tLarge << "ms/pass; ratio =" << ratio
+                << "(linear expectation ~16x plus cache effects; the O(rows x anchors)"
+                   " regression is ~256x before cache effects)";
+        QVERIFY2(ratio < kCeiling,
                  QStringLiteral("SEP13 lead 12 REGRESSED: anchor-index recompute grows "
-                 "superlinearly again (ratio %1 at 4x rows; fixed baseline is ~6-8x, "
-                 "the pre-fix O(rows x anchors) scan measured 15.8-16.5x) — is "
+                 "superlinearly again (ratio %1 at 16x rows; linear is ~16x plus cache "
+                 "effects, the pre-fix O(rows x anchors) scan is ~256x) — is "
                  "CompareWidget::m_anchorIndexByPage still consulted by "
                  "anchorIndexForPage, and is it still rebuilt in buildHtml?")
                      .arg(ratio, 0, 'f', 1).toUtf8().constData());
@@ -140,36 +156,23 @@ private slots:
         // PGR-10 triage completion of the same lead-12 finding: the structural
         // half of applyChangeTypeFilters' per-row mapping was still a linear
         // scan (the page half was memoized by the follow-ups lane). Same
-        // two-sizes-4x-apart near-linear guard, same < 10.0x ceiling.
+        // two-sizes-16x-apart near-linear guard, same kCeiling.
         CompareWidget widget;
 
-        const int small = 2000;
-        const int large = 8000;
-
-        widget.setDiffResult(makeResultWithStructuralChanges(small));
-        int repeats = 1;
-        qint64 tSmallTotal = measureStructuralToggleWorkMs(widget, small, repeats);
-        while (tSmallTotal < 100 && repeats < (1 << 20)) {
-            repeats *= 4;
-            tSmallTotal = measureStructuralToggleWorkMs(widget, small, repeats);
-        }
-        const double tSmall = double(tSmallTotal) / repeats;
-
-        widget.setDiffResult(makeResultWithStructuralChanges(large));
-        const qint64 tLargeTotal = measureStructuralToggleWorkMs(widget, large, repeats);
-        const double tLarge = double(tLargeTotal) / repeats;
+        widget.setDiffResult(makeResultWithStructuralChanges(kSmall));
+        const double tSmall = calibratedPassMs(widget, kSmall, measureStructuralToggleWorkMs);
+        widget.setDiffResult(makeResultWithStructuralChanges(kLarge));
+        const double tLarge = calibratedPassMs(widget, kLarge, measureStructuralToggleWorkMs);
 
         const double ratio = tLarge / tSmall;
-        qInfo() << "structural anchor lookup: rows =" << small << "->" << tSmall << "ms/pass"
-                << "over" << repeats << "repeats;"
-                << "rows =" << large << "->" << tLarge << "ms/pass; ratio =" << ratio
-                << "(linear expectation ~4x, memo cache effects push the fixed "
-                   "baseline to ~6-8x; the O(rows x anchors) regression measured "
-                   "15.8-16.5x on the page half)";
-        QVERIFY2(ratio < 10.0,
+        qInfo() << "structural anchor lookup: rows =" << kSmall << "->" << tSmall << "ms/pass;"
+                << "rows =" << kLarge << "->" << tLarge << "ms/pass; ratio =" << ratio
+                << "(linear expectation ~16x plus cache effects; the O(rows x anchors)"
+                   " regression is ~256x before cache effects)";
+        QVERIFY2(ratio < kCeiling,
                  QStringLiteral("lead-12 structural half REGRESSED: "
                  "anchorIndexForStructuralChange grows superlinearly again (ratio %1 "
-                 "at 4x rows; fixed baseline is ~6-8x) — is "
+                 "at 16x rows; linear is ~16x plus cache effects) — is "
                  "CompareWidget::m_anchorIndexByStructuralChange still consulted by "
                  "anchorIndexForStructuralChange, and is it still rebuilt in "
                  "buildHtml?").arg(ratio, 0, 'f', 1).toUtf8().constData());
