@@ -152,9 +152,21 @@ void pickFileInNextDialog(const QString &path, int turnsLeft = 100)
             // initTestCase disables native dialogs so every platform uses the
             // widget implementation here).
             const QStringList selected = dlg->selectedFiles();
+            // A delivery counts only when it is OBSERVED: the requested path
+            // in the selection, or the selection's last entry an EXISTING
+            // file whose canonical path equals the target's. The bare
+            // canonical-vs-canonical comparison is unsound for files that do
+            // not exist yet: canonicalFilePath() is empty for both, ""==""
+            // read as a delivery, and a save dialog's own default (a file
+            // that is not on disk) got accepted without anything being
+            // delivered (the same defect the TestWelcomeRoutes §1.7b fix
+            // covers — kept in lockstep here).
+            const QString selectedCanonical = selected.isEmpty()
+                ? QString()
+                : QFileInfo(selected.last()).canonicalFilePath();
             const bool delivered = selected.contains(path)
-                || (!selected.isEmpty()
-                    && QFileInfo(selected.last()).canonicalFilePath() == QFileInfo(path).canonicalFilePath());
+                || (!selectedCanonical.isEmpty()
+                    && selectedCanonical == QFileInfo(path).canonicalFilePath());
             if (!delivered) {
                 dlg->selectFile(path);
                 if (turnsLeft > 0) { pickFileInNextDialog(path, turnsLeft - 1); return; }

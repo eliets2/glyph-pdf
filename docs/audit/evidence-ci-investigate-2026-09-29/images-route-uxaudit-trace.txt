@@ -1,0 +1,29 @@
+Images-route misdelivery trace — failing full ctest -j6 run (pre-fix),
+captured via temporary UXAUDIT instrumentation in
+HomeController::onImagesToPdf (the per-run capture file
+test-results/TestWelcomeRoutes.txt is overwritten by each rerun; the
+decisive lines are preserved here):
+
+  QWARN : imagesRouteProducesAndOpensTheOutput() propagateSizeHints   (init + open dialog)
+  QWARN : imagesRouteProducesAndOpensTheOutput() propagateSizeHints
+  QINFO : UXAUDIT: images-route: dialogs delivered QList(".../test-tmp/TestWelcomeRoutes/.../in.png") pool 0 / 12
+  QWARN : imagesRouteProducesAndOpensTheOutput() propagateSizeHints   (save dialog)
+  QINFO : UXAUDIT: images-route: worker STARTED at 0 ms
+  QINFO : UXAUDIT: images-route: worker ENDED ok= true at 1 ms
+  QINFO : UXAUDIT: images-route: finished handler entered at 22 ms canceled= false
+  QINFO : UXAUDIT: images-route: progress CANCELED fired at 23 ms for "D:/pdf/pdf-keyC/build-keyC/images.pdf"
+  FAIL! : imagesRouteProducesAndOpensTheOutput() 'QFileInfo::exists(out)' returned FALSE. ()
+
+The save dialog RETURNED ITS DEFAULT ("images.pdf" under the process CWD —
+a file that did not exist) instead of the driven target
+<tmpdir>/combined.pdf; the conversion honestly succeeded to that wrong
+path. The driver's delivery check accepted the dialog without delivering:
+QFileInfo::canonicalFilePath() is empty for a nonexistent file, so the
+dialog default (not on disk) and the not-yet-written output compared
+"" == "" and read as a delivered selection (verified in isolation:
+Qt 6.11 canonicalFilePath probe — selected canonical='', out canonical='',
+equal=1). Whether the first save-dialog turn observed the populated
+default (bug path) or the still-empty selection (safe path) was a pure
+populate-timing race — hence load-dependence, hence "passed on the rerun"
+(the misdirected write also creates <cwd>/images.pdf, which then makes
+canonical equality FALSE and immunizes the following runs).
