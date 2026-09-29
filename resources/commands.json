@@ -1,0 +1,3551 @@
+{
+ "_meta": {
+  "generator": "tools/ui/gen_commands_json.py",
+  "internalToolIds": {
+   "addFooter": "Footer half of the one HeaderFooterDialog: AddHeader, AddFooter and AddPageNumbers share a single case (PagesController.cpp:115-125). Covered by `addHeader` (Insert > Header & Footer, S57). Never had its own ribbon/menu entry even in the shipped app.",
+   "comment": "Duplicate of `note`: ToolId::Note and ToolId::Comment both map to ToolMode::AddComment (EditController.cpp:130-131). Covered by Sticky Note (Home > Annotate, Review > Comments).",
+   "editImage": "Same case as `image`: both call enterImageEditMode() (EditController.cpp:157-160). Covered by `editObject` (Edit > Objects) plus the Image contextual tab, but only after a controller change (see report, section 3).",
+   "freehand": "Duplicate of `pencil`: ToolId::Pencil and ToolId::Freehand both map to ToolMode::DrawFreehand (EditController.cpp:126-127). Covered by Pen (Draw > Ink).",
+   "printPreview": "Merged into `print`: the File > Print Backstage page has the live preview (S32); COVERAGE.md B8 maps the old menu item there.",
+   "selectObj": "Duplicate of `editObject`: ToolId::SelectObject and ToolId::EditObject both map to ToolMode::EditObject (EditController.cpp:120-121). Covered by `editObjects`."
+  },
+  "rule": "Command ids ARE the canonical ToolId strings (plan 06 7.1). Metadata only: no handlers.",
+  "schema": 1,
+  "source": "UI-redesign handoff: commands.seed.curated.json (2026-09-28)"
+ },
+ "commands": {
+  "a11yCheck": {
+   "action": "pane:a11y",
+   "description": "Find what stops screen-reader users from reading this document, with fixes.",
+   "icon": "accessibility_checkmark",
+   "label": "Check Accessibility",
+   "shortcut": "Ctrl+Alt+A",
+   "status": "new-toolid",
+   "toolId": "A11yCheck"
+  },
+  "actual": {
+   "action": "fn:zoom100",
+   "description": "Show the page at its real size.",
+   "icon": "ratio_one_to_one",
+   "label": "100%",
+   "name": "Actual Size",
+   "shortcut": "Ctrl+0",
+   "status": "toolid",
+   "toolId": "ActualSize"
+  },
+  "addHeader": {
+   "action": "dlg:S57",
+   "description": "Add text such as titles, dates and page numbers to the top or bottom of pages.",
+   "icon": "document_header_footer",
+   "label": "Header && Footer",
+   "status": "renamed",
+   "toolId": "AddHeader"
+  },
+  "addPageNumbers": {
+   "action": "dlg:S57",
+   "description": "Number pages in any position and style, for all pages or a range.",
+   "icon": "document_page_number",
+   "label": "Page Numbers",
+   "status": "renamed",
+   "toolId": "AddPageNumbers"
+  },
+  "addText": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Click on the page to add new text in any font.",
+   "icon": "text_add",
+   "label": "Add Text",
+   "shortcut": "T",
+   "status": "toolid",
+   "toolId": "AddText"
+  },
+  "ai": {
+   "action": "pane:assistant",
+   "control": "tg",
+   "description": "Ask questions about this document. Runs on this PC; answers cite pages.",
+   "icon": "chat_sparkle",
+   "label": "Assistant",
+   "name": "Local Assistant",
+   "shortcut": "Ctrl+Shift+A",
+   "status": "new-toolid",
+   "toolId": "Assistant"
+  },
+  "alignC": {
+   "action": "toast",
+   "description": "Center the selected objects horizontally.",
+   "icon": "align_center_horizontal",
+   "label": "Align Center",
+   "planned": {
+    "alternative": "Move objects precisely with the Select tool.",
+    "reason": "Object alignment is not available yet."
+   },
+   "status": "planned",
+   "toolId": "AlignObjectsCenter"
+  },
+  "alignL": {
+   "action": "toast",
+   "description": "Line up the selected objects on their left edges.",
+   "icon": "align_left",
+   "label": "Align Left",
+   "planned": {
+    "alternative": "Move objects precisely with the Select tool.",
+    "reason": "Object alignment is not available yet."
+   },
+   "status": "planned",
+   "toolId": "AlignObjectsLeft"
+  },
+  "alignR": {
+   "action": "toast",
+   "description": "Line up the selected objects on their right edges.",
+   "icon": "align_right",
+   "label": "Align Right",
+   "planned": {
+    "alternative": "Move objects precisely with the Select tool.",
+    "reason": "Object alignment is not available yet."
+   },
+   "status": "planned",
+   "toolId": "AlignObjectsRight"
+  },
+  "alignTextC": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Center the paragraph.",
+   "icon": "text_align_center",
+   "label": "Center",
+   "name": "Center Text",
+   "status": "new-toolid",
+   "toolId": "AlignTextCenter"
+  },
+  "alignTextL": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Align the paragraph to the left.",
+   "icon": "text_align_left",
+   "label": "Align Left",
+   "name": "Align Text Left",
+   "status": "new-toolid",
+   "toolId": "AlignTextLeft"
+  },
+  "alignTextR": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Align the paragraph to the right.",
+   "icon": "text_align_right",
+   "label": "Align Right",
+   "name": "Align Text Right",
+   "status": "new-toolid",
+   "toolId": "AlignTextRight"
+  },
+  "altText": {
+   "action": "pane:a11y",
+   "description": "Write or review image descriptions. A local model can suggest them; you decide.",
+   "icon": "image_alt_text",
+   "label": "Alt Text",
+   "name": "Review Alt Text",
+   "status": "new-toolid",
+   "toolId": "AltTextReview",
+   "variants": [
+    {
+     "action": "pane:a11y",
+     "description": "Describe this image for screen readers, or review the suggested description.",
+     "icon": "image_alt_text",
+     "label": "Alt Text",
+     "name": "Image Alt Text"
+    }
+   ]
+  },
+  "annLock": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Prevent the annotation from being moved or edited.",
+   "icon": "lock_closed",
+   "label": "Lock",
+   "name": "Lock Annotation",
+   "status": "new-toolid",
+   "toolId": "LockAnnotation"
+  },
+  "annSetDefault": {
+   "action": "toast",
+   "description": "Use this appearance for new annotations of the same type.",
+   "icon": "star",
+   "label": "Set as Default",
+   "name": "Set as Default Style",
+   "status": "new-toolid",
+   "toolId": "SetAnnotationDefaultStyle"
+  },
+  "annStyle": {
+   "action": "toast",
+   "control": "g",
+   "description": "Apply a saved colour and line style to the selected annotation.",
+   "gallery": "annotStyles",
+   "icon": "paint_brush",
+   "label": "Styles",
+   "name": "Annotation Styles",
+   "status": "new-toolid",
+   "toolId": "ApplyAnnotationStyle"
+  },
+  "applyRedact": {
+   "action": "dlg:S68",
+   "description": "Permanently remove marked content into a new file and verify it is gone.",
+   "icon": "gp_redact_apply",
+   "label": "Apply",
+   "name": "Apply Redactions",
+   "status": "toolid",
+   "toolId": "ApplyRedact"
+  },
+  "area": {
+   "action": "pane:measure",
+   "control": "tg",
+   "description": "Measure the area inside a shape you outline.",
+   "icon": "gp_area",
+   "label": "Area",
+   "status": "toolid",
+   "toolId": "MeasureArea"
+  },
+  "arrow": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Draw an arrow to point at something.",
+   "icon": "arrow_up_right",
+   "label": "Arrow",
+   "shortcut": "A",
+   "status": "toolid",
+   "toolId": "Arrow"
+  },
+  "attach": {
+   "action": "nav:attachments",
+   "description": "Embed a file in this PDF. Attachments travel with the document.",
+   "icon": "attach",
+   "label": "Attachment",
+   "planned": {
+    "alternative": "Existing attachments can be exported from the Files panel (left sidebar).",
+    "reason": "Attaching files is not available yet."
+   },
+   "status": "planned",
+   "toolId": "AttachFile"
+  },
+  "attachPane": {
+   "action": "nav:attachments",
+   "control": "tg",
+   "description": "Show files embedded in this PDF.",
+   "icon": "attach",
+   "label": "Attachments",
+   "status": "new-toolid",
+   "toolId": "PaneAttachments"
+  },
+  "auto-bookmarks": {
+   "action": "dlg:S50",
+   "description": "Build bookmarks from headings, text styles or the table of contents.",
+   "icon": "text_header_1_lines",
+   "label": "Create from Headings...",
+   "name": "Create Bookmarks Automatically",
+   "status": "hidden-rename",
+   "toolId": "AutoBookmarks"
+  },
+  "autoDetect": {
+   "action": "toast",
+   "description": "Find blank lines and boxes on the page and turn them into fields.",
+   "icon": "form_sparkle",
+   "label": "Detect Fields",
+   "name": "Detect Form Fields",
+   "status": "toolid",
+   "toolId": "AutoDetect"
+  },
+  "autoRotate": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Detect and fix pages scanned upside down or sideways.",
+   "icon": "arrow_rotate_clockwise",
+   "label": "Auto-Rotate",
+   "status": "new-toolid",
+   "toolId": "OcrAutoRotate"
+  },
+  "background": {
+   "action": "menu:background",
+   "control": "m",
+   "description": "Set a page colour or image behind the content.",
+   "icon": "color_background",
+   "label": "Background",
+   "name": "Page Background",
+   "planned": {
+    "alternative": "Watermark (Organize ▸ Decorate) adds a visible overlay to every page.",
+    "reason": "Page backgrounds are not available yet."
+   },
+   "status": "planned",
+   "toolId": "PageBackground"
+  },
+  "batchAddFiles": {
+   "action": "toast",
+   "description": "Add PDFs and other files to the batch.",
+   "icon": "document_add",
+   "label": "Add Files",
+   "status": "new-toolid",
+   "toolId": "BatchAddFiles"
+  },
+  "batchAddFolder": {
+   "action": "toast",
+   "description": "Add every file in a folder.",
+   "icon": "folder_add",
+   "label": "Add Folder",
+   "status": "new-toolid",
+   "toolId": "BatchAddFolder"
+  },
+  "batchClear": {
+   "action": "toast",
+   "description": "Remove every file from the batch.",
+   "icon": "dismiss_circle",
+   "label": "Clear All",
+   "status": "new-toolid",
+   "toolId": "BatchClear"
+  },
+  "batchConv": {
+   "action": "mode:batch",
+   "description": "Run a preset (OCR, redact, Bates, compress, convert) on many files at once.",
+   "icon": "stack_arrow_forward",
+   "label": "Batch",
+   "name": "Batch Process",
+   "status": "toolid",
+   "toolId": "BatchConvert"
+  },
+  "batchRemove": {
+   "action": "toast",
+   "description": "Remove the selected files from the batch.",
+   "icon": "subtract_circle",
+   "label": "Remove",
+   "status": "new-toolid",
+   "toolId": "BatchRemoveFiles"
+  },
+  "batchReport": {
+   "action": "mode:batch",
+   "description": "Open the report from the most recent batch or watch-folder run.",
+   "icon": "clipboard_task_list_ltr",
+   "label": "Last Report",
+   "name": "Last Batch Report",
+   "status": "new-toolid",
+   "toolId": "BatchLastReport"
+  },
+  "batchRun": {
+   "action": "toast",
+   "description": "Start processing. Originals are never overwritten.",
+   "icon": "play",
+   "label": "Run Batch",
+   "status": "new-toolid",
+   "toolId": "BatchRun"
+  },
+  "batchStop": {
+   "action": "toast",
+   "description": "Stop after the current file finishes.",
+   "icon": "stop",
+   "label": "Stop",
+   "status": "new-toolid",
+   "toolId": "BatchStop"
+  },
+  "batesNumber": {
+   "action": "dlg:S51",
+   "description": "Stamp sequential legal identifiers, continuing across several documents.",
+   "icon": "number_symbol_square",
+   "label": "Bates Numbering",
+   "name": "Bates Numbering",
+   "status": "renamed",
+   "toolId": "BatesNumber"
+  },
+  "binarize": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Convert to black and white for cleaner recognition.",
+   "icon": "photo_filter",
+   "label": "Binarize",
+   "status": "new-toolid",
+   "toolId": "OcrBinarize"
+  },
+  "bold": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Make the selected text bold.",
+   "icon": "text_bold",
+   "label": "Bold",
+   "shortcut": "Ctrl+Shift+B",
+   "status": "new-toolid",
+   "toolId": "TextBold"
+  },
+  "bookmarkAdd": {
+   "action": "nav:bookmarks",
+   "control": "sp",
+   "description": "Bookmark the current view. Open the list to build bookmarks from headings.",
+   "icon": "bookmark_add",
+   "label": "Bookmark",
+   "menu": [
+    "autoBookmark"
+   ],
+   "name": "Add Bookmark",
+   "shortcut": "Ctrl+B",
+   "status": "new-toolid",
+   "toolId": "AddBookmark"
+  },
+  "bookmarks": {
+   "action": "nav:bookmarks",
+   "control": "tg",
+   "description": "Show the document outline in the navigation pane.",
+   "icon": "bookmark_multiple",
+   "label": "Bookmarks",
+   "status": "toolid",
+   "toolId": "PaneBookmarks"
+  },
+  "bringForward": {
+   "action": "toast",
+   "description": "Move the selection one step forward.",
+   "icon": "position_forward",
+   "label": "Bring Forward",
+   "status": "new-toolid",
+   "toolId": "BringForward"
+  },
+  "bringFront": {
+   "action": "toast",
+   "description": "Put the selection in front of all other objects.",
+   "icon": "position_to_front",
+   "label": "Bring to Front",
+   "status": "new-toolid",
+   "toolId": "BringToFront"
+  },
+  "button": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a button that runs an action: reset, submit by email or print.",
+   "icon": "button",
+   "label": "Button",
+   "name": "Push Button",
+   "status": "toolid",
+   "toolId": "Button"
+  },
+  "calcfield": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a field whose value is computed from other fields.",
+   "icon": "calculator",
+   "label": "Calculated",
+   "name": "Calculated Field",
+   "status": "collision-merged",
+   "toolId": "CalcField",
+   "variants": [
+    {
+     "action": "pane:field",
+     "description": "Sum, average or script a value from other fields, and set the order.",
+     "icon": "math_formula",
+     "label": "Calculation",
+     "name": "Field Calculation"
+    }
+   ]
+  },
+  "calibrate": {
+   "action": "pane:measure",
+   "description": "Set the drawing scale (1:100) or draw over a known length.",
+   "icon": "gp_calibrate",
+   "label": "Calibrate",
+   "name": "Calibrate Scale",
+   "status": "new-toolid",
+   "toolId": "CalibrateScale"
+  },
+  "callout": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a text box with a leader line pointing at the text it discusses.",
+   "icon": "gp_callout",
+   "label": "Callout",
+   "status": "toolid",
+   "toolId": "Callout"
+  },
+  "certEncrypt": {
+   "action": "dlg:S66",
+   "description": "Encrypt for specific people using their certificates; no shared password.",
+   "icon": "people_lock",
+   "label": "Certificates",
+   "name": "Encrypt with Certificates",
+   "status": "toolid",
+   "toolId": "CertEncrypt"
+  },
+  "certify": {
+   "action": "dlg:S71",
+   "description": "Sign as the author and choose which changes are still allowed.",
+   "icon": "ribbon",
+   "label": "Certify",
+   "name": "Certify Document",
+   "status": "toolid",
+   "toolId": "Certify"
+  },
+  "charSpacing": {
+   "action": "menu:width",
+   "control": "m",
+   "description": "Tighten or loosen spacing between characters.",
+   "icon": "text_font_info",
+   "label": "Character Spacing",
+   "status": "new-toolid",
+   "toolId": "CharacterSpacing"
+  },
+  "checkbox": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a box that can be ticked.",
+   "icon": "checkbox_checked",
+   "label": "Check Box",
+   "status": "toolid",
+   "toolId": "Checkbox"
+  },
+  "clearMarks": {
+   "action": "toast",
+   "description": "Remove all marks that have not been applied. Nothing is redacted.",
+   "icon": "dismiss_circle",
+   "label": "Clear Marks",
+   "status": "new-toolid",
+   "toolId": "ClearRedactionMarks"
+  },
+  "close": {
+   "action": "toast",
+   "description": "Close this document. You will be asked to save changes.",
+   "icon": "dismiss",
+   "label": "Close",
+   "name": "Close Document",
+   "shortcut": "Ctrl+W",
+   "status": "new-toolid",
+   "toolId": "Close"
+  },
+  "cmpChoose": {
+   "action": "toast",
+   "description": "Pick the original and revised documents.",
+   "icon": "document_multiple",
+   "label": "Choose Files",
+   "name": "Choose Documents to Compare",
+   "status": "new-toolid",
+   "toolId": "CompareChooseDocuments"
+  },
+  "cmpExport": {
+   "action": "toast",
+   "description": "Save the list of changes as a PDF, HTML or text report.",
+   "icon": "document_arrow_down",
+   "label": "Export Report",
+   "name": "Export Comparison Report",
+   "status": "new-toolid",
+   "toolId": "CompareExportReport"
+  },
+  "cmpImages": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Show changed pictures and graphics.",
+   "icon": "image",
+   "label": "Images",
+   "name": "Show Image Changes",
+   "status": "new-toolid",
+   "toolId": "CompareShowImages"
+  },
+  "cmpLink": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Scroll both documents together.",
+   "icon": "link",
+   "label": "Link Scrolling",
+   "status": "new-toolid",
+   "toolId": "CompareLinkScrolling"
+  },
+  "cmpMoves": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Show passages that moved to another place.",
+   "icon": "arrow_move",
+   "label": "Moved Text",
+   "name": "Show Moved Text",
+   "status": "new-toolid",
+   "toolId": "CompareShowMoves"
+  },
+  "cmpNext": {
+   "action": "toast",
+   "description": "Go to the next change.",
+   "icon": "arrow_down",
+   "label": "Next",
+   "name": "Next Change",
+   "shortcut": "F8",
+   "status": "new-toolid",
+   "toolId": "CompareNextChange"
+  },
+  "cmpOverlay": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Lay the revised page over the original to spot visual changes.",
+   "icon": "image_stack",
+   "label": "Overlay",
+   "status": "new-toolid",
+   "toolId": "CompareOverlay"
+  },
+  "cmpPages": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Show pages added, removed or moved.",
+   "icon": "document_page_break",
+   "label": "Pages",
+   "name": "Show Page Changes",
+   "status": "new-toolid",
+   "toolId": "CompareShowPages"
+  },
+  "cmpPrev": {
+   "action": "toast",
+   "description": "Go to the previous change.",
+   "icon": "arrow_up",
+   "label": "Previous",
+   "name": "Previous Change",
+   "shortcut": "Shift+F8",
+   "status": "new-toolid",
+   "toolId": "ComparePreviousChange"
+  },
+  "cmpSide": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Show original and revised next to each other.",
+   "icon": "column_double_compare",
+   "label": "Side by Side",
+   "status": "new-toolid",
+   "toolId": "CompareSideBySide"
+  },
+  "cmpSwap": {
+   "action": "toast",
+   "description": "Swap the two documents and compare again.",
+   "icon": "arrow_swap",
+   "label": "Swap",
+   "name": "Swap Original and Revised",
+   "status": "new-toolid",
+   "toolId": "CompareSwap"
+  },
+  "cmpText": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Show inserted and deleted words.",
+   "icon": "text_t",
+   "label": "Text",
+   "name": "Show Text Changes",
+   "status": "new-toolid",
+   "toolId": "CompareShowText"
+  },
+  "combine": {
+   "action": "mode:organize",
+   "description": "Combine PDFs and other files into this document in the order you choose.",
+   "icon": "merge",
+   "label": "Merge",
+   "name": "Merge Files",
+   "status": "collision-merged",
+   "toolId": "Combine",
+   "variants": [
+    {
+     "action": "bs:home",
+     "description": "Combine several files into one PDF in the order you choose.",
+     "icon": "merge",
+     "label": "Combine Files"
+    }
+   ]
+  },
+  "comments": {
+   "action": "pane:comments",
+   "control": "tg",
+   "description": "Show every comment thread beside the page: reply, filter and set status.",
+   "icon": "comment_multiple",
+   "label": "Comments",
+   "name": "Comments Pane",
+   "shortcut": "Ctrl+Alt+C",
+   "status": "toolid",
+   "toolId": "PaneComments"
+  },
+  "compare": {
+   "action": "mode:compare",
+   "description": "Find every difference between two versions: text, moves, images and pages.",
+   "icon": "gp_compare",
+   "label": "Compare Documents",
+   "name": "Compare Documents",
+   "shortcut": "Ctrl+Alt+D",
+   "status": "collision-merged",
+   "toolId": "Compare",
+   "variants": [
+    {
+     "action": "mode:compare",
+     "description": "Show two documents next to each other with synchronised scrolling.",
+     "icon": "column_double_compare",
+     "label": "Side by Side",
+     "name": "View Side by Side"
+    }
+   ]
+  },
+  "compress": {
+   "action": "pane:compress",
+   "description": "Shrink the file with presets and see the size before you save.",
+   "icon": "arrow_minimize",
+   "label": "Compress",
+   "name": "Reduce File Size",
+   "status": "collision-merged",
+   "toolId": "Compress",
+   "variants": [
+    {
+     "action": "pane:compress",
+     "description": "One click: apply the Balanced preset and save a smaller copy.",
+     "icon": "arrow_minimize_vertical",
+     "label": "Quick Reduce",
+     "name": "Reduce Size (Quick)"
+    }
+   ]
+  },
+  "continuous": {
+   "action": "fn:layout",
+   "control": "tg",
+   "description": "Scroll through pages as one continuous column.",
+   "icon": "document_one_page_multiple",
+   "label": "Continuous",
+   "status": "toolid",
+   "toolId": "Continuous"
+  },
+  "copy": {
+   "action": "toast",
+   "description": "Copy the selected text, image or annotation.",
+   "icon": "copy",
+   "label": "Copy",
+   "shortcut": "Ctrl+C",
+   "status": "toolid",
+   "toolId": "Copy"
+  },
+  "createForm": {
+   "action": "screen:S45",
+   "control": "tg",
+   "description": "Switch to design mode to add, move and set up fields.",
+   "icon": "form",
+   "label": "Edit Form",
+   "name": "Edit Form (Design Mode)",
+   "status": "toolid",
+   "toolId": "CreateForm"
+  },
+  "crop": {
+   "action": "toast",
+   "description": "Trim page margins, for the current page, a range or every page.",
+   "icon": "crop",
+   "label": "Crop",
+   "name": "Crop Pages",
+   "status": "toolid",
+   "toolId": "Crop"
+  },
+  "cropImage": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Trim the image edges.",
+   "icon": "crop",
+   "label": "Crop",
+   "name": "Crop Image",
+   "status": "new-toolid",
+   "toolId": "CropImage"
+  },
+  "cut": {
+   "action": "toast",
+   "description": "Remove the selection and place it on the clipboard.",
+   "icon": "cut",
+   "label": "Cut",
+   "shortcut": "Ctrl+X",
+   "status": "toolid",
+   "toolId": "Cut"
+  },
+  "darkMode": {
+   "action": "menu:theme",
+   "control": "m",
+   "description": "Choose Light, Dark or High Contrast for GlyphPDF (pages stay white).",
+   "icon": "dark_theme",
+   "label": "Theme",
+   "menu": [
+    "themeLight",
+    "themeDark",
+    "themeHC"
+   ],
+   "name": "Office Theme",
+   "status": "toolid",
+   "toolId": "DarkMode"
+  },
+  "dateField": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a field that accepts dates, with a date picker and format.",
+   "icon": "calendar",
+   "label": "Date",
+   "name": "Date Field",
+   "status": "toolid",
+   "toolId": "DateField"
+  },
+  "deleteImage": {
+   "action": "toast",
+   "description": "Remove this image from the page. To guarantee removal, redact it.",
+   "icon": "delete",
+   "label": "Delete",
+   "name": "Delete Image",
+   "status": "new-toolid",
+   "toolId": "DeleteImage"
+  },
+  "deletePage": {
+   "action": "toast",
+   "description": "Delete the selected pages. You can undo this.",
+   "icon": "document_dismiss",
+   "label": "Delete",
+   "name": "Delete Pages",
+   "shortcut": "Ctrl+Shift+Del",
+   "status": "toolid",
+   "toolId": "DeletePage"
+  },
+  "deleteSelection": {
+   "action": "toast",
+   "description": "Delete the selected annotation or object.",
+   "icon": "delete",
+   "label": "Delete",
+   "name": "Delete Selection",
+   "shortcut": "Del",
+   "status": "renamed",
+   "toolId": "DeleteSelection",
+   "variants": [
+    {
+     "action": "toast",
+     "description": "Delete the selected annotation and its replies.",
+     "icon": "delete",
+     "label": "Delete",
+     "name": "Delete Annotation"
+    }
+   ]
+  },
+  "deleteText": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Remove selected text objects. To remove content permanently, use Redact.",
+   "icon": "text_clear_formatting",
+   "label": "Delete Text",
+   "planned": {
+    "alternative": "Redaction (Protect ▸ Mark) permanently removes content.",
+    "reason": "Deleting text objects is not available yet."
+   },
+   "status": "planned",
+   "toolId": "DeleteText"
+  },
+  "denoise": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Remove speckles and scanner dust.",
+   "icon": "wand",
+   "label": "Denoise",
+   "status": "new-toolid",
+   "toolId": "OcrDenoise"
+  },
+  "deskew": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Straighten pages that were scanned at an angle.",
+   "icon": "gp_deskew",
+   "label": "Deskew",
+   "status": "new-toolid",
+   "toolId": "OcrDeskew"
+  },
+  "detectTables": {
+   "action": "toast",
+   "description": "Find tables on the page, including ones without ruling lines.",
+   "icon": "table_search",
+   "label": "Detect Tables",
+   "planned": {
+    "alternative": "CSV export (Convert ▸ CSV) captures text with column structure.",
+    "reason": "Automatic table detection is not available yet."
+   },
+   "status": "planned",
+   "toolId": "DetectTables"
+  },
+  "distance": {
+   "action": "pane:measure",
+   "control": "tg",
+   "description": "Measure the length between two points at the calibrated scale.",
+   "icon": "arrow_autofit_width",
+   "label": "Distance",
+   "status": "toolid",
+   "toolId": "MeasureDistance"
+  },
+  "distribute": {
+   "action": "toast",
+   "control": "m",
+   "description": "Space three or more objects evenly, horizontally or vertically.",
+   "icon": "align_space_evenly_horizontal",
+   "label": "Distribute",
+   "planned": {
+    "alternative": "Move objects precisely with the Select tool.",
+    "reason": "Object distribution is not available yet."
+   },
+   "status": "planned",
+   "toolId": "DistributeObjects"
+  },
+  "dropdown": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a list that opens to pick one value.",
+   "icon": "gp_dropdown",
+   "label": "Drop-Down",
+   "name": "Drop-Down List",
+   "status": "toolid",
+   "toolId": "Dropdown"
+  },
+  "editObject": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Select, move and resize images and drawn objects on the page.",
+   "icon": "select_object",
+   "label": "Edit Objects",
+   "status": "hidden-rename",
+   "toolId": "EditObject"
+  },
+  "editText": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Click any text to change it in place, keeping the original font where possible.",
+   "icon": "text_edit_style",
+   "label": "Edit Text",
+   "name": "Edit Text && Images",
+   "shortcut": "E",
+   "status": "toolid",
+   "toolId": "EditText"
+  },
+  "encrypt": {
+   "action": "dlg:S53",
+   "description": "Choose the encryption level and what stays readable, such as metadata.",
+   "icon": "document_lock",
+   "label": "Encrypt",
+   "name": "Encryption Settings",
+   "status": "toolid",
+   "toolId": "Encrypt"
+  },
+  "erase": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Erase freehand strokes you drew.",
+   "icon": "eraser",
+   "label": "Eraser",
+   "status": "renamed",
+   "toolId": "Erase"
+  },
+  "expiryDate": {
+   "action": "dlg:expiry",
+   "description": "Show a warning or block opening after a date you choose.",
+   "icon": "calendar_clock",
+   "label": "Expiry Date",
+   "name": "Set Expiry Date",
+   "status": "hidden-rename",
+   "toolId": "ExpiryDate",
+   "variants": [
+    {
+     "action": "dlg:expiry",
+     "description": "Warn or block after a date.",
+     "icon": "calendar_clock",
+     "label": "Expiry",
+     "name": "Document Expiry"
+    }
+   ]
+  },
+  "exportAnno": {
+   "description": "Save every annotation in this document to a JSON annotation package (name_annotations.json) that GlyphPDF can import again.",
+   "icon": "arrow_export",
+   "label": "Export Annotations",
+   "name": "Export Annotation Package",
+   "placeholder": true,
+   "status": "missing-added",
+   "toolId": "ExportAnno"
+  },
+  "exportData": {
+   "action": "toast",
+   "description": "Save field values to FDF, XFDF, XML or CSV.",
+   "icon": "arrow_export",
+   "label": "Export Data",
+   "name": "Export Form Data",
+   "status": "renamed",
+   "toolId": "ExportData"
+  },
+  "exportImage": {
+   "action": "toast",
+   "description": "Save this image as PNG, JPEG or TIFF at full resolution.",
+   "icon": "save_image",
+   "label": "Export",
+   "name": "Export Image",
+   "status": "new-toolid",
+   "toolId": "ExportImage"
+  },
+  "exportPresets": {
+   "action": "dlg:S55",
+   "description": "Reusable Save As settings: PDF/A, compression, fast web view, Bates.",
+   "icon": "save_multiple",
+   "label": "Export Presets",
+   "name": "Export (Save As) Presets",
+   "status": "toolid",
+   "toolId": "ExportPresets"
+  },
+  "extract": {
+   "action": "toast",
+   "description": "Save the selected pages as a new PDF, optionally removing them here.",
+   "icon": "document_arrow_right",
+   "label": "Extract",
+   "name": "Extract Pages",
+   "shortcut": "Ctrl+Shift+E",
+   "status": "toolid",
+   "toolId": "Extract",
+   "variants": [
+    {
+     "action": "dlg:S60",
+     "description": "Insert, delete, extract or rotate a range of pages in one step.",
+     "icon": "document_settings",
+     "label": "Page Operations...",
+     "name": "Page Operations by Range"
+    }
+   ]
+  },
+  "extractTables": {
+   "action": "toast",
+   "description": "Save the table as an Excel workbook with its rows and columns.",
+   "icon": "table_arrow_up",
+   "label": "To Excel",
+   "name": "Extract Table to Excel",
+   "planned": {
+    "alternative": "CSV export (Convert ▸ CSV) keeps the column layout for spreadsheet use.",
+    "reason": "Dedicated table extraction is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ExtractTables"
+  },
+  "eyeCare": {
+   "action": "fn:pageColor",
+   "control": "tg",
+   "description": "Tint pages warm to reduce glare during long reading.",
+   "icon": "brightness_low",
+   "label": "Eye Care",
+   "name": "Eye Care Page Colour",
+   "status": "toolid",
+   "toolId": "EyeCare"
+  },
+  "fieldAlign": {
+   "action": "toast",
+   "control": "m",
+   "description": "Align selected fields left, center, right, top or bottom.",
+   "icon": "align_left",
+   "label": "Align",
+   "name": "Align Fields",
+   "status": "new-toolid",
+   "toolId": "AlignFormFields"
+  },
+  "fieldDelete": {
+   "action": "toast",
+   "description": "Remove the selected field.",
+   "icon": "delete",
+   "label": "Delete",
+   "name": "Delete Field",
+   "status": "new-toolid",
+   "toolId": "DeleteFormField"
+  },
+  "fieldDuplicate": {
+   "action": "toast",
+   "description": "Copy this field, or place it on several pages at once.",
+   "icon": "copy_add",
+   "label": "Duplicate",
+   "name": "Duplicate Field",
+   "status": "new-toolid",
+   "toolId": "DuplicateFormField"
+  },
+  "fieldMatchSize": {
+   "action": "toast",
+   "control": "m",
+   "description": "Make selected fields the same width or height.",
+   "icon": "arrow_autofit_content",
+   "label": "Match Size",
+   "name": "Match Field Size",
+   "status": "new-toolid",
+   "toolId": "MatchFormFieldSize"
+  },
+  "fieldName": {
+   "action": "toast",
+   "description": "The name used in form data exports and calculations.",
+   "icon": "rename",
+   "label": "Name",
+   "name": "Field Name",
+   "status": "new-toolid",
+   "toolId": "FormFieldName"
+  },
+  "fieldProps": {
+   "action": "pane:field",
+   "description": "Name, tooltip, appearance, format, validation and calculation.",
+   "icon": "text_bullet_list_square_edit",
+   "label": "Properties",
+   "name": "Field Properties",
+   "status": "new-toolid",
+   "toolId": "FormFieldProperties"
+  },
+  "fieldType": {
+   "action": "toast",
+   "description": "Change the kind of field (text, check box, list, date...).",
+   "icon": "form",
+   "label": "Field Type",
+   "status": "new-toolid",
+   "toolId": "FormFieldType"
+  },
+  "fillColor": {
+   "action": "menu:colors",
+   "control": "m",
+   "description": "Fill colour for rectangles, ovals and closed shapes.",
+   "icon": "color_fill",
+   "label": "Fill",
+   "name": "Fill Color",
+   "status": "new-toolid",
+   "toolId": "FillColor"
+  },
+  "filterComm": {
+   "action": "pane:comments",
+   "control": "m",
+   "description": "Show comments by type, author, status or page.",
+   "icon": "filter",
+   "label": "Filter",
+   "name": "Filter Comments",
+   "planned": {
+    "alternative": "Open the Comments panel (left sidebar) to filter the review list.",
+    "reason": "Comment filters live in the Comments panel."
+   },
+   "status": "planned",
+   "toolId": "FilterComments"
+  },
+  "findReplace": {
+   "action": "dlg:S56",
+   "description": "Replace text across pages, with regular expressions and a count before replacing.",
+   "icon": "text_grammar_arrow_right",
+   "label": "Replace",
+   "name": "Find && Replace",
+   "shortcut": "Ctrl+H",
+   "status": "collision-merged",
+   "toolId": "FindReplace",
+   "variants": [
+    {
+     "action": "screen:S79",
+     "description": "Search with regular expressions, for example \\b\\d{3}-\\d{4}\\b.",
+     "icon": "code_text",
+     "label": "Find with Regex",
+     "name": "Find with Regular Expressions"
+    },
+    {
+     "action": "dlg:S56",
+     "description": "Search options: match case, whole words, scope and page range.",
+     "icon": "search_settings",
+     "label": "Advanced Find..."
+    }
+   ]
+  },
+  "fitPage": {
+   "action": "fn:zoomFit",
+   "description": "Fit the whole page in the window.",
+   "icon": "page_fit",
+   "label": "Fit Page",
+   "shortcut": "Ctrl+1",
+   "status": "toolid",
+   "toolId": "FitPage"
+  },
+  "fitWidth": {
+   "action": "fn:zoomWidth",
+   "description": "Fit the page width to the window.",
+   "icon": "auto_fit_width",
+   "label": "Fit Width",
+   "shortcut": "Ctrl+2",
+   "status": "toolid",
+   "toolId": "FitWidth"
+  },
+  "flatten": {
+   "action": "toast",
+   "description": "Turn fields into ordinary page content that can no longer be edited.",
+   "icon": "layer_diagonal",
+   "label": "Flatten",
+   "name": "Flatten Form",
+   "planned": {
+    "alternative": "No in-app alternative yet — saved copies keep their fields editable.",
+    "reason": "Flattening form fields is not available yet."
+   },
+   "status": "planned",
+   "toolId": "FlattenForm"
+  },
+  "fontColor": {
+   "action": "menu:colors",
+   "control": "m",
+   "description": "Change the colour of the selected text.",
+   "icon": "text_color",
+   "label": "Font Color",
+   "status": "new-toolid",
+   "toolId": "FontColor"
+  },
+  "fontFamily": {
+   "action": "toast",
+   "description": "Change the font of the selected text.",
+   "icon": "text_font",
+   "label": "Font",
+   "status": "new-toolid",
+   "toolId": "FontFamily"
+  },
+  "fontSize": {
+   "action": "toast",
+   "description": "Change the size of the selected text.",
+   "icon": "text_font_size",
+   "label": "Font Size",
+   "status": "new-toolid",
+   "toolId": "FontSize"
+  },
+  "fromScan": {
+   "action": "bs:home",
+   "description": "Scan paper to PDF and optionally recognise the text.",
+   "icon": "scan",
+   "label": "From Scanner",
+   "name": "Create PDF from Scanner",
+   "planned": {
+    "alternative": "Import scanned images with Images to PDF, then run OCR (Edit ▸ Run OCR).",
+    "reason": "Scanner capture is not available yet."
+   },
+   "status": "planned",
+   "toolId": "FromScanner"
+  },
+  "fromWeb": {
+   "action": "bs:home",
+   "description": "Convert a saved web page (.html or .mht) to PDF. Nothing is downloaded.",
+   "icon": "globe",
+   "label": "From Web Page",
+   "name": "Create PDF from Web Page",
+   "planned": {
+    "alternative": "Print the page to PDF from your browser and open it here.",
+    "reason": "Web-page capture is not available yet."
+   },
+   "status": "planned",
+   "toolId": "FromWebPage"
+  },
+  "fullscreen": {
+   "action": "toast",
+   "description": "Hide the ribbon and panes to read with the whole screen.",
+   "icon": "full_screen_maximize",
+   "label": "Full Screen",
+   "shortcut": "F11",
+   "status": "renamed",
+   "toolId": "Fullscreen"
+  },
+  "grid": {
+   "action": "fn:rulers",
+   "control": "ck",
+   "description": "Show a grid and snap objects to it.",
+   "icon": "grid_dots",
+   "label": "Grid",
+   "planned": {
+    "alternative": "No in-app alternative yet.",
+    "reason": "Grid is planned for a future release."
+   },
+   "status": "new-toolid",
+   "toolId": "Grid"
+  },
+  "group": {
+   "action": "toast",
+   "description": "Group the selected objects so they move together.",
+   "icon": "group",
+   "label": "Group",
+   "planned": {
+    "alternative": "Move or delete objects individually with the Select tool.",
+    "reason": "Grouping objects is not available yet."
+   },
+   "shortcut": "Ctrl+Shift+G",
+   "status": "planned",
+   "toolId": "GroupObjects"
+  },
+  "guidedWorkflows": {
+   "action": "pane:workflow",
+   "control": "tg",
+   "description": "Open a checklist that walks through a common task, such as preparing a safe release for redaction.",
+   "icon": "clipboard_task_list_ltr",
+   "label": "Guided Workflows",
+   "name": "Guided Workflows",
+   "status": "new-toolid",
+   "toolId": "GuidedWorkflows"
+  },
+  "guides": {
+   "action": "fn:rulers",
+   "control": "ck",
+   "description": "Show guides you drag from the rulers to line things up.",
+   "icon": "gp_guides",
+   "label": "Guides",
+   "planned": {
+    "alternative": "No in-app alternative yet.",
+    "reason": "Guides are planned for a future release."
+   },
+   "status": "new-toolid",
+   "toolId": "Guides"
+  },
+  "hand": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Drag to move around the page. Hold Space to switch to it temporarily.",
+   "icon": "hand_left",
+   "label": "Hand",
+   "shortcut": "H",
+   "status": "toolid",
+   "toolId": "Hand"
+  },
+  "help": {
+   "action": "toast",
+   "description": "Open the offline user guide, searchable without a network connection.",
+   "icon": "question_circle",
+   "label": "Help",
+   "status": "new-toolid",
+   "toolId": "Help"
+  },
+  "highlight": {
+   "action": "tool",
+   "control": "sp",
+   "description": "Highlight selected text. Open the arrow to choose a colour.",
+   "gallery": "hlColors",
+   "icon": "highlight",
+   "label": "Highlight",
+   "shortcut": "Ctrl+Alt+H",
+   "status": "toolid",
+   "toolId": "Highlight"
+  },
+  "history": {
+   "action": "menu:history",
+   "description": "See every change made in this session and return to any earlier point.",
+   "icon": "history",
+   "label": "Undo History",
+   "planned": {
+    "alternative": "Undo and Redo (Ctrl+Z / Ctrl+Y) step through recent changes.",
+    "reason": "A history browser is not available yet."
+   },
+   "status": "planned",
+   "toolId": "UndoHistory"
+  },
+  "image": {
+   "action": "toast",
+   "control": "sp",
+   "description": "Place a picture from a file or your scanner on the page.",
+   "icon": "image_add",
+   "label": "Image",
+   "menu": [
+    "imageFile",
+    "imageScan"
+   ],
+   "name": "Insert Image",
+   "status": "toolid",
+   "toolId": "Image"
+  },
+  "imageFile": {
+   "action": "toast",
+   "description": "Insert a PNG, JPEG or TIFF image.",
+   "icon": "folder_open",
+   "label": "From File...",
+   "name": "Insert Image from File",
+   "status": "new-toolid",
+   "toolId": "InsertImageFromFile"
+  },
+  "imageScan": {
+   "action": "toast",
+   "description": "Scan straight onto the page.",
+   "icon": "scan_camera",
+   "label": "From Scanner...",
+   "name": "Insert Image from Scanner",
+   "status": "new-toolid",
+   "toolId": "InsertImageFromScanner"
+  },
+  "imagesToPdf": {
+   "action": "bs:home",
+   "description": "Turn photos or scans into a PDF, one image per page.",
+   "icon": "image_multiple",
+   "label": "From Images",
+   "name": "Create PDF from Images",
+   "status": "hidden-rename",
+   "toolId": "ImagesToPdf"
+  },
+  "importAnno": {
+   "description": "Add the annotations from a GlyphPDF annotation package (.json) to this document.",
+   "icon": "arrow_import",
+   "label": "Import Annotations",
+   "name": "Import Annotation Package",
+   "placeholder": true,
+   "status": "missing-added",
+   "toolId": "ImportAnno"
+  },
+  "importData": {
+   "action": "toast",
+   "description": "Fill fields from an FDF, XFDF, XML or CSV file.",
+   "icon": "arrow_import",
+   "label": "Import Data",
+   "name": "Import Form Data",
+   "status": "renamed",
+   "toolId": "ImportData"
+  },
+  "importOffice": {
+   "action": "bs:home",
+   "description": "Convert a Word, Excel, PowerPoint, image or text file to PDF.",
+   "icon": "document_pdf",
+   "label": "PDF from File",
+   "name": "Create PDF from File",
+   "status": "renamed",
+   "toolId": "ImportOffice"
+  },
+  "insertClipboard": {
+   "action": "toast",
+   "description": "Insert copied pages or an image as new pages.",
+   "icon": "clipboard_paste",
+   "label": "From Clipboard",
+   "name": "Insert Pages from Clipboard",
+   "status": "new-toolid",
+   "toolId": "InsertPagesFromClipboard"
+  },
+  "insertFile": {
+   "action": "toast",
+   "description": "Insert pages from another PDF, image or Office file.",
+   "icon": "document_arrow_left",
+   "label": "From File...",
+   "name": "Insert Pages from File",
+   "status": "new-toolid",
+   "toolId": "InsertPagesFromFile"
+  },
+  "insertPage": {
+   "action": "toast",
+   "control": "sp",
+   "description": "Add a blank page or pages from a file, scanner, web page or the clipboard.",
+   "icon": "document_add",
+   "label": "Insert",
+   "menu": [
+    "insertBlank",
+    "insertFile",
+    "fromScan",
+    "fromWeb",
+    "insertClipboard"
+   ],
+   "name": "Insert Pages",
+   "shortcut": "Ctrl+Enter",
+   "status": "toolid",
+   "toolId": "InsertPage",
+   "variants": [
+    {
+     "action": "toast",
+     "description": "Insert an empty page after the current page.",
+     "icon": "document_one_page_add",
+     "label": "Blank Page",
+     "name": "Insert Blank Page"
+    }
+   ]
+  },
+  "insertText": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Insert words into an existing line; following text reflows within the line.",
+   "icon": "text_add_space_before",
+   "label": "Insert Text",
+   "planned": {
+    "alternative": "Add Text (Edit ▸ Text) places a new text box you can position and edit.",
+    "reason": "Inserting text into existing content is not available yet."
+   },
+   "status": "planned",
+   "toolId": "InsertText"
+  },
+  "inspect": {
+   "action": "bs:info",
+   "description": "Find hidden data (metadata, attachments, scripts, hidden layers) before sharing.",
+   "icon": "document_search",
+   "label": "Inspect Document",
+   "status": "new-toolid",
+   "toolId": "InspectDocument"
+  },
+  "italic": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Italicise the selected text.",
+   "icon": "text_italic",
+   "label": "Italic",
+   "shortcut": "Ctrl+I",
+   "status": "new-toolid",
+   "toolId": "TextItalic"
+  },
+  "justify": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Align text to both margins.",
+   "icon": "text_align_justify",
+   "label": "Justify",
+   "status": "new-toolid",
+   "toolId": "TextJustify"
+  },
+  "layerOrder": {
+   "action": "toast",
+   "control": "m",
+   "description": "Bring the selection forward or send it behind other objects.",
+   "icon": "position_to_front",
+   "label": "Order",
+   "menu": [
+    "bringFront",
+    "bringForward",
+    "sendBackward",
+    "sendBack"
+   ],
+   "planned": {
+    "alternative": "Move or delete objects individually with the Select tool.",
+    "reason": "Object stacking order is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ObjectOrder"
+  },
+  "layers": {
+   "action": "nav:layers",
+   "control": "tg",
+   "description": "Show or hide optional content layers, such as drawing annotations.",
+   "icon": "layer",
+   "label": "Layers",
+   "status": "toolid",
+   "toolId": "PaneLayers"
+  },
+  "line": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Draw a straight line. Hold Shift for 45 degree steps.",
+   "icon": "line",
+   "label": "Line",
+   "shortcut": "L",
+   "status": "toolid",
+   "toolId": "Line"
+  },
+  "lineColor": {
+   "action": "menu:colors",
+   "control": "m",
+   "description": "Colour of lines and outlines for new and selected shapes.",
+   "icon": "color_line",
+   "label": "Line Color",
+   "status": "new-toolid",
+   "toolId": "LineColor",
+   "variants": [
+    {
+     "action": "menu:colors",
+     "description": "Colour of the selected annotation.",
+     "icon": "color",
+     "label": "Color",
+     "name": "Annotation Colour"
+    }
+   ]
+  },
+  "lineSpacing": {
+   "action": "menu:width",
+   "control": "m",
+   "description": "Space between lines of the paragraph.",
+   "icon": "text_line_spacing",
+   "label": "Line Spacing",
+   "status": "new-toolid",
+   "toolId": "LineSpacing"
+  },
+  "lineStyle": {
+   "action": "menu:width",
+   "control": "m",
+   "description": "Solid, dashed or dotted lines and arrow ends.",
+   "icon": "line_style",
+   "label": "Line Style",
+   "status": "new-toolid",
+   "toolId": "LineStyle"
+  },
+  "lineWidth": {
+   "action": "menu:width",
+   "control": "m",
+   "description": "Stroke width from hairline to 12 pt.",
+   "icon": "line_thickness",
+   "label": "Thickness",
+   "name": "Line Thickness",
+   "status": "new-toolid",
+   "toolId": "LineWidth"
+  },
+  "linearize": {
+   "action": "bs:export:linearize",
+   "description": "Linearize so the first page opens before the whole file downloads.",
+   "icon": "top_speed",
+   "label": "Fast Web View",
+   "name": "Optimize for Fast Web View",
+   "status": "toolid",
+   "toolId": "Linearize"
+  },
+  "link": {
+   "action": "toast",
+   "description": "Link an area to a page, a web address or another file.",
+   "icon": "link",
+   "label": "Link",
+   "planned": {
+    "alternative": "Existing links stay clickable and are preserved on save.",
+    "reason": "Editing links is not available yet."
+   },
+   "shortcut": "Ctrl+Shift+K",
+   "status": "planned",
+   "toolId": "EditLink"
+  },
+  "listbox": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a scrolling list where several values can be chosen.",
+   "icon": "text_bullet_list",
+   "label": "List Box",
+   "status": "toolid",
+   "toolId": "ListBox"
+  },
+  "lockRatio": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Keep width and height in proportion.",
+   "icon": "lock_closed",
+   "label": "Lock Aspect Ratio",
+   "status": "new-toolid",
+   "toolId": "LockImageAspectRatio"
+  },
+  "markAccept": {
+   "action": "toast",
+   "description": "Keep this proposed mark. It will be removed when you apply.",
+   "icon": "checkmark_circle",
+   "label": "Accept",
+   "name": "Accept Mark",
+   "status": "new-toolid",
+   "toolId": "AcceptRedactionMark"
+  },
+  "markCategory": {
+   "action": "menu:categories",
+   "control": "m",
+   "description": "File the mark under Name, ID, Account, Email, Phone, Address or Other.",
+   "icon": "tag_multiple",
+   "label": "Category",
+   "name": "Mark Category",
+   "status": "new-toolid",
+   "toolId": "SetMarkCategory"
+  },
+  "markDelete": {
+   "action": "toast",
+   "description": "Delete this mark. Nothing is redacted.",
+   "icon": "delete",
+   "label": "Remove Mark",
+   "status": "new-toolid",
+   "toolId": "DeleteRedactionMark"
+  },
+  "markFill": {
+   "action": "menu:colors",
+   "control": "m",
+   "description": "Colour of the box drawn where content is removed.",
+   "icon": "color_fill",
+   "label": "Box Color",
+   "name": "Redaction Box Colour",
+   "status": "new-toolid",
+   "toolId": "MarkFillColor"
+  },
+  "markPages": {
+   "action": "toast",
+   "description": "Mark whole pages or page ranges for removal.",
+   "icon": "gp_redact_page",
+   "label": "Mark Pages...",
+   "status": "new-toolid",
+   "toolId": "MarkRedactPages"
+  },
+  "markRedact": {
+   "action": "tool",
+   "control": "sp",
+   "description": "Select text or drag over an area to mark it for permanent removal.",
+   "icon": "gp_redact",
+   "label": "Mark",
+   "menu": [
+    "markArea",
+    "markPages"
+   ],
+   "name": "Mark for Redaction",
+   "shortcut": "B",
+   "status": "toolid",
+   "toolId": "MarkRedact",
+   "variants": [
+    {
+     "action": "tool",
+     "description": "Drag a box to remove everything inside it: text, images and vector art.",
+     "icon": "gp_redact_area",
+     "label": "Mark Area"
+    }
+   ]
+  },
+  "markReject": {
+   "action": "toast",
+   "description": "Discard this proposal. The content stays in the document.",
+   "icon": "dismiss_circle",
+   "label": "Reject",
+   "name": "Reject Mark",
+   "status": "new-toolid",
+   "toolId": "RejectRedactionMark"
+  },
+  "markRepeat": {
+   "action": "toast",
+   "description": "Place the same area mark on other pages, such as a letterhead.",
+   "icon": "copy_arrow_right",
+   "label": "Repeat on Pages",
+   "name": "Repeat Mark on Pages",
+   "status": "new-toolid",
+   "toolId": "RepeatMarkOnPages"
+  },
+  "markSimilar": {
+   "action": "toast",
+   "description": "Mark every other occurrence of this exact text.",
+   "icon": "text_bullet_list_square_search",
+   "label": "Mark All Matches",
+   "status": "new-toolid",
+   "toolId": "MarkAllMatches"
+  },
+  "mcp": {
+   "action": "bs:options:mcp",
+   "control": "tg",
+   "description": "Let AI assistants on this PC use GlyphPDF through the Model Context Protocol. Off by default.",
+   "icon": "plug_connected",
+   "label": "MCP Server",
+   "status": "new-toolid",
+   "toolId": "McpServer"
+  },
+  "measure": {
+   "action": "pane:measure",
+   "control": "tg",
+   "description": "Open measuring tools with scale, results and CSV export.",
+   "icon": "ruler",
+   "label": "Measure",
+   "name": "Measure Pane",
+   "shortcut": "M",
+   "status": "toolid",
+   "toolId": "Measure"
+  },
+  "measureCsv": {
+   "action": "toast",
+   "description": "Save every measurement with page, type, value and unit.",
+   "icon": "document_table_arrow_right",
+   "label": "Export CSV",
+   "name": "Export Measurements to CSV",
+   "status": "new-toolid",
+   "toolId": "ExportMeasurementsCsv"
+  },
+  "newDoc": {
+   "action": "bs:home",
+   "description": "Create a blank PDF.",
+   "icon": "document",
+   "label": "New",
+   "name": "New Blank PDF",
+   "shortcut": "Ctrl+N",
+   "status": "new-toolid",
+   "toolId": "NewDocument"
+  },
+  "newWin": {
+   "action": "toast",
+   "description": "Open a second window on this document to view two places at once.",
+   "icon": "window_new",
+   "label": "New Window",
+   "planned": {
+    "alternative": "Open one document at a time in this window.",
+    "reason": "Multiple windows are not supported yet."
+   },
+   "shortcut": "Ctrl+Shift+N",
+   "status": "planned",
+   "toolId": "NewWindow"
+  },
+  "nextComment": {
+   "action": "toast",
+   "description": "Go to the next comment in the document.",
+   "icon": "arrow_down",
+   "label": "Next",
+   "name": "Next Comment",
+   "shortcut": "Ctrl+Alt+Down",
+   "status": "new-toolid",
+   "toolId": "NextComment"
+  },
+  "nextMark": {
+   "action": "toast",
+   "description": "Go to the next redaction mark.",
+   "icon": "arrow_down",
+   "label": "Next",
+   "name": "Next Mark",
+   "status": "new-toolid",
+   "toolId": "NextRedactionMark"
+  },
+  "nightMode": {
+   "action": "fn:pageColor",
+   "control": "tg",
+   "description": "Invert page colours for reading in the dark. The file is not changed.",
+   "icon": "gp_page_night",
+   "label": "Night Mode",
+   "name": "Night Mode Pages",
+   "status": "toolid",
+   "toolId": "NightMode"
+  },
+  "note": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Place a note anywhere on the page and start a comment thread.",
+   "icon": "note",
+   "label": "Sticky Note",
+   "shortcut": "Ctrl+Alt+M",
+   "status": "toolid",
+   "toolId": "Note"
+  },
+  "numField": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a field that accepts numbers or currency, with limits.",
+   "icon": "number_symbol",
+   "label": "Number",
+   "name": "Number Field",
+   "status": "toolid",
+   "toolId": "NumField"
+  },
+  "ocr": {
+   "action": "mode:ocr",
+   "control": "sp",
+   "description": "Turn scanned pages into searchable, selectable text on this PC.",
+   "icon": "scan_text",
+   "label": "Recognize Text",
+   "menu": [
+    "ocrPage",
+    "ocrAll"
+   ],
+   "name": "Recognize Text (OCR)",
+   "shortcut": "Ctrl+Shift+O",
+   "status": "toolid",
+   "toolId": "Ocr"
+  },
+  "ocrAcceptPage": {
+   "action": "toast",
+   "description": "Keep the recognised text for this page.",
+   "icon": "checkmark_circle",
+   "label": "Accept Page",
+   "status": "new-toolid",
+   "toolId": "OcrAcceptPage"
+  },
+  "ocrAcceptWord": {
+   "action": "toast",
+   "description": "Confirm this word as recognised.",
+   "icon": "checkmark",
+   "label": "Accept Word",
+   "shortcut": "Enter",
+   "status": "new-toolid",
+   "toolId": "OcrAcceptWord"
+  },
+  "ocrAll": {
+   "action": "mode:ocr",
+   "description": "Run OCR on every scanned page in the document.",
+   "icon": "document_multiple",
+   "label": "All Pages",
+   "name": "Recognize All Pages",
+   "status": "new-toolid",
+   "toolId": "OcrAllPages"
+  },
+  "ocrEngine": {
+   "action": "menu:engine",
+   "control": "m",
+   "description": "Ensemble (best), Tesseract 5 or RapidOCR. All run on this PC.",
+   "icon": "settings_cog_multiple",
+   "label": "Engine",
+   "name": "OCR Engine",
+   "status": "new-toolid",
+   "toolId": "OcrEngine"
+  },
+  "ocrLang": {
+   "action": "menu:ocrLang",
+   "control": "m",
+   "description": "Choose the languages to recognise (English, French, Arabic and more).",
+   "icon": "local_language",
+   "label": "Language",
+   "name": "OCR Language",
+   "status": "toolid",
+   "toolId": "OcrLanguage"
+  },
+  "ocrNext": {
+   "action": "toast",
+   "description": "Jump to the next low-confidence word.",
+   "icon": "arrow_down",
+   "label": "Next",
+   "name": "Next Uncertain Word",
+   "shortcut": "F8",
+   "status": "new-toolid",
+   "toolId": "OcrNextUncertainWord"
+  },
+  "ocrPage": {
+   "action": "mode:ocr",
+   "description": "Run OCR on the page you are viewing.",
+   "icon": "document_one_page",
+   "label": "Current Page",
+   "name": "Recognize Current Page",
+   "status": "new-toolid",
+   "toolId": "OcrCurrentPage"
+  },
+  "ocrPrev": {
+   "action": "toast",
+   "description": "Jump to the previous low-confidence word.",
+   "icon": "arrow_up",
+   "label": "Previous",
+   "name": "Previous Uncertain Word",
+   "shortcut": "Shift+F8",
+   "status": "new-toolid",
+   "toolId": "OcrPreviousUncertainWord"
+  },
+  "ocrRejectPage": {
+   "action": "toast",
+   "description": "Discard this page's text layer and leave it as a scan.",
+   "icon": "dismiss_circle",
+   "label": "Reject Page",
+   "status": "new-toolid",
+   "toolId": "OcrRejectPage"
+  },
+  "ocrSettings": {
+   "action": "bs:options:engines",
+   "description": "Choose the engine (Ensemble, Tesseract, RapidOCR) and clean-up steps.",
+   "icon": "text_grammar_settings",
+   "label": "OCR Settings",
+   "planned": {
+    "alternative": "Choose the recognition language on the OCR Verify screen (Tools ▸ OCR).",
+    "reason": "OCR has no separate settings dialog yet."
+   },
+   "status": "planned",
+   "toolId": "OcrSettings"
+  },
+  "ocrVerify": {
+   "action": "mode:ocr",
+   "description": "Check each uncertain word against the scan and correct it (F8 jumps to the next).",
+   "icon": "scan_type_checkmark",
+   "label": "Review Text",
+   "name": "Review Recognized Text",
+   "status": "toolid",
+   "toolId": "OcrVerify"
+  },
+  "opacity": {
+   "action": "menu:opacity",
+   "control": "m",
+   "description": "Make the shape or markup more transparent.",
+   "icon": "transparency_square",
+   "label": "Opacity",
+   "status": "new-toolid",
+   "toolId": "Opacity",
+   "variants": [
+    {
+     "action": "menu:opacity",
+     "description": "How transparent the annotation is.",
+     "icon": "transparency_square",
+     "label": "Opacity",
+     "name": "Annotation Opacity"
+    },
+    {
+     "action": "menu:opacity",
+     "description": "Make the image more transparent.",
+     "icon": "transparency_square",
+     "label": "Transparency",
+     "name": "Image Transparency"
+    }
+   ]
+  },
+  "open": {
+   "action": "bs:open",
+   "description": "Open a PDF from this PC.",
+   "icon": "folder_open",
+   "label": "Open",
+   "shortcut": "Ctrl+O",
+   "status": "toolid",
+   "toolId": "Open"
+  },
+  "options": {
+   "action": "bs:options",
+   "description": "Settings for GlyphPDF: general, engines, AI, security, network, MCP and more.",
+   "icon": "settings",
+   "label": "Options",
+   "shortcut": "Ctrl+,",
+   "status": "new-toolid",
+   "toolId": "Options"
+  },
+  "oval": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Draw an ellipse. Hold Shift for a circle.",
+   "icon": "oval",
+   "label": "Oval",
+   "shortcut": "O",
+   "status": "toolid",
+   "toolId": "Oval"
+  },
+  "pageLabels": {
+   "action": "dlg:pageLabels",
+   "description": "Number front matter i, ii, iii and the body 1, 2, 3 without changing content.",
+   "icon": "text_number_format",
+   "label": "Page Labels",
+   "status": "new-toolid",
+   "toolId": "PageLabels"
+  },
+  "pageSetup": {
+   "action": "dlg:S61",
+   "description": "Paper size, orientation, margins and scaling for printing.",
+   "icon": "document_landscape",
+   "label": "Page Setup",
+   "status": "toolid",
+   "toolId": "PageSetup"
+  },
+  "password": {
+   "action": "dlg:S53",
+   "description": "Require a password to open the document, with AES-256 encryption.",
+   "icon": "password",
+   "label": "Password",
+   "name": "Protect with Password",
+   "status": "toolid",
+   "toolId": "Password"
+  },
+  "paste": {
+   "action": "toast",
+   "control": "sp",
+   "description": "Paste text, an image or copied pages at the insertion point.",
+   "icon": "clipboard_paste",
+   "label": "Paste",
+   "menu": [
+    "pasteAsPage",
+    "pasteText"
+   ],
+   "shortcut": "Ctrl+V",
+   "status": "toolid",
+   "toolId": "Paste"
+  },
+  "pasteAsPage": {
+   "action": "toast",
+   "description": "Insert copied pages or an image as new pages after the current page.",
+   "icon": "clipboard_arrow_right",
+   "label": "Paste as New Page",
+   "status": "new-toolid",
+   "toolId": "PasteAsNewPage"
+  },
+  "pasteText": {
+   "action": "toast",
+   "description": "Paste plain text without its formatting.",
+   "icon": "text_t",
+   "label": "Paste Text Only",
+   "shortcut": "Ctrl+Shift+V",
+   "status": "new-toolid",
+   "toolId": "PasteTextOnly"
+  },
+  "patternRedact": {
+   "action": "pane:redact",
+   "control": "g",
+   "description": "Mark every email, phone, ID or account number that matches a pattern.",
+   "gallery": "redactPatterns",
+   "icon": "text_bullet_list_square_search",
+   "label": "Patterns",
+   "name": "Redact by Pattern",
+   "status": "toolid",
+   "toolId": "PatternRedact"
+  },
+  "pdfA": {
+   "action": "pane:pdfa",
+   "description": "Validate for long-term archiving, fix issues and save a conforming copy.",
+   "icon": "archive",
+   "label": "PDF/A",
+   "name": "PDF/A Archive",
+   "status": "toolid",
+   "toolId": "PdfA"
+  },
+  "pencil": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Draw freehand. Open the arrow for colour and thickness.",
+   "icon": "inking_tool",
+   "label": "Pen",
+   "shortcut": "D",
+   "status": "toolid",
+   "toolId": "Pencil"
+  },
+  "perimeter": {
+   "action": "pane:measure",
+   "control": "tg",
+   "description": "Measure the total length of a path of connected lines.",
+   "icon": "gp_perimeter",
+   "label": "Perimeter",
+   "status": "new-toolid",
+   "toolId": "MeasurePerimeter"
+  },
+  "permissions": {
+   "action": "dlg:S62",
+   "description": "Limit printing, copying and editing with a permissions password.",
+   "icon": "shield_keyhole",
+   "label": "Permissions",
+   "name": "Restrict Permissions",
+   "status": "toolid",
+   "toolId": "Permissions"
+  },
+  "poly": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Click to add points; double-click to finish the line.",
+   "icon": "gp_polyline",
+   "label": "Polyline",
+   "planned": {
+    "alternative": "Use the Pencil for freehand shapes or Line for straight segments.",
+    "reason": "Polyline drawing is not available yet."
+   },
+   "status": "planned",
+   "toolId": "Polyline"
+  },
+  "prepareSigningReq": {
+   "action": "dlg:S74",
+   "description": "Set who signs, in what order and where. Track progress as each person signs.",
+   "icon": "people_list",
+   "label": "Request Signatures",
+   "status": "toolid",
+   "toolId": "PrepareSigningRequest"
+  },
+  "presentation": {
+   "action": "toast",
+   "description": "Show pages full screen, one at a time, with nothing else on screen.",
+   "icon": "slide_play",
+   "label": "Present",
+   "name": "Presentation",
+   "shortcut": "F5",
+   "status": "toolid",
+   "toolId": "Presentation"
+  },
+  "preset": {
+   "action": "dlg:S65",
+   "description": "Create, edit, import and export batch presets.",
+   "icon": "apps_list_detail",
+   "label": "Presets",
+   "name": "Manage Presets",
+   "planned": {
+    "alternative": "File ▸ Export Presets… stores reusable export settings.",
+    "reason": "Saved conversion presets are not available yet."
+   },
+   "status": "planned",
+   "toolId": "ManagePresets"
+  },
+  "presetEdit": {
+   "action": "dlg:S64",
+   "description": "Change the steps in the selected preset.",
+   "icon": "edit",
+   "label": "Edit Preset",
+   "status": "new-toolid",
+   "toolId": "EditPreset"
+  },
+  "presetImport": {
+   "action": "dlg:S65",
+   "description": "Load a .glyphpreset.json file shared by a colleague.",
+   "icon": "arrow_import",
+   "label": "Import",
+   "name": "Import Preset",
+   "status": "new-toolid",
+   "toolId": "ImportPreset"
+  },
+  "presetNew": {
+   "action": "dlg:S64",
+   "description": "Build a step-by-step preset: OCR, redact, number, compress, save.",
+   "icon": "add_square",
+   "label": "New Preset",
+   "status": "new-toolid",
+   "toolId": "NewPreset"
+  },
+  "prevComment": {
+   "action": "toast",
+   "description": "Go to the previous comment in the document.",
+   "icon": "arrow_up",
+   "label": "Previous",
+   "name": "Previous Comment",
+   "shortcut": "Ctrl+Alt+Up",
+   "status": "new-toolid",
+   "toolId": "PreviousComment"
+  },
+  "prevMark": {
+   "action": "toast",
+   "description": "Go to the previous redaction mark.",
+   "icon": "arrow_up",
+   "label": "Previous",
+   "name": "Previous Mark",
+   "status": "new-toolid",
+   "toolId": "PreviousRedactionMark"
+  },
+  "print": {
+   "action": "bs:print",
+   "description": "Preview and print, with N-up, booklet and page ranges.",
+   "icon": "print",
+   "label": "Print",
+   "shortcut": "Ctrl+P",
+   "status": "toolid",
+   "toolId": "Print"
+  },
+  "proofExportJson": {
+   "action": "toast",
+   "description": "Save the proof as JSON for audit systems.",
+   "icon": "braces",
+   "label": "Export JSON",
+   "name": "Export Machine-Readable Proof",
+   "status": "new-toolid",
+   "toolId": "ExportProofJson"
+  },
+  "proofExportPdf": {
+   "action": "toast",
+   "description": "Save the signed proof report as a PDF.",
+   "icon": "document_pdf",
+   "label": "Export PDF",
+   "name": "Export Proof as PDF",
+   "status": "new-toolid",
+   "toolId": "ExportProofPdf"
+  },
+  "proofOpenFile": {
+   "action": "toast",
+   "description": "Open the redacted output document.",
+   "icon": "open",
+   "label": "Open Redacted File",
+   "status": "new-toolid",
+   "toolId": "OpenRedactedFile"
+  },
+  "proofPrint": {
+   "action": "toast",
+   "description": "Print the proof report.",
+   "icon": "print",
+   "label": "Print",
+   "name": "Print Proof Report",
+   "status": "new-toolid",
+   "toolId": "PrintProofReport"
+  },
+  "proofReport": {
+   "action": "mode:proof",
+   "description": "See what was removed and the machine check that proves it is gone.",
+   "icon": "document_checkmark",
+   "label": "Proof Report",
+   "name": "Redaction Proof Report",
+   "status": "new-toolid",
+   "toolId": "ProofReport"
+  },
+  "proofShowFolder": {
+   "action": "toast",
+   "description": "Show the output files in File Explorer.",
+   "icon": "folder_open",
+   "label": "Show in Folder",
+   "status": "new-toolid",
+   "toolId": "ShowProofInFolder"
+  },
+  "properties": {
+   "action": "dlg:S58",
+   "description": "Title, author, subject, keywords and custom XMP metadata.",
+   "icon": "text_bullet_list_square_edit",
+   "label": "Properties",
+   "name": "Document Properties",
+   "shortcut": "Ctrl+D",
+   "status": "hidden-rename",
+   "toolId": "Properties"
+  },
+  "propsPane": {
+   "action": "pane:props",
+   "control": "tg",
+   "description": "Edit the selected object's colour, size, author and other properties.",
+   "icon": "text_bullet_list_square_edit",
+   "label": "Properties",
+   "name": "Properties Pane",
+   "status": "new-toolid",
+   "toolId": "PaneProperties",
+   "variants": [
+    {
+     "action": "pane:props",
+     "description": "Author, subject, dates and appearance of the selected annotation.",
+     "icon": "text_bullet_list_square_edit",
+     "label": "Properties",
+     "name": "Annotation Properties"
+    }
+   ]
+  },
+  "radio": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add one choice from a group; only one can be selected.",
+   "icon": "radio_button",
+   "label": "Option Button",
+   "name": "Radio Button",
+   "status": "toolid",
+   "toolId": "Radio"
+  },
+  "readOnly": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Show the value but prevent changes.",
+   "icon": "lock_closed",
+   "label": "Read-only",
+   "name": "Read-only Field",
+   "status": "new-toolid",
+   "toolId": "FormFieldReadOnly"
+  },
+  "readingOrder": {
+   "action": "nav:tags",
+   "description": "Check and fix the order a screen reader follows on each page.",
+   "icon": "text_number_list_ltr",
+   "label": "Reading Order",
+   "status": "new-toolid",
+   "toolId": "ReadingOrder"
+  },
+  "recover": {
+   "action": "screen:S67",
+   "description": "Open versions saved by AutoRecover after an unexpected close.",
+   "icon": "document_arrow_up",
+   "label": "Recover",
+   "name": "Recover Unsaved Documents",
+   "status": "new-toolid",
+   "toolId": "RecoverDocuments"
+  },
+  "rect": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Draw a rectangle. Hold Shift for a square.",
+   "icon": "rectangle_landscape",
+   "label": "Rectangle",
+   "shortcut": "R",
+   "status": "toolid",
+   "toolId": "Rectangle"
+  },
+  "redactCodes": {
+   "action": "menu:codes",
+   "control": "m",
+   "description": "Print a reason on each box, such as FOIA (b)(6) or PRIVILEGED.",
+   "icon": "tag",
+   "label": "Overlay && Codes",
+   "name": "Overlay Text && Exemption Codes",
+   "status": "new-toolid",
+   "toolId": "RedactionOverlayCodes"
+  },
+  "redactPane": {
+   "action": "pane:redact",
+   "control": "tg",
+   "description": "List every mark with its source, category and page.",
+   "icon": "panel_right",
+   "label": "Redaction Pane",
+   "status": "new-toolid",
+   "toolId": "PaneRedactionMarks"
+  },
+  "redo": {
+   "description": "Repeat the change you just undid.",
+   "icon": "arrow_redo",
+   "label": "Redo",
+   "shortcut": "Ctrl+Y",
+   "status": "toolid",
+   "toolId": "Redo"
+  },
+  "regexRedact": {
+   "action": "pane:redact",
+   "description": "Find words, phrases or regular expressions and mark every match.",
+   "icon": "search",
+   "label": "Search && Redact",
+   "status": "toolid",
+   "toolId": "RegexRedact"
+  },
+  "removeSec": {
+   "action": "toast",
+   "description": "Remove passwords and encryption. You need the permissions password.",
+   "icon": "lock_open",
+   "label": "Remove",
+   "name": "Remove Security",
+   "status": "toolid",
+   "toolId": "RemoveSecurity"
+  },
+  "removeWatermark": {
+   "action": "toast",
+   "description": "Remove watermarks added with GlyphPDF.",
+   "icon": "dismiss_circle",
+   "label": "Remove Watermark",
+   "status": "new-toolid",
+   "toolId": "RemoveWatermark"
+  },
+  "reorder": {
+   "action": "mode:organize",
+   "description": "See every page as a thumbnail to reorder, rotate, insert, delete and extract.",
+   "icon": "grid",
+   "label": "Organize Pages",
+   "shortcut": "Ctrl+Alt+O",
+   "status": "toolid",
+   "toolId": "Reorder"
+  },
+  "replace": {
+   "action": "toast",
+   "description": "Swap the selected pages for pages from another file, keeping links and bookmarks.",
+   "icon": "document_sync",
+   "label": "Replace",
+   "name": "Replace Pages",
+   "planned": {
+    "alternative": "Delete the pages, then insert the replacement file's pages (Organize ▸ Pages).",
+    "reason": "Page replacement is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ReplacePages"
+  },
+  "replaceImage": {
+   "action": "toast",
+   "description": "Swap this image for another, keeping its size and position.",
+   "icon": "image_arrow_counterclockwise",
+   "label": "Replace",
+   "name": "Replace Image",
+   "status": "new-toolid",
+   "toolId": "ReplaceImage"
+  },
+  "reply": {
+   "action": "pane:comments",
+   "description": "Reply to the selected comment in its thread.",
+   "icon": "arrow_reply",
+   "label": "Reply",
+   "planned": {
+    "alternative": "Select an annotation, then reply in the Inspector's reply thread (right sidebar).",
+    "reason": "Replying works on a selected annotation."
+   },
+   "shortcut": "Ctrl+Alt+R",
+   "status": "planned",
+   "toolId": "ReplyComment"
+  },
+  "required": {
+   "action": "toast",
+   "control": "tg",
+   "description": "The form cannot be submitted until this field has a value.",
+   "icon": "text_asterisk",
+   "label": "Required",
+   "name": "Required Field",
+   "planned": {
+    "alternative": "The Form Builder (Forms tab) creates fields and edits their properties.",
+    "reason": "Marking fields as required is not available yet."
+   },
+   "status": "planned",
+   "toolId": "FieldRequired"
+  },
+  "reset": {
+   "action": "toast",
+   "description": "Clear every field back to its default value.",
+   "icon": "arrow_reset",
+   "label": "Reset",
+   "name": "Reset Form",
+   "planned": {
+    "alternative": "Undo recent edits (Ctrl+Z), or reopen the original form file.",
+    "reason": "Resetting filled form values is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ResetForm"
+  },
+  "resize": {
+   "action": "dlg:S69",
+   "description": "Change page size to A4, Letter, Legal or a custom size.",
+   "icon": "resize",
+   "label": "Resize",
+   "name": "Resize Pages",
+   "status": "toolid",
+   "toolId": "Resize"
+  },
+  "reverse": {
+   "action": "dlg:reverse",
+   "description": "Put pages in the opposite order, for all pages or the selection. Useful after scanning.",
+   "icon": "gp_reverse",
+   "label": "Reverse",
+   "name": "Reverse Page Order",
+   "planned": {
+    "alternative": "Reorder pages by drag in the Pages task (Organize ▸ Pages).",
+    "reason": "One-click page reversal is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ReversePages"
+  },
+  "rotL": {
+   "action": "toast",
+   "description": "Rotate the selected pages 90 degrees counter-clockwise.",
+   "icon": "arrow_rotate_counterclockwise",
+   "label": "Rotate Left 90",
+   "name": "Rotate Counter-Clockwise",
+   "shortcut": "Ctrl+Shift+R",
+   "status": "hidden-rename",
+   "toolId": "RotateCCW"
+  },
+  "rotate": {
+   "action": "toast",
+   "control": "sp",
+   "description": "Turn the selected pages 90 degrees clockwise. Open the arrow for more.",
+   "icon": "arrow_rotate_clockwise",
+   "label": "Rotate",
+   "menu": [
+    "rotateRight",
+    "rotateLeft",
+    "rotate180"
+   ],
+   "name": "Rotate Pages",
+   "shortcut": "Ctrl+R",
+   "status": "collision-merged",
+   "toolId": "RotateCW",
+   "variants": [
+    {
+     "action": "toast",
+     "description": "Rotate the selected pages 90 degrees clockwise.",
+     "icon": "arrow_rotate_clockwise",
+     "label": "Rotate Right 90",
+     "name": "Rotate Clockwise"
+    }
+   ]
+  },
+  "rotate180": {
+   "action": "toast",
+   "description": "Turn the selected pages upside down.",
+   "icon": "arrow_repeat_all",
+   "label": "Rotate 180",
+   "name": "Rotate 180 Degrees",
+   "status": "new-toolid",
+   "toolId": "Rotate180"
+  },
+  "rotateImage": {
+   "action": "menu:rotimg",
+   "control": "m",
+   "description": "Rotate 90 degrees or flip horizontally or vertically.",
+   "icon": "arrow_rotate_clockwise",
+   "label": "Rotate",
+   "name": "Rotate or Flip Image",
+   "status": "new-toolid",
+   "toolId": "RotateOrFlipImage"
+  },
+  "rtl": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Lay out facing pages and navigation right to left, for Arabic and Hebrew documents.",
+   "icon": "text_direction_horizontal_rtl",
+   "label": "Right-to-Left",
+   "name": "Right-to-Left Reading",
+   "status": "toolid",
+   "toolId": "RTL"
+  },
+  "rulers": {
+   "action": "fn:rulers",
+   "control": "ck",
+   "description": "Show rulers along the top and left of the page.",
+   "icon": "ruler",
+   "label": "Rulers",
+   "planned": {
+    "alternative": "No in-app alternative yet.",
+    "reason": "Rulers are planned for a future release."
+   },
+   "status": "new-toolid",
+   "toolId": "Rulers"
+  },
+  "rules": {
+   "action": "pane:field",
+   "control": "m",
+   "description": "Set what a field accepts: length, range, pattern or a script.",
+   "icon": "clipboard_checkmark",
+   "label": "Validation",
+   "name": "Field Validation",
+   "planned": {
+    "alternative": "The Form Builder (Forms tab) creates fields and edits their properties.",
+    "reason": "Field validation rules are not editable yet."
+   },
+   "status": "planned",
+   "toolId": "FieldValidation"
+  },
+  "runPreset": {
+   "action": "menu:presets",
+   "control": "m",
+   "description": "Run a saved preset on this document.",
+   "icon": "play_circle",
+   "label": "Run Preset",
+   "status": "new-toolid",
+   "toolId": "RunPreset"
+  },
+  "sanitize": {
+   "action": "bs:info",
+   "description": "Remove hidden data: metadata, attachments, scripts, hidden layers and form data.",
+   "icon": "broom",
+   "label": "Sanitize",
+   "name": "Sanitize Document",
+   "status": "toolid",
+   "toolId": "Sanitize"
+  },
+  "save": {
+   "action": "toast",
+   "description": "Save your changes to this file.",
+   "icon": "save",
+   "label": "Save",
+   "shortcut": "Ctrl+S",
+   "status": "toolid",
+   "toolId": "Save"
+  },
+  "saveAs": {
+   "action": "bs:export",
+   "description": "Save to a new name or location, or in another format.",
+   "icon": "save_edit",
+   "label": "Save As",
+   "shortcut": "F12",
+   "status": "toolid",
+   "toolId": "SaveAs",
+   "variants": [
+    {
+     "action": "bs:export",
+     "description": "Save a copy and keep working on the current file.",
+     "icon": "save_copy",
+     "label": "Save a Copy"
+    }
+   ]
+  },
+  "search": {
+   "action": "screen:S79",
+   "control": "sp",
+   "description": "Find text in the document. Results appear in the navigation pane.",
+   "icon": "search",
+   "label": "Find",
+   "menu": [
+    "findAdvanced",
+    "regex",
+    "goTo"
+   ],
+   "shortcut": "Ctrl+F",
+   "status": "toolid",
+   "toolId": "Search"
+  },
+  "select": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Select text, annotations and objects on the page.",
+   "icon": "cursor",
+   "label": "Select",
+   "shortcut": "V",
+   "status": "toolid",
+   "toolId": "Select"
+  },
+  "selectAll": {
+   "action": "toast",
+   "description": "Select all text on the page, or every object while editing.",
+   "icon": "select_all_on",
+   "label": "Select All",
+   "shortcut": "Ctrl+A",
+   "status": "toolid",
+   "toolId": "SelectAll"
+  },
+  "sendBack": {
+   "action": "toast",
+   "description": "Put the selection behind all other objects.",
+   "icon": "position_to_back",
+   "label": "Send to Back",
+   "status": "new-toolid",
+   "toolId": "SendToBack"
+  },
+  "sendBackward": {
+   "action": "toast",
+   "description": "Move the selection one step back.",
+   "icon": "position_backward",
+   "label": "Send Backward",
+   "status": "new-toolid",
+   "toolId": "SendBackward"
+  },
+  "share": {
+   "action": "bs:share",
+   "description": "Email a copy or send it to another app. GlyphPDF never uploads files itself.",
+   "icon": "share",
+   "label": "Share",
+   "status": "toolid",
+   "toolId": "Share"
+  },
+  "shell.about": {
+   "action": "bs:about",
+   "description": "Version, licences and the privacy promise.",
+   "icon": "info",
+   "label": "About",
+   "name": "About GlyphPDF",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.autosave": {
+   "action": "bs:options:general",
+   "description": "How often GlyphPDF saves a recovery copy (every 5 minutes).",
+   "icon": "save_sync",
+   "label": "AutoRecover",
+   "name": "AutoRecover Settings",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.back": {
+   "action": "toast",
+   "description": "Return to the previous page view.",
+   "icon": "arrow_left",
+   "label": "Back",
+   "name": "Previous View",
+   "shortcut": "Alt+Left",
+   "status": "shell",
+   "target": "document"
+  },
+  "shell.clearRecent": {
+   "action": "toast",
+   "description": "Clear the recent list, keeping pinned files.",
+   "icon": "delete_dismiss",
+   "label": "Clear Unpinned",
+   "name": "Clear Unpinned Recent Files",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.closeMode": {
+   "action": "fn:closeMode",
+   "description": "Return to the document.",
+   "icon": "dismiss",
+   "label": "Close",
+   "shortcut": "Esc",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.collapseRibbon": {
+   "action": "fn:collapseRibbon",
+   "description": "Show only the tab names to make more room for the page.",
+   "icon": "chevron_up",
+   "label": "Collapse the Ribbon",
+   "shortcut": "Ctrl+F1",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.exit": {
+   "action": "toast",
+   "description": "Close all windows and quit.",
+   "icon": "arrow_exit",
+   "label": "Exit",
+   "name": "Exit GlyphPDF",
+   "shortcut": "Alt+F4",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.forward": {
+   "action": "toast",
+   "description": "Go forward to the next page view.",
+   "icon": "arrow_right",
+   "label": "Forward",
+   "name": "Next View",
+   "shortcut": "Alt+Right",
+   "status": "shell",
+   "target": "document"
+  },
+  "shell.goTo": {
+   "action": "toast",
+   "description": "Jump to a page number or page label.",
+   "icon": "arrow_enter",
+   "label": "Go to Page...",
+   "shortcut": "Ctrl+G",
+   "status": "shell",
+   "target": "document"
+  },
+  "shell.keytips": {
+   "action": "fn:keytips",
+   "description": "Show letters for reaching every ribbon command from the keyboard.",
+   "icon": "keyboard",
+   "label": "Show KeyTips",
+   "shortcut": "Alt",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.mcpAllow": {
+   "action": "bs:options:mcp",
+   "description": "Choose which operations assistants may call. Changes need extra consent.",
+   "icon": "shield_task",
+   "label": "Allowed Operations",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.mcpLog": {
+   "action": "bs:options:mcp",
+   "description": "Every call with time, client and result. Document text is never logged.",
+   "icon": "text_bullet_list_square",
+   "label": "Activity Log",
+   "name": "MCP Activity Log",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.mcpSettings": {
+   "action": "bs:options:mcp",
+   "description": "Port, session token, allowlist and consent options.",
+   "icon": "plug_connected_settings",
+   "label": "Settings",
+   "name": "MCP Server Settings",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.mode": {
+   "action": "menu:mode",
+   "control": "m",
+   "description": "Choose Editing, Reviewing (comments only) or Viewing (read-only).",
+   "icon": "edit",
+   "label": "Editing",
+   "menu": [
+    "modeEdit",
+    "modeReview",
+    "modeView"
+   ],
+   "name": "Editing Mode",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.modeEdit": {
+   "action": "fn:modeEdit",
+   "description": "Change text, pages and objects.",
+   "icon": "edit",
+   "label": "Editing",
+   "name": "Editing Mode",
+   "status": "shell",
+   "target": "document"
+  },
+  "shell.modeReview": {
+   "action": "fn:modeReview",
+   "description": "Add comments and markups; content is protected from edits.",
+   "icon": "comment_edit",
+   "label": "Reviewing",
+   "name": "Reviewing Mode",
+   "status": "shell",
+   "target": "document"
+  },
+  "shell.modeView": {
+   "action": "fn:modeView",
+   "description": "Read-only. Nothing on the page can change by accident.",
+   "icon": "eye",
+   "label": "Viewing",
+   "name": "Viewing Mode",
+   "status": "shell",
+   "target": "document"
+  },
+  "shell.navPane": {
+   "action": "fn:navToggle",
+   "control": "ck",
+   "description": "Show or hide the pane with pages, bookmarks, attachments, layers and tags.",
+   "icon": "panel_left",
+   "label": "Navigation Pane",
+   "shortcut": "Ctrl+Shift+[",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.palette": {
+   "action": "fn:palette",
+   "description": "Find any command, setting, screen, recent file or help topic.",
+   "icon": "search",
+   "label": "Search",
+   "name": "Search Commands (Command Palette)",
+   "shortcut": "Ctrl+K",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.profile": {
+   "action": "menu:ribbonDisplay",
+   "control": "m",
+   "description": "Essentials uses the single-line Simplified ribbon; Full uses the Classic ribbon.",
+   "icon": "panel_top_expand",
+   "label": "Ribbon Layout",
+   "name": "Simplified or Classic Ribbon",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.pruneRecent": {
+   "action": "toast",
+   "description": "Remove recent files that were moved or deleted.",
+   "icon": "delete_lines",
+   "label": "Remove Missing Files",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.qatCustomize": {
+   "action": "screen:S27",
+   "description": "Choose which commands appear next to Save, Undo and Redo.",
+   "icon": "chevron_down",
+   "label": "Customize Quick Access Toolbar",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.regions": {
+   "action": "toast",
+   "description": "Move focus between ribbon, navigation pane, page, task pane and status bar (Shift+F6 goes back).",
+   "icon": "arrow_circle_right",
+   "label": "Move Between Regions",
+   "shortcut": "F6",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.shapes": {
+   "action": "tool",
+   "control": "g",
+   "description": "Draw lines, arrows, rectangles, ovals and polylines.",
+   "gallery": "shapes",
+   "icon": "shapes",
+   "label": "Shapes",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.shortcuts": {
+   "action": "dlg:S70",
+   "description": "See and search every shortcut, and change your own.",
+   "icon": "keyboard",
+   "label": "Keyboard Shortcuts",
+   "shortcut": "Ctrl+/",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.taskPane": {
+   "action": "fn:taskToggle",
+   "description": "Show or hide the task pane on the right.",
+   "icon": "panel_right",
+   "label": "Task Pane",
+   "name": "Show or Hide Task Pane",
+   "shortcut": "Ctrl+Shift+]",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.themeDark": {
+   "action": "fn:themeDark",
+   "description": "Dark app theme.",
+   "icon": "weather_moon",
+   "label": "Dark",
+   "name": "Dark Theme",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.themeHC": {
+   "action": "fn:themeHC",
+   "description": "Maximum-contrast theme.",
+   "icon": "circle_half_fill",
+   "label": "High Contrast",
+   "name": "High Contrast Theme",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.themeLight": {
+   "action": "fn:themeLight",
+   "description": "Light app theme.",
+   "icon": "weather_sunny",
+   "label": "Light",
+   "name": "Light Theme",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.thumbSize": {
+   "action": "toast",
+   "description": "Make page thumbnails larger or smaller.",
+   "icon": "zoom_in",
+   "label": "Thumbnail Size",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.tile": {
+   "action": "toast",
+   "description": "Tile all open GlyphPDF windows side by side.",
+   "icon": "window_multiple",
+   "label": "Arrange All",
+   "status": "shell",
+   "target": "window"
+  },
+  "shell.tour": {
+   "action": "screen:S28",
+   "description": "Walk through the ribbon, search, panes and privacy in five steps.",
+   "icon": "lightbulb",
+   "label": "Show Tour",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.updates": {
+   "action": "dlg:S76",
+   "description": "Contact the update server only when you choose. Managed by policy where set.",
+   "icon": "arrow_sync_circle",
+   "label": "Check for Updates",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.whatsNew": {
+   "action": "toast",
+   "description": "Features added in this version.",
+   "icon": "gift",
+   "label": "What's New",
+   "status": "shell",
+   "target": "app"
+  },
+  "shell.zoomTo": {
+   "action": "menu:zoom",
+   "control": "m",
+   "description": "Choose a zoom level or type a percentage.",
+   "icon": "zoom_fit",
+   "label": "Zoom",
+   "status": "shell",
+   "target": "document"
+  },
+  "sigField": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a place for a digital signature.",
+   "icon": "gp_sigfield",
+   "label": "Signature",
+   "name": "Signature Field",
+   "status": "toolid",
+   "toolId": "SigField"
+  },
+  "sigPane": {
+   "action": "pane:signatures",
+   "control": "tg",
+   "description": "See each signature, its validity and what changed after signing.",
+   "icon": "document_signature",
+   "label": "Signatures",
+   "name": "Signatures Pane",
+   "status": "new-toolid",
+   "toolId": "PaneSignatures"
+  },
+  "sign": {
+   "action": "dlg:S71",
+   "control": "sp",
+   "description": "Sign with your certificate (PAdES). Recipients can verify it has not changed.",
+   "icon": "signature",
+   "label": "Sign",
+   "menu": [
+    "signCert",
+    "signAppearance"
+   ],
+   "name": "Sign Document",
+   "status": "toolid",
+   "toolId": "Sign",
+   "variants": [
+    {
+     "action": "dlg:S71",
+     "description": "Create a PAdES digital signature with a .pfx or Windows certificate.",
+     "icon": "certificate",
+     "label": "Sign with Certificate..."
+    }
+   ]
+  },
+  "signAppearance": {
+   "action": "dlg:S72",
+   "description": "Draw, type or upload the signature and initials shown on the page.",
+   "icon": "calligraphy_pen",
+   "label": "Signature Appearance...",
+   "name": "Create Signature Appearance",
+   "status": "new-toolid",
+   "toolId": "SignatureAppearance"
+  },
+  "signature": {
+   "description": "Draw, type or upload a signature, then click to place it on the page. No certificate is used; use Sign for a digital signature.",
+   "icon": "signature",
+   "label": "Place Signature",
+   "name": "Place Signature (Draw, Type or Upload)",
+   "placeholder": true,
+   "status": "missing-added",
+   "toolId": "Signature"
+  },
+  "single": {
+   "action": "fn:layout",
+   "control": "tg",
+   "description": "Show one page at a time.",
+   "icon": "document_one_page",
+   "label": "Single Page",
+   "status": "toolid",
+   "toolId": "SinglePage"
+  },
+  "smartCategories": {
+   "action": "menu:categories",
+   "control": "m",
+   "description": "Choose what Smart Redact looks for: names, IDs, accounts, emails, phones, addresses.",
+   "icon": "tag_multiple",
+   "label": "Categories",
+   "name": "Detection Categories",
+   "status": "new-toolid",
+   "toolId": "SmartRedactCategories"
+  },
+  "smartRedact": {
+   "action": "pane:redact",
+   "description": "Detect names, IDs and account numbers offline and propose marks for your review.",
+   "icon": "gp_smart_redact",
+   "label": "Smart Redact",
+   "shortcut": "Ctrl+Shift+D",
+   "status": "new-toolid",
+   "toolId": "SmartRedact"
+  },
+  "smartReview": {
+   "action": "pane:redact",
+   "description": "Accept or reject each proposed mark, or a whole category.",
+   "icon": "checkmark_starburst",
+   "label": "Review",
+   "name": "Review Proposals",
+   "status": "new-toolid",
+   "toolId": "SmartRedactReview"
+  },
+  "snapshot": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Drag over any area to copy it as an image, including text and graphics.",
+   "icon": "screenshot",
+   "label": "Snapshot",
+   "planned": {
+    "alternative": "Convert the page to an image (Convert ▸ Image) or select and copy text.",
+    "reason": "Page snapshots are not available yet."
+   },
+   "status": "planned",
+   "toolId": "Snapshot"
+  },
+  "split": {
+   "action": "mode:organize",
+   "description": "Divide the document by page count, ranges, bookmarks or file size.",
+   "icon": "document_split_hint",
+   "label": "Split",
+   "name": "Split Document",
+   "status": "toolid",
+   "toolId": "Split"
+  },
+  "splitWin": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Divide the view into two panes that scroll independently.",
+   "icon": "split_horizontal",
+   "label": "Split",
+   "name": "Split Window",
+   "planned": {
+    "alternative": "Two-Page view (View ▸ Layout) shows two pages side by side.",
+    "reason": "Split view is not available yet."
+   },
+   "status": "planned",
+   "toolId": "SplitWindow"
+  },
+  "squiggly": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Add a wavy underline, often used to flag wording to check.",
+   "icon": "gp_squiggly",
+   "label": "Squiggly",
+   "status": "toolid",
+   "toolId": "Squiggly"
+  },
+  "stamp": {
+   "action": "tool",
+   "control": "g",
+   "description": "Stamp the page with Approved, Draft, Confidential or your own stamps.",
+   "gallery": "stamps",
+   "icon": "gp_stamp",
+   "label": "Stamps",
+   "status": "toolid",
+   "toolId": "Stamp"
+  },
+  "stamp-approved": {
+   "action": "tool",
+   "description": "Place the APPROVED stamp on the page.",
+   "gallery": "stamps",
+   "icon": "gp_stamp",
+   "label": "Approved",
+   "name": "Stamp: Approved",
+   "status": "gallery-item",
+   "toolId": "StampApproved"
+  },
+  "stamp-confidential": {
+   "action": "tool",
+   "description": "Place the CONFIDENTIAL stamp on the page.",
+   "gallery": "stamps",
+   "icon": "gp_stamp",
+   "label": "Confidential",
+   "name": "Stamp: Confidential",
+   "status": "gallery-item",
+   "toolId": "StampConfidential"
+  },
+  "stamp-draft": {
+   "action": "tool",
+   "description": "Place the DRAFT stamp on the page.",
+   "gallery": "stamps",
+   "icon": "gp_stamp",
+   "label": "Draft",
+   "name": "Stamp: Draft",
+   "status": "gallery-item",
+   "toolId": "StampDraft"
+  },
+  "stamp-library": {
+   "action": "dlg:S75",
+   "description": "Create, edit and organise standard, custom and dynamic stamps.",
+   "icon": "library",
+   "label": "Stamp Library",
+   "status": "renamed",
+   "toolId": "StampLibraryManage"
+  },
+  "stamp-received": {
+   "action": "tool",
+   "description": "Place the RECEIVED stamp on the page.",
+   "gallery": "stamps",
+   "icon": "gp_stamp",
+   "label": "Received",
+   "name": "Stamp: Received",
+   "status": "gallery-item",
+   "toolId": "StampReceived"
+  },
+  "stamp-reviewed": {
+   "action": "tool",
+   "description": "Place a REVIEWED stamp with the current date.",
+   "gallery": "stamps",
+   "icon": "gp_stamp",
+   "label": "Reviewed",
+   "name": "Stamp: Reviewed",
+   "status": "gallery-item",
+   "toolId": "StampReviewed"
+  },
+  "statusComm": {
+   "action": "menu:status",
+   "control": "m",
+   "description": "Mark the selected comment Accepted, Rejected, Completed or None.",
+   "icon": "comment_checkmark",
+   "label": "Status",
+   "name": "Set Review Status",
+   "planned": {
+    "alternative": "Open the Comments panel (left sidebar) to set review statuses.",
+    "reason": "Comment review statuses live in the Comments panel."
+   },
+   "status": "planned",
+   "toolId": "CommentStatus"
+  },
+  "strikeout": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Mark selected text for deletion with a line through it.",
+   "icon": "text_strikethrough",
+   "label": "Strikethrough",
+   "shortcut": "Ctrl+Alt+K",
+   "status": "renamed",
+   "toolId": "Strikeout"
+  },
+  "summary": {
+   "action": "dlg:summary",
+   "description": "Create a printable summary of every comment, grouped by page or author.",
+   "icon": "document_bullet_list",
+   "label": "Summary",
+   "name": "Comment Summary",
+   "planned": {
+    "alternative": "Open the Comments panel (left sidebar) — it shows the summary and exports CSV.",
+    "reason": "The review summary lives in the Comments panel."
+   },
+   "status": "planned",
+   "toolId": "CommentSummary"
+  },
+  "supportBundle": {
+   "action": "toast",
+   "description": "Save a redacted diagnostics file to share when you report a problem.",
+   "icon": "folder_zip",
+   "label": "Support Bundle",
+   "name": "Export Support Bundle",
+   "status": "new-toolid",
+   "toolId": "ExportSupportBundle"
+  },
+  "tableAdjust": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Drag the table boundary and column dividers to fix detection.",
+   "icon": "table_resize_column",
+   "label": "Adjust Region",
+   "status": "new-toolid",
+   "toolId": "AdjustTableRegion"
+  },
+  "tableCopy": {
+   "action": "toast",
+   "description": "Copy the table so it pastes into Excel or Word as a real table.",
+   "icon": "table_copy",
+   "label": "Copy Table",
+   "status": "new-toolid",
+   "toolId": "CopyTable"
+  },
+  "tableHeader": {
+   "action": "toast",
+   "control": "ck",
+   "description": "Treat the first row as column headings.",
+   "icon": "table_freeze_row",
+   "label": "Header Row",
+   "status": "new-toolid",
+   "toolId": "TableHeaderRow"
+  },
+  "tableTag": {
+   "action": "toast",
+   "description": "Tag the region as a table with headers, for screen readers.",
+   "icon": "table_checker",
+   "label": "Tag as Table",
+   "status": "new-toolid",
+   "toolId": "TagTable"
+  },
+  "tabs": {
+   "action": "nav:fields",
+   "description": "Set the order the Tab key moves through fields.",
+   "icon": "keyboard_tab",
+   "label": "Tab Order",
+   "status": "toolid",
+   "toolId": "Tabs"
+  },
+  "tagDoc": {
+   "action": "pane:a11y",
+   "description": "Build a structure tree (headings, lists, tables) so assistive technology can navigate.",
+   "icon": "text_bullet_list_tree",
+   "label": "Tag Document",
+   "status": "new-toolid",
+   "toolId": "TagDocument"
+  },
+  "tagsPane": {
+   "action": "nav:tags",
+   "control": "tg",
+   "description": "Show the accessibility structure tree and reading order.",
+   "icon": "text_bullet_list_tree",
+   "label": "Tags",
+   "status": "new-toolid",
+   "toolId": "PaneTags"
+  },
+  "testForm": {
+   "action": "fn:testForm",
+   "description": "Fill the form as a recipient would, including calculations, to check it before sending it out.",
+   "icon": "play_circle",
+   "label": "Test Form",
+   "name": "Test Form",
+   "status": "new-toolid",
+   "toolId": "TestForm"
+  },
+  "textField": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Draw a box for typed answers: names, addresses, notes.",
+   "icon": "rename",
+   "label": "Text Field",
+   "status": "toolid",
+   "toolId": "TextField"
+  },
+  "textbox": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Type a visible comment directly on the page.",
+   "icon": "textbox",
+   "label": "Text Box",
+   "shortcut": "X",
+   "status": "toolid",
+   "toolId": "TextBox"
+  },
+  "thumbs": {
+   "action": "nav:pages",
+   "control": "tg",
+   "description": "Show page thumbnails in the navigation pane.",
+   "icon": "document_copy",
+   "label": "Pages",
+   "name": "Page Thumbnails",
+   "status": "toolid",
+   "toolId": "PanePages"
+  },
+  "timestamp": {
+   "action": "dlg:S59",
+   "description": "Add a trusted timestamp that proves the document existed at this time.",
+   "icon": "clock",
+   "label": "Timestamp",
+   "status": "toolid",
+   "toolId": "Timestamp"
+  },
+  "toCSV": {
+   "action": "bs:export:toCSV",
+   "description": "Tables and form data as comma-separated values.",
+   "icon": "document_table",
+   "label": "CSV",
+   "name": "Export to CSV",
+   "status": "collision-merged",
+   "toolId": "ToCsv",
+   "variants": [
+    {
+     "action": "toast",
+     "description": "Save the table as comma-separated values.",
+     "icon": "document_table_arrow_right",
+     "label": "To CSV",
+     "name": "Export Table to CSV"
+    }
+   ]
+  },
+  "toEPUB": {
+   "action": "bs:export:toEPUB",
+   "description": "A reflowable e-book for readers and phones.",
+   "icon": "book",
+   "label": "EPUB",
+   "name": "Export to EPUB",
+   "planned": {
+    "alternative": "Text (Convert ▸ Text) or HTML export covers plain-text and web use.",
+    "reason": "EPUB export is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ToEpub"
+  },
+  "toExcel": {
+   "action": "bs:export:toExcel",
+   "description": "Tables become worksheets, one per table or per page.",
+   "icon": "gp_excel",
+   "label": "Excel",
+   "name": "Export to Excel (.xlsx)",
+   "status": "toolid",
+   "toolId": "ToExcel"
+  },
+  "toHTML": {
+   "action": "bs:export:toHTML",
+   "description": "A web page with text, images and links.",
+   "icon": "code",
+   "label": "Web Page",
+   "name": "Export to HTML",
+   "status": "toolid",
+   "toolId": "ToHtml"
+  },
+  "toImage": {
+   "action": "bs:export:toImage",
+   "description": "PNG, JPEG or TIFF, one image per page, at the DPI you choose.",
+   "icon": "image",
+   "label": "Images",
+   "name": "Export Pages as Images",
+   "status": "toolid",
+   "toolId": "ToImage"
+  },
+  "toMD": {
+   "action": "bs:export:toMD",
+   "description": "Headings, lists and tables as Markdown text.",
+   "icon": "markdown",
+   "label": "Markdown",
+   "name": "Export to Markdown",
+   "planned": {
+    "alternative": "Text (Convert ▸ Text) or HTML export covers plain-text and web use.",
+    "reason": "Markdown export is not available yet."
+   },
+   "status": "planned",
+   "toolId": "ToMarkdown"
+  },
+  "toPPT": {
+   "action": "bs:export:toPPT",
+   "description": "Each page becomes a slide.",
+   "icon": "gp_ppt",
+   "label": "PowerPoint",
+   "name": "Export to PowerPoint (.pptx)",
+   "status": "toolid",
+   "toolId": "ToPPT"
+  },
+  "toText": {
+   "action": "bs:export:toText",
+   "description": "Plain text in reading order.",
+   "icon": "document_text",
+   "label": "Plain Text",
+   "name": "Export to Text",
+   "status": "toolid",
+   "toolId": "ToText"
+  },
+  "toWord": {
+   "action": "bs:export:toWord",
+   "description": "Editable Word document with flowing text or exact layout.",
+   "icon": "gp_word",
+   "label": "Word",
+   "name": "Export to Word (.docx)",
+   "status": "toolid",
+   "toolId": "ToWord"
+  },
+  "trackChanges": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Record every edit as a reviewable change with author and time.",
+   "icon": "document_edit",
+   "label": "Track Changes",
+   "planned": {
+    "alternative": "The Comments panel lists every annotation with its author and date.",
+    "reason": "Change tracking is not available yet."
+   },
+   "status": "planned",
+   "toolId": "TrackChanges"
+  },
+  "trust": {
+   "action": "pane:signatures",
+   "description": "Manage the certificates you trust for signing and timestamping.",
+   "icon": "shield_lock",
+   "label": "Trust Store",
+   "planned": {
+    "alternative": "Signature badges on the page show each signature's validity state (right sidebar ▸ Signatures).",
+    "reason": "Certificate trust management is not available yet."
+   },
+   "status": "planned",
+   "toolId": "TrustStore"
+  },
+  "two": {
+   "action": "fn:layout",
+   "control": "tg",
+   "description": "Show facing pages side by side, like an open book.",
+   "icon": "book_open",
+   "label": "Two Pages",
+   "status": "toolid",
+   "toolId": "TwoPage"
+  },
+  "underline": {
+   "action": "tool",
+   "control": "tg",
+   "description": "Underline selected text as a review mark.",
+   "icon": "text_underline",
+   "label": "Underline",
+   "shortcut": "Ctrl+Alt+U",
+   "status": "toolid",
+   "toolId": "Underline"
+  },
+  "underlineText": {
+   "action": "toast",
+   "control": "tg",
+   "description": "Underline the selected text (edits the content, not a review mark).",
+   "icon": "text_underline",
+   "label": "Underline",
+   "name": "Underline Text",
+   "shortcut": "Ctrl+U",
+   "status": "new-toolid",
+   "toolId": "TextUnderline"
+  },
+  "undo": {
+   "action": "toast",
+   "control": "sp",
+   "description": "Reverse your last change. Open the list to step back several changes at once.",
+   "icon": "arrow_undo",
+   "label": "Undo",
+   "menu": [
+    "history"
+   ],
+   "shortcut": "Ctrl+Z",
+   "status": "toolid",
+   "toolId": "Undo"
+  },
+  "validateSig": {
+   "action": "pane:signatures",
+   "description": "Check every signature: integrity, signer trust, timestamp and revocation.",
+   "icon": "shield_checkmark",
+   "label": "Validate All",
+   "name": "Validate All Signatures",
+   "status": "toolid",
+   "toolId": "ValidateSig"
+  },
+  "watch": {
+   "action": "mode:batch",
+   "control": "tg",
+   "description": "Process new files dropped into a folder automatically with a preset.",
+   "icon": "folder_sync",
+   "label": "Watch Folders",
+   "status": "toolid",
+   "toolId": "WatchFolder",
+   "variants": [
+    {
+     "action": "mode:batch",
+     "description": "Choose folders, presets and where results go.",
+     "icon": "folder_list",
+     "label": "Configure",
+     "name": "Configure Watch Folders"
+    },
+    {
+     "action": "mode:batch",
+     "description": "See what each watch folder processed and any failures.",
+     "icon": "pulse",
+     "label": "Activity",
+     "name": "Watch Folder Activity"
+    }
+   ]
+  },
+  "watermark": {
+   "action": "pane:watermark",
+   "control": "g",
+   "description": "Put text or an image behind or over page content.",
+   "gallery": "watermarks",
+   "icon": "gp_watermark",
+   "label": "Watermark",
+   "status": "toolid",
+   "toolId": "Watermark",
+   "variants": [
+    {
+     "action": "dlg:S77",
+     "description": "Design a text or image watermark with position, opacity and page range.",
+     "icon": "gp_watermark",
+     "label": "Custom Watermark..."
+    }
+   ]
+  },
+  "wordList": {
+   "action": "pane:redact",
+   "description": "Load a list of names or terms to find and mark in one pass.",
+   "icon": "text_bullet_list_ltr",
+   "label": "Word List",
+   "name": "Import Word List",
+   "status": "new-toolid",
+   "toolId": "RedactWordList"
+  },
+  "zoomIn": {
+   "action": "fn:zoomIn",
+   "description": "Make the page larger.",
+   "icon": "zoom_in",
+   "label": "Zoom In",
+   "shortcut": "Ctrl+=",
+   "status": "toolid",
+   "toolId": "ZoomIn"
+  },
+  "zoomOut": {
+   "action": "fn:zoomOut",
+   "description": "Make the page smaller.",
+   "icon": "zoom_out",
+   "label": "Zoom Out",
+   "shortcut": "Ctrl+-",
+   "status": "toolid",
+   "toolId": "ZoomOut"
+  }
+ }
+}

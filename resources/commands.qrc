@@ -1,0 +1,8 @@
+<RCC>
+    <!-- UI redesign Phase 0: the CommandRegistry source. Linked into pdfws_ui
+         (not the app's resources.qrc) so test binaries see the same file;
+         CommandRegistry.cpp calls Q_INIT_RESOURCE(commands). -->
+    <qresource prefix="/gp">
+        <file>commands.json</file>
+    </qresource>
+</RCC>
