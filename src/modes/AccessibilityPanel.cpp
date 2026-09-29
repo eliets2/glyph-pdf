@@ -9,6 +9,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
 #include <QStringList>
@@ -483,7 +484,6 @@ void AccessibilityPanel::onTagFinished() {
     if (!m_tagWatcher || m_tagWatcher->isCanceled()) return;
     // ARC06 identity tie.
     if (m_submittedTagPath != m_currentDocPath) return;
-    emit tagRunFinished();
 
     const TaggerReport r = m_tagWatcher->result();
     if (!r.ok) {
@@ -492,7 +492,17 @@ void AccessibilityPanel::onTagFinished() {
     }
     // Success ⇒ re-scan the SAME identity: the struct-tree finding resolves
     // and the tag action now refuses (already tagged).
-    emit documentMutated(r.message);
+    //
+    // The signals below are emitted to whoever listens — including
+    // direct-connected slots that may destroy this panel (close mid-tag is
+    // a supported flow, see the CX-04 destructor contract). Guard the
+    // continuation so a destroyed receiver can never be re-entered here.
+    emit tagRunFinished();
+    {
+        QPointer<AccessibilityPanel> guard(this);
+        emit documentMutated(r.message);
+        if (!guard) return;
+    }
     m_statusLabel->setText(tr("Tagged — re-running check…"));
     setDocument(m_currentDocPath);
 }

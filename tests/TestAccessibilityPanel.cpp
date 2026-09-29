@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QSemaphore>
+#include <QSharedPointer>
 #include <QTimer>
 #include <atomic>
 #include <podofo/podofo.h>
@@ -200,14 +201,26 @@ private:
     // Wait for the panel's async scan to deliver (the default-constructed
     // lastReport() is indistinguishable from a finished clean scan, so tests
     // must gate on the signal, not on finding counts).
+    //
+    // LIFETIME CONTRACT (the Panel segfault fix): the connection created
+    // here outlives this frame — a LATE scanCompleted (the re-scan a
+    // successful tag or fix submits from onTagFinished/applyFix) can fire
+    // this lambda long after the helper returned. Capturing `bool done` by
+    // reference made that late fire write through a pointer into this
+    // helper's DEAD STACK FRAME — a stray byte into whatever now occupies
+    // the event-dispatch stack, i.e. the GUI-thread corruption behind
+    // repeatApplyRefusedWhileTagRuns' non-canonical saved return address.
+    // Hold the flag on the heap instead: the shared_ptr copy inside the
+    // connection keeps it alive exactly as long as the connection (and
+    // therefore any write through it) can exist.
     bool waitForScan(gp::AccessibilityPanel* panel) {
-        bool done = false;
+        auto done = QSharedPointer<bool>::create(false);
         QObject::connect(panel, &gp::AccessibilityPanel::scanCompleted,
-                         panel, [&done]() { done = true; },
+                         panel, [done]() { *done = true; },
                          Qt::DirectConnection);
         // qWaitFor spins the event loop while waiting, so the queued
         // onScanFinished delivery runs.
-        return QTest::qWaitFor([&done]() { return done; }, 15000);
+        return QTest::qWaitFor([done]() { return *done; }, 15000);
     }
 
     QLabel* statusOf(gp::AccessibilityPanel* p) {
@@ -224,19 +237,19 @@ private:
     }
 
     bool waitForTagPreflight(gp::AccessibilityPanel* panel) {
-        bool done = false;
+        auto done = QSharedPointer<bool>::create(false);
         QObject::connect(panel, &gp::AccessibilityPanel::tagPreflightReady,
-                         panel, [&done]() { done = true; },
+                         panel, [done]() { *done = true; },
                          Qt::DirectConnection);
-        return QTest::qWaitFor([&done]() { return done; }, 15000);
+        return QTest::qWaitFor([done]() { return *done; }, 15000);
     }
 
     bool waitForTagRun(gp::AccessibilityPanel* panel) {
-        bool done = false;
+        auto done = QSharedPointer<bool>::create(false);
         QObject::connect(panel, &gp::AccessibilityPanel::tagRunFinished,
-                         panel, [&done]() { done = true; },
+                         panel, [done]() { *done = true; },
                          Qt::DirectConnection);
-        return QTest::qWaitFor([&done]() { return done; }, 30000);
+        return QTest::qWaitFor([done]() { return *done; }, 30000);
     }
 };
 
@@ -684,6 +697,14 @@ void TestAccessibilityPanel::repeatApplyRefusedWhileTagRuns() {
     QCOMPARE(started.load(), 1);
     QTRY_VERIFY(tagButtonOf(&panel)->isEnabled());
     QCOMPARE(runnerDone.load(), 1);   // exactly one runner invocation, ever
+
+    // Regression amplifier for the Panel segfault: onTagFinished's success
+    // re-scan is still in flight; spin the loop so its queued scanCompleted
+    // delivery lands WHILE this frame is alive — the exact late fire that
+    // used to write through waitForScan's dead by-reference capture and
+    // corrupt the GUI-thread stack. With heap-held helper state this is a
+    // harmless no-op; the delivery must never crash.
+    QTest::qWait(300);
 }
 
 void TestAccessibilityPanel::closePanelMidTagNoDeadlock() {
