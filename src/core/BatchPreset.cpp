@@ -243,6 +243,16 @@ namespace {
 
 constexpr char kKind[] = "batch-preset";
 
+// The id grammar every store path is keyed on. The id is the FILE NAME STEM
+// in the store root, so the grammar is a containment guarantee as much as a
+// schema rule: [a-z0-9-]{1,64} can never carry a separator, a drive colon or
+// a ".." component (validate() enforces it on the save path — PGR-53 extends
+// the same check to the id-parameterized store methods).
+bool isValidStoreId(const QString& id) {
+    static const QRegularExpression idRx(QStringLiteral("^[a-z0-9-]{1,64}$"));
+    return idRx.match(id).hasMatch();
+}
+
 [[nodiscard]] bool fail(QString* err, const QString& message) {
     if (err) *err = message;
     return false;
@@ -526,8 +536,7 @@ bool validate(const BatchPreset& p, QString* err) {
                                         "build (this app understands schema v1 — update GlyphPDF "
                                         "or ask for a v1 export)")
                                    .arg(p.schemaVersion));
-    const static QRegularExpression idRx(QStringLiteral("^[a-z0-9-]{1,64}$"));
-    if (!idRx.match(p.id).hasMatch())
+    if (!isValidStoreId(p.id))
         return fail(err, QStringLiteral("id: \"%1\" must match [a-z0-9-]{1,64} (schema v1)")
                                    .arg(p.id));
     if (p.name.trimmed().isEmpty() || p.name.size() > 80)
@@ -538,7 +547,43 @@ bool validate(const BatchPreset& p, QString* err) {
         return fail(err, QStringLiteral("authorApp: exceeds 200 characters (schema v1)"));
     if (!p.created.isValid() || !p.modified.isValid())
         return fail(err, QStringLiteral("created/modified: must be valid timestamps"));
-    return validateSteps(p.steps, err);
+    if (!validateSteps(p.steps, err))
+        return false;
+
+    // PGR-50 (presets-review 2026-09-29): the runnable-shape contract is not
+    // only parse()'s — validate() is the SAVE-path gate, so it re-checks the
+    // same fields through the SAME rules. The editor cannot produce these
+    // values today, but BatchPresetStore::save is a public boundary: an
+    // in-memory preset whose naming escapes the output directory, names a
+    // device, carries an unknown policy value or a malformed minAppVersion
+    // must be refused here exactly as an imported file is, not saved into the
+    // store and displayed as runnable until the run refuses.
+    QString resolvedName;
+    QString namingErr;
+    if (!BatchPresetSchema::resolveNaming(p.outputNaming, {}, {}, 1, QDate::currentDate(),
+                                          &resolvedName, &namingErr))
+        return fail(err, namingErr);   // V7 + ".pdf" + W1-01 containment + device names + length
+    if (!p.onConflict.isEmpty()
+        && p.onConflict != QLatin1String("ask")
+        && p.onConflict != QLatin1String("overwrite")
+        && p.onConflict != QLatin1String("rename"))
+        return fail(err, QStringLiteral("onConflict: \"%1\" is not one of ask, overwrite, "
+                                        "rename (schema v1)").arg(p.onConflict));
+    if (!p.onFileFailure.isEmpty()
+        && p.onFileFailure != QLatin1String("continue")
+        && p.onFileFailure != QLatin1String("stop"))
+        return fail(err, QStringLiteral("onFileFailure: \"%1\" is not one of continue, stop "
+                                        "(schema v1)").arg(p.onFileFailure));
+    // compareVersions parses a non-numeric tail as 0, so a malformed
+    // minAppVersion silently disarms the load-but-not-run gate for every app.
+    // The malformed shape is refused so the gate cannot be armed and toothless
+    // at the same time (a well-formed value keeps the P1 semantics).
+    static const QRegularExpression minVerRx(QStringLiteral("^\\d+(\\.\\d+){0,2}$"));
+    if (!p.minAppVersion.isEmpty() && !minVerRx.match(p.minAppVersion).hasMatch())
+        return fail(err, QStringLiteral("minAppVersion: \"%1\" is not a MAJOR[.MINOR[.PATCH]] "
+                                        "version (schema v1) — the min-version gate would "
+                                        "silently never fire").arg(p.minAppVersion));
+    return true;
 }
 
 QByteArray serialize(const BatchPreset& p) {

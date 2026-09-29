@@ -177,6 +177,15 @@ private slots:
     void editorClampsWidgetsAndSavesValidPreset();
     void editorUnavailableRuntimeStepDisclosed();
 
+    // ── Presets review lane (PGR-50/51/53) ────────────────────────────────────
+    // PGR-50: validate() is the SAVE-path gate — it must re-check the same
+    // runnable-shape rules parse() enforces (naming containment, policy enums,
+    // minAppVersion shape), not only the step grammar.
+    void reviewSaveRefusesNamingTraversal();
+    void reviewSaveRefusesUnknownPolicyValues();
+    void reviewSaveRefusesMalformedMinAppVersion();
+    void reviewSaveStillAcceptsCustomNaming();
+
 private:
     std::unique_ptr<QTemporaryDir> m_storeDir;
     std::unique_ptr<QTemporaryDir> m_runDir;
@@ -2014,6 +2023,114 @@ void TestBatchPresetsP2::editorUnavailableRuntimeStepDisclosed() {
     QVERIFY(editor.savePreset());
     QCOMPARE(editor.preset().steps.size(), 1);
     QCOMPARE(editor.preset().steps.first().op, QStringLiteral("pdfa-check"));
+}
+
+// ── Presets review lane (PGR-50) ──────────────────────────────────────────────
+// The store save boundary (BatchPresetStore::save → BatchPresetCodec::validate)
+// is the only writer that can put a preset file in the store WITHOUT a parse()
+// pass (the editor hands back an in-memory preset). PGR-50: validate() checked
+// the step grammar but not the naming/policy/version fields, so an in-memory
+// preset whose naming template escapes the output directory (or names a Windows
+// device, or carries an unknown policy value, or a malformed minAppVersion)
+// could be saved into the store and displayed as runnable — only the run
+// refused. The save path now refuses them with the same diagnostics parse()
+// uses.
+
+void TestBatchPresetsP2::reviewSaveRefusesNamingTraversal() {
+    BatchPresetStore store(m_storeDir->path());
+
+    BatchPreset p;
+    p.name = QStringLiteral("Traversal Template");
+    p.outputNaming = QStringLiteral("../pwn.pdf");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(!store.save(&p, &err),
+             "a naming template that escapes the output directory must not save");
+    QVERIFY2(err.contains(QStringLiteral("not a plain file name")),
+             qPrintable(err));   // the W1-01 containment diagnostic, not a generic refusal
+    QVERIFY2(store.list().isEmpty(),
+             "the refused preset must not appear in the store");
+
+    // The device-name class too: a template rendering to NUL would write the
+    // device while the ledger reported success.
+    BatchPreset d;
+    d.name = QStringLiteral("Device Template");
+    d.outputNaming = QStringLiteral("NUL.pdf");
+    d.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString derr;
+    QVERIFY2(!store.save(&d, &derr),
+             "a reserved-device-name template must not save");
+    QVERIFY2(derr.contains(QStringLiteral("reserved Windows device name")),
+             qPrintable(derr));
+    QVERIFY2(store.list().isEmpty(),
+             "the refused device template must not appear in the store");
+}
+
+void TestBatchPresetsP2::reviewSaveRefusesUnknownPolicyValues() {
+    BatchPresetStore store(m_storeDir->path());
+
+    // An onConflict value the schema does not know must fail the save the same
+    // way parse() fails an imported file (fail-closed, plan §2.4).
+    BatchPreset p;
+    p.name = QStringLiteral("Bad Conflict");
+    p.onConflict = QStringLiteral("upsert");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(!store.save(&p, &err), "an unknown onConflict value must not save");
+    QVERIFY2(err.contains(QStringLiteral("ask, overwrite, rename")), qPrintable(err));
+
+    BatchPreset q;
+    q.name = QStringLiteral("Bad Failure Policy");
+    q.onFileFailure = QStringLiteral("halt");
+    q.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString qerr;
+    QVERIFY2(!store.save(&q, &qerr), "an unknown onFileFailure value must not save");
+    QVERIFY2(qerr.contains(QStringLiteral("continue, stop")), qPrintable(qerr));
+    QVERIFY2(store.list().isEmpty(),
+             "neither refused preset may appear in the store");
+}
+
+void TestBatchPresetsP2::reviewSaveRefusesMalformedMinAppVersion() {
+    BatchPresetStore store(m_storeDir->path());
+
+    // A malformed minAppVersion silently disables the load-but-not-run gate
+    // (compareVersions parses a non-numeric tail as 0 — every app "passes").
+    // The save path refuses the malformed shape so the gate cannot be armed
+    // and toothless at the same time.
+    BatchPreset p;
+    p.name = QStringLiteral("Bad Min Version");
+    p.minAppVersion = QStringLiteral("1.4.x");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(!store.save(&p, &err), "a malformed minAppVersion must not save");
+    QVERIFY2(err.contains(QStringLiteral("MAJOR[.MINOR[.PATCH]]")), qPrintable(err));
+    QVERIFY2(store.list().isEmpty(), "the refused preset must not appear in the store");
+
+    // A WELL-formed version still saves — the P1 load-but-not-run contract
+    // (minAppVersionBlocksOlderApp) keeps its shape.
+    BatchPreset ok;
+    ok.name = QStringLiteral("Good Min Version");
+    ok.minAppVersion = QStringLiteral("99.0");
+    ok.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString okerr;
+    QVERIFY2(store.save(&ok, &okerr), qPrintable(okerr));
+    QCOMPARE(store.list().size(), 1);
+}
+
+void TestBatchPresetsP2::reviewSaveStillAcceptsCustomNaming() {
+    BatchPresetStore store(m_storeDir->path());
+    // Positive control: a legitimate custom template saves and round-trips —
+    // the PGR-50 hardening must not over-refuse.
+    BatchPreset p;
+    p.name = QStringLiteral("Custom Naming");
+    p.outputNaming = QStringLiteral("{basename}_{n}_x.pdf");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(store.save(&p, &err), qPrintable(err));
+    QCOMPARE(store.list().size(), 1);
+    BatchPreset loaded;
+    QVERIFY2(store.get(p.id, &loaded, &err), qPrintable(err));
+    QCOMPARE(loaded.outputNaming, QStringLiteral("{basename}_{n}_x.pdf"));
 }
 
 QTEST_MAIN(TestBatchPresetsP2)
