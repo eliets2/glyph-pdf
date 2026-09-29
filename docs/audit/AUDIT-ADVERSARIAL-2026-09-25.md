@@ -23,8 +23,9 @@
 | AD-08 | LOW | form JS host | CWE-770 (bounded-only-per-string allocation) | OBSERVATION | `report.logs`/`blocked` aggregate per-event transfers; each is capped (4 MiB egress, 16 MiB engine heap, 1 s cascade) but the aggregate across events reaches tens of MB in host QStringLists |
 | AD-09 | RESIDUAL | several | CWE-367 (TOCTOU windows) | OBSERVATION | Same-user race windows: policy owner-check vs read; redaction proof re-reads `sourcePath` after commit; update file swap between handle-verify and the msiexec child's own open |
 | AD-10 | INFO | djot codec | hardening | OBSERVATION | `sandboxLuaState` nils io/os/loadfile/dofile/debug but keeps `load` and `require` (path-restricted) alive in the Lua state that parses hostile input |
+| AD-11 | MED-LOW | redaction guards | CWE-636 (fail-open) | STATIC-CONFIRMED | `hasPdfSignatures`/`hasXfaDocument` swallow parse errors and answer "unsigned"/"XFA-free" — a malformed AcroForm bypasses the ER-2/G1 redaction refusals |
 
-Count: **1 HIGH, 2 MED(+1 MED-HIGH), 2 LOW-MED, 3 LOW, 1 INFO, plus refutations.** All are static leads — promotion path for each is listed in the finding.
+Count: **1 HIGH, 2 MED(+1 MED-HIGH), 3 LOW-MED, 3 LOW, 1 INFO, plus refutations.** All are static leads — promotion path for each is listed in the finding.
 
 ---
 
@@ -148,6 +149,18 @@ All require local write access at or above the victim's own privilege — noted 
 
 ---
 
+### AD-11 — Redaction preflight gates (signed / XFA) fail OPEN on parse errors — MED-LOW
+
+**Component / asset**: `src/engines/podofo/PoDoFoBackend.cpp` — `hasPdfSignatures` ("Cannot determine — treat conservatively as unsigned" → `return false`) and `hasXfaDocument` ("Cannot determine — treat as XFA-free"). Both swallow `PdfError` from the field-walk / dictionary lookups and report the *unsafe* answer. These are the ER-2 and G1 gates consumed by `RedactOperation::execute` (488–494) and `PdfEditorEngine`'s four signature-guarded mutations (368, 1622, 1670, 2018).
+
+**Attacker narrative**: a hostile document whose `/AcroForm /Fields` iterator throws mid-walk (corrupt field dictionary, dangling indirect ref) reports "unsigned"; redaction then proceeds on a signed document — the exact scenario the ER-2 refusal exists to prevent (original content recoverable / silent signature destruction). Same shape for XFA: detection failure → redaction proceeds → the G1 "second copy of every form value in XFA streams" leaks into the redacted output; the RedactionProof would catch string survivors only when the proof is requested and the XFA copy is a literal byte match.
+**Bug class / CWE**: CWE-636 (not failing closed) / CWE-755.
+**Note**: `hasXfaDocument`'s failure is partially backstopped when sanitize runs (it scrubs XFA keys regardless of detection), but sanitize is optional in the redact transaction.
+**Remediation**: invert the failure direction — on `PdfError` during signature/XFA determination return `true` (signed / has-XFA) so the refusal fires; the honest-cost direction ("redaction refused on an undecidable doc") is a workflow annoyance, the current direction is a silent safety-gate bypass.
+**Regression check**: pin that a document whose /Fields entry throws reports `hasPdfSignatures() == true`; same for a throwing AcroForm on the XFA probe.
+
+---
+
 ## Surfaces attacked and REFUTED (with pins)
 
 | Candidate | Refutation |
@@ -172,7 +185,7 @@ All require local write access at or above the victim's own privilege — noted 
 |---|---|---|
 | 1 Document parsing | pdfium/podofo/qpdf backends, PoFoDictRead, djot codec, Lua | AD-03, AD-10; backends delegate to hardened libs (PoDoFo 1.1 vendored) |
 | 2 Signing/certification | SignatureManager (full 3153 lines), ISA classifier, INV-1 helpers, ByteRange geometry | **AD-01, AD-02, AD-07** |
-| 3 Redaction | RedactOperation (full), excision core, RedactionProof sweep breadth | Refuted (false-pass), AD-09 (proof TOCTOU) |
+| 3 Redaction | RedactOperation (full), excision core, RedactionProof sweep breadth, hasPdfSignatures/hasXfaDocument gates | Refuted (false-pass), **AD-11** (fail-open gates), AD-09 (proof TOCTOU) |
 | 4 Form/JavaScript | FormJsSandbox/Runner/AFormShim (full) | Refuted (escape/DoS), AD-06, AD-08 |
 | 5 File I/O | SafeSave, TempFileManager, RedactOperation commit path | Refuted (candidate+QSaveFile+divergence re-check); AD-09 |
 | 6 Export/conversion | ConversionManager (CSV/HTML/soffice), ReviewSummaryWriter, BatchMode | Refuted (escaped/arg-list) |
