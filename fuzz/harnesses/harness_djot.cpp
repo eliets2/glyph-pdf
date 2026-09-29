@@ -47,7 +47,12 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     std::string djot(reinterpret_cast<const char*>(data), size);
 
     // Fresh codec per input -> fresh lua_State per parse (matches production).
-    LuaDjotCodec codec(DJOT_LIB_PATH);
+    // pdfws:: — LuaDjotCodec lives in the pdfws module namespace; the
+    // unqualified name stopped compiling and the stale harness went unnoticed
+    // until the CX-13 acceptance dispatch chain actually rebuilt it
+    // (run 36646929803, 2026-09-29 — the INF06 gate refuses to stay green
+    // over a harness that cannot compile).
+    pdfws::LuaDjotCodec codec(DJOT_LIB_PATH);
     try {
         auto doc = codec.djotToDocument(djot);
         (void)doc; // SemanticDocument destroyed at scope exit -> leak check
