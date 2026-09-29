@@ -47,11 +47,15 @@ jobs:
         with:
           msystem: UCRT64
           update: false
-          # Same dep set as ci.yml (minus the Qt *-tools/-svg/etc. UI extras
-          # the headless engine targets do not link) + clang: the driver
-          # today links with g++, but clang stays provisioned so the ASan
-          # driver variant and the harness builds never hit a missing
-          # toolchain mid-job.
+          # Same dep set as ci.yml (minus only the Qt tools/translations/
+          # imageformats extras) + clang: the driver today links with g++,
+          # but clang stays provisioned so the ASan driver variant and the
+          # harness builds never hit a missing toolchain mid-job.
+          # qt6-svg is REQUIRED, not a UI extra: the top-level find_package
+          # (CMakeLists.txt:123) hard-requires the Svg component, so the old
+          # trimmed list could not even configure the engine — found by the
+          # CX-13 acceptance dispatch on 2026-09-29 (run 36643482560, job
+          # redaction-oracles: 'Failed to find required Qt component "Svg"').
           install: >-
             git
             mingw-w64-ucrt-x86_64-toolchain
@@ -60,6 +64,7 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-qt6-base
+            mingw-w64-ucrt-x86_64-qt6-svg
             mingw-w64-ucrt-x86_64-qt6-pdf
             mingw-w64-ucrt-x86_64-podofo
             mingw-w64-ucrt-x86_64-qpdf
