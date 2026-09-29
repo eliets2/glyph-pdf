@@ -1,0 +1,3 @@
+PASS   : TestImageAppearance::cleanupTestCase()
+Totals: 47 passed, 0 failed, 0 skipped, 0 blacklisted, 1228ms
+********* Finished testing of TestImageAppearance *********

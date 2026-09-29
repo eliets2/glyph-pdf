@@ -1,0 +1,14 @@
+N1 negative control — occurrence-addressing BEHAVIOR scoped-reverted (signatures kept, tests untouched):
+  gp::content restack/wrap/replaceMatrix (and removeImagePlacement) pass occurrence 0 to findImageDoNth;
+  PoDoFoBackend findImageByName matches occurrence==0; deleteImage hardcodes 0; listImages stops numbering.
+Command: PATH=third_party/pdfium/bin:$PATH QT_QPA_PLATFORM=offscreen ./build-final/TestImageAppearance.exe
+
+FAIL!  : TestImageAppearance::removeImagePlacementSpanRules() Compared values are not the same
+FAIL!  : TestImageAppearance::removeImagePlacementByOccurrence() 'out.contains("5 5 cm") && !out.contains("7 7 cm")' returned FALSE. (occurrence 1 must remove the second span, got <
+FAIL!  : TestImageAppearance::restackTargetsTheOccurrence() Compared values are not the same
+FAIL!  : TestImageAppearance::wrapTargetsTheOccurrence() 'out.contains("q 200 0 0 200 100 400 cm /ImA Do Q")' returned FALSE. ()
+FAIL!  : TestImageAppearance::replaceMatrixTargetsTheOccurrence() 'out.contains("q 200 0 0 200 100 400 cm /ImA Do Q")' returned FALSE. ()
+FAIL!  : TestImageAppearance::listImagesNumbersTheOccurrences() Compared values are not the same
+FAIL!  : TestImageAppearance::editingSecondPlacementLeavesFirstByteIdentical() 'content.contains("q 200 0 0 200 100 400 cm /ImA Do Q")' returned FALSE. (the first placement's cm must survive byte-identical)
+FAIL!  : TestImageAppearance::opacityTargetsTheOccurrence() 'content.contains("q 200 0 0 200 100 400 cm /ImA Do Q")' returned FALSE. ()
+Totals: 39 passed, 8 failed, 0 skipped, 0 blacklisted, 708ms
