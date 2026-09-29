@@ -1,0 +1,3340 @@
+{
+    "actualSize": {
+        "h": 1080,
+        "w": 1920
+    },
+    "cjk": {
+        "engineRender": "cjk-engine-render.png",
+        "engineRenderInkFraction": 0.004210163875526458,
+        "engineRenderSize": {
+            "h": 1684,
+            "w": 1190
+        },
+        "grabSize": {
+            "h": 1080,
+            "w": 1920
+        },
+        "screenshot": "cjk-viewer.png",
+        "uiLabelResolvedFamily": "Segoe UI",
+        "uiLabelSizeHintNonEmpty": true,
+        "viewerPages": 1
+    },
+    "cjkFixtureFamily": "Malgun Gothic",
+    "cjkLineFonts": [
+        {
+            "embedded": true,
+            "font": "Segoe UI",
+            "text": "GlyphPDF CJK / RTL smoke:"
+        },
+        {
+            "embedded": true,
+            "font": "Segoe UI",
+            "text": "RTL: اختبار العربية"
+        },
+        {
+            "embedded": true,
+            "font": "Malgun Gothic",
+            "text": "한국어 테스트 (ko)"
+        },
+        {
+            "embedded": true,
+            "font": "Malgun Gothic",
+            "text": "日本語テスト (ja)"
+        },
+        {
+            "embedded": false,
+            "text": "中文测试 (zh)"
+        }
+    ],
+    "devicePixelRatio": 1,
+    "dialogs": {
+        "certEncryptPicker": {
+            "buttons": [
+                "Add Certificates…",
+                "Remove Selected",
+                "Remove All",
+                "OK",
+                "Cancel"
+            ],
+            "checkboxes": [
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+            ],
+            "focusChain": [
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Encrypt the document's session key to on"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "recipientDisclosureLabel",
+                    "text": "How recipients work: every recipient rec"
+                },
+                {
+                    "class": "QListWidget",
+                    "name": "recipientList",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_viewport",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_hcontainer",
+                    "text": ""
+                },
+                {
+                    "class": "QScrollBar",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_vcontainer",
+                    "text": ""
+                },
+                {
+                    "class": "QScrollBar",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "recipientErrorLabel",
+                    "text": ""
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "recipientAddButton",
+                    "text": "Add Certificates…"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "recipientRemoveButton",
+                    "text": "Remove Selected"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "recipientClearButton",
+                    "text": "Remove All"
+                }
+            ],
+            "grabSize": {
+                "h": 420,
+                "w": 1163
+            },
+            "labels": [
+                "Encrypt the document's session key to one or more recipient certificates. Each listed recipient will be able to open the",
+                "How recipients work: every recipient receives its own CMS envelope, and all envelopes wrap the SAME session key. Re-encr"
+            ],
+            "modality": "modal",
+            "radios": [
+            ],
+            "screenshot": "dialog-certencrypt.png",
+            "title": "Encrypt with Recipient Certificates"
+        },
+        "ocsp": {
+            "buttons": [
+                "Allow once",
+                "Allow for this document",
+                "Deny (no network — signing not attempted)"
+            ],
+            "checkboxes": [
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+            ],
+            "focusChain": [
+                {
+                    "class": "QLabel",
+                    "name": "ocspConsentDisclosure",
+                    "text": "Signing at PAdES B-LT or B-LTA embeds lo"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "ocspAllowOnceBtn",
+                    "text": "Allow once"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "ocspAllowDocumentBtn",
+                    "text": "Allow for this document"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "ocspDenyBtn",
+                    "text": "Deny (no network — signing not attempted"
+                }
+            ],
+            "grabSize": {
+                "h": 192,
+                "w": 496
+            },
+            "labels": [
+                "Signing at PAdES B-LT or B-LTA embeds long-term-validation data. To build it, GlyphPDF contacts the OCSP responder URL e"
+            ],
+            "modality": "modal",
+            "radios": [
+            ],
+            "screenshot": "dialog-ocsp.png",
+            "title": "Network consent — certificate revocation check"
+        },
+        "preferences": {
+            "buttons": [
+                "Export support bundle…",
+                "Check Now",
+                "Save",
+                "Cancel"
+            ],
+            "checkboxes": [
+                {
+                    "checked": false,
+                    "enabled": true,
+                    "text": "Auto-prune missing recent files on startup"
+                },
+                {
+                    "checked": false,
+                    "enabled": true,
+                    "text": "Check for updates on startup"
+                }
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+                {
+                    "current": "English",
+                    "items": [
+                        "English",
+                        "Ø§ÙØ¹Ø±Ø¨ÙØ©",
+                        "FranÃ§ais",
+                        "Deutsch"
+                    ]
+                },
+                {
+                    "current": "Dark",
+                    "items": [
+                        "Dark",
+                        "Light",
+                        "High Contrast",
+                        "System"
+                    ]
+                },
+                {
+                    "current": "Stable",
+                    "items": [
+                        "Stable",
+                        "Beta"
+                    ]
+                }
+            ],
+            "focusChain": [
+                {
+                    "class": "QTabWidget",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QStackedWidget",
+                    "name": "qt_tabwidget_stackedwidget",
+                    "text": ""
+                },
+                {
+                    "class": "QTabBar",
+                    "name": "qt_tabwidget_tabbar",
+                    "text": ""
+                },
+                {
+                    "class": "QToolButton",
+                    "name": "ScrollLeftButton",
+                    "text": ""
+                },
+                {
+                    "class": "QToolButton",
+                    "name": "ScrollRightButton",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QGroupBox",
+                    "name": "policyStatusGroup",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "policyStatusLabel",
+                    "text": "No machine policy found (checked C:/User"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "policyKeysLabel",
+                    "text": ""
+                },
+                {
+                    "class": "QGroupBox",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Language:"
+                },
+                {
+                    "class": "QComboBox",
+                    "name": "",
+                    "text": ""
+                }
+            ],
+            "grabSize": {
+                "h": 547,
+                "w": 533
+            },
+            "labels": [
+                "No machine policy found (checked C:/Users/User/AppData/Local/GlyphPDF/policy.json). All settings follow your preferences",
+                "Language:",
+                "Theme:",
+                "Autosave Interval:",
+                "Writes a support-bundle JSON file you can attach to a bug report: app version, build info, enabled capabilities, machine",
+                "Channel:",
+                "Current version:",
+                "Language changes take effect on restart."
+            ],
+            "modality": "nonModal(probe show())",
+            "policyMentioningRows": [
+            ],
+            "radios": [
+            ],
+            "screenshot": "dialog-preferences.png",
+            "title": "Preferences"
+        },
+        "redactApply": {
+            "buttons": [
+                "Browse…",
+                "Browse…",
+                "Apply Redactions",
+                "Cancel"
+            ],
+            "checkboxStates": [
+                {
+                    "checked": true,
+                    "text": "Also produce a fully sanitized copy (metadata, attachments, JavaScript)"
+                },
+                {
+                    "checked": true,
+                    "text": "Generate a redaction proof pack (verifiable report of what was removed)"
+                }
+            ],
+            "checkboxes": [
+                {
+                    "checked": true,
+                    "enabled": true,
+                    "text": "Also produce a fully sanitized copy (metadata, attachments, JavaScript)"
+                },
+                {
+                    "checked": true,
+                    "enabled": true,
+                    "text": "Generate a redaction proof pack (verifiable report of what was removed)"
+                }
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+            ],
+            "focusChain": [
+                {
+                    "class": "QFrame",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Document: fixture-basic.pdf"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "redactApplySummaryLabel",
+                    "text": "1 mark on 1 page, marked for removal."
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Page 1: 1"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "The black boxes on the canvas are marks "
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Redacted output:"
+                },
+                {
+                    "class": "QLineEdit",
+                    "name": "redactApplyDestinationEdit",
+                    "text": "D:/pdf/pdf-ui-redesign/.context/ui-sweep"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "",
+                    "text": "Browse…"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Sanitized copy:"
+                },
+                {
+                    "class": "QLineEdit",
+                    "name": "redactApplySanitizedDestinationEdit",
+                    "text": "D:/pdf/pdf-ui-redesign/.context/ui-sweep"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "",
+                    "text": "Browse…"
+                },
+                {
+                    "class": "QCheckBox",
+                    "name": "redactApplySanitizeCheck",
+                    "text": "Also produce a fully sanitized copy (met"
+                }
+            ],
+            "grabSize": {
+                "h": 382,
+                "w": 520
+            },
+            "labels": [
+                "Document: fixture-basic.pdf",
+                "1 mark on 1 page, marked for removal.",
+                "Page 1: 1",
+                "The black boxes on the canvas are marks for removal. Nothing is changed until you press Apply Redactions; the content is",
+                "Redacted output:",
+                "Sanitized copy:",
+                "Overlay text:"
+            ],
+            "modality": "modal",
+            "radios": [
+            ],
+            "screenshot": "dialog-redactapply.png",
+            "title": "Apply Redactions"
+        },
+        "sign": {
+            "buttons": [
+                "Browse...",
+                "Appearance Image...",
+                "Clear",
+                "OK",
+                "Cancel"
+            ],
+            "certifyPurposeCombo": true,
+            "certifyPurposeDefault": "Approve signature",
+            "certifyPurposeItems": [
+                "Approve signature",
+                "Certify"
+            ],
+            "certifySelectorPresent": true,
+            "checkboxes": [
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+                {
+                    "current": "Approve signature",
+                    "items": [
+                        "Approve signature",
+                        "Certify"
+                    ]
+                },
+                {
+                    "current": "1 — No changes allowed (DocMDP P=1)",
+                    "items": [
+                        "1 — No changes allowed (DocMDP P=1)",
+                        "2 — Form filling allowed (DocMDP P=2)",
+                        "3 — Form filling and commenting allowed (DocMDP P=3)"
+                    ]
+                }
+            ],
+            "focusChain": [
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Apply Digital Signature"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "dialogHelpText",
+                    "text": "Choose a .p12 or .pfx certificate from a"
+                },
+                {
+                    "class": "QComboBox",
+                    "name": "signaturePurposeCombo",
+                    "text": ""
+                },
+                {
+                    "class": "QComboBox",
+                    "name": "signatureLevelCombo",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "certLevelDescriptionLabel",
+                    "text": "Approval signature: signs as you, adds n"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "certifyUnavailableLabel",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Purpose:"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Level:"
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Certificate:"
+                },
+                {
+                    "class": "QLineEdit",
+                    "name": "signatureCertPathEdit",
+                    "text": ""
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "",
+                    "text": "Browse..."
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Password:"
+                }
+            ],
+            "grabSize": {
+                "h": 635,
+                "w": 450
+            },
+            "labels": [
+                "Apply Digital Signature",
+                "Choose a .p12 or .pfx certificate from a trusted source. The certificate password unlocks the private key used to sign t",
+                "Approval signature: signs as you, adds no document restrictions.",
+                "Purpose:",
+                "Level:",
+                "Certificate:",
+                "Password:",
+                "Reason:",
+                "Location:",
+                "Preview of the visible signature (the signer name is taken from the certificate at signing time).",
+                "Signature image (optional):",
+                "Recipients trust the signature only when the certificate chain is trusted. Use Validate Signature after signing to confi"
+            ],
+            "modality": "nonModal(probe show())",
+            "radios": [
+            ],
+            "screenshot": "dialog-sign.png",
+            "title": "Digital Signature"
+        },
+        "signProgress": {
+            "buttons": [
+                "Sign as this signer",
+                "Verify Signatures",
+                "Dismiss"
+            ],
+            "checkboxes": [
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+            ],
+            "focusChain": [
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "The signing request could not be read an"
+                },
+                {
+                    "class": "QListWidget",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_viewport",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_hcontainer",
+                    "text": ""
+                },
+                {
+                    "class": "QScrollBar",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_vcontainer",
+                    "text": ""
+                },
+                {
+                    "class": "QScrollBar",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QLabel",
+                    "name": "",
+                    "text": "Signing order is advisory: GlyphPDF guid"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "",
+                    "text": "Sign as this signer"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "",
+                    "text": "Verify Signatures"
+                },
+                {
+                    "class": "QPushButton",
+                    "name": "",
+                    "text": "Dismiss"
+                }
+            ],
+            "grabSize": {
+                "h": 380,
+                "w": 520
+            },
+            "labels": [
+                "The signing request could not be read and was NOT used (D:/pdf/pdf-ui-redesign/.context/ui-sweep/large-100/sign-doc.pdf.",
+                "Signing order is advisory: GlyphPDF guides signers in this sequence and verifies every result, but PDF signature fields "
+            ],
+            "modality": "nonModal(probe show())",
+            "radios": [
+            ],
+            "screenshot": "dialog-signprogress.png",
+            "title": "Signing Request Progress"
+        },
+        "signRequest": {
+            "buttons": [
+                "Add Signer",
+                "Remove",
+                "Up",
+                "Down",
+                "Save Request",
+                "Cancel"
+            ],
+            "checkboxes": [
+            ],
+            "clipSuspects": [
+            ],
+            "combos": [
+                {
+                    "current": "[New signature field at anchor…]",
+                    "items": [
+                        "[New signature field at anchor…]"
+                    ]
+                }
+            ],
+            "focusChain": [
+                {
+                    "class": "QListWidget",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_viewport",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_hcontainer",
+                    "text": ""
+                },
+                {
+                    "class": "QScrollBar",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "qt_scrollarea_vcontainer",
+                    "text": ""
+                },
+                {
+                    "class": "QScrollBar",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QLineEdit",
+                    "name": "",
+                    "text": "Signer 1"
+                },
+                {
+                    "class": "QComboBox",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QWidget",
+                    "name": "",
+                    "text": ""
+                },
+                {
+                    "class": "QSpinBox",
+                    "name": "",
+                    "text": "page 0"
+                },
+                {
+                    "class": "QLineEdit",
+                    "name": "qt_spinbox_lineedit",
+                    "text": "page 0"
+                },
+                {
+                    "class": "QDoubleSpinBox",
+                    "name": "",
+                    "text": "72.0 pt"
+                }
+            ],
+            "grabSize": {
+                "h": 420,
+                "w": 620
+            },
+            "labels": [
+                "Anchor page (0-based)",
+                "Anchor x / y",
+                "Anchor width / height",
+                "Signer name",
+                "Signature field",
+                "Signing order is advisory: GlyphPDF guides signers in this sequence and verifies every result, but PDF signature fields "
+            ],
+            "modality": "modal",
+            "radios": [
+            ],
+            "screenshot": "dialog-signrequest.png",
+            "title": "Prepare Signing Request"
+        },
+        "signingFixturesPresent": true
+    },
+    "qrcIcons": "ok",
+    "qtScaleFactorEnv": "1.0",
+    "requestedSize": {
+        "h": 1080,
+        "w": 1920
+    },
+    "ribbon": {
+        "found": true,
+        "tabs": [
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Select",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "select",
+                        "label": "Select",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Hand",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "hand",
+                        "label": "Hand",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Snapshot",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Page snapshots are not available yet. Convert the page to an image (Convert ▸ Image) or select and copy text.",
+                        "disabledStatusTip": "Page snapshots are not available yet.",
+                        "disabledToolTip": "Page snapshots are not available yet. Convert the page to an image (Convert ▸ Image) or select and copy text.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "snapshot",
+                        "label": "Snapshot",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Find",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "search",
+                        "label": "Find",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Find & Replace",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "findRep",
+                        "label": "Find & Replace",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Regex",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "regex",
+                        "label": "Regex",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Undo",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "undo",
+                        "label": "Undo",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Redo",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "redo",
+                        "label": "Redo",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "History",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "A history browser is not available yet. Undo and Redo (Ctrl+Z / Ctrl+Y) step through recent changes.",
+                        "disabledStatusTip": "A history browser is not available yet.",
+                        "disabledToolTip": "A history browser is not available yet. Undo and Redo (Ctrl+Z / Ctrl+Y) step through recent changes.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "history",
+                        "label": "History",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Share",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "share",
+                        "label": "Share",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Save",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "save",
+                        "label": "Save",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Save As",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "saveAs",
+                        "label": "Save As",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Print",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "print",
+                        "label": "Print",
+                        "plannedHidden": false
+                    }
+                ],
+                "missingIconAsset": 0,
+                "noToolTip": 11,
+                "rendered": 13,
+                "screenshot": "tab-home.png",
+                "tab": "Home"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Zoom In",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "zoomIn",
+                        "label": "Zoom In",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Zoom Out",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "zoomOut",
+                        "label": "Zoom Out",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Actual Size",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "actual",
+                        "label": "Actual Size",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Fit Width",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "fitWidth",
+                        "label": "Fit Width",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Fit Page",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "fitPage",
+                        "label": "Fit Page",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Single Page",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "single",
+                        "label": "Single Page",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Continuous",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "continuous",
+                        "label": "Continuous",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Two Up",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "two",
+                        "label": "Two Up",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Presentation",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "presentation",
+                        "label": "Presentation",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Thumbnails",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "thumbs",
+                        "label": "Thumbnails",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Bookmarks",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "bookmarks",
+                        "label": "Bookmarks",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Comments",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "comments",
+                        "label": "Comments",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Layers",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "layers",
+                        "label": "Layers",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Dark Mode",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "darkMode",
+                        "label": "Dark Mode",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Eye Care",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "eyeCare",
+                        "label": "Eye Care",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Night Mode",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "nightMode",
+                        "label": "Night Mode",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "RTL",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "rtl",
+                        "label": "RTL",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Split",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Split view is not available yet. Two-Page view (View ▸ Layout) shows two pages side by side.",
+                        "disabledStatusTip": "Split view is not available yet.",
+                        "disabledToolTip": "Split view is not available yet. Two-Page view (View ▸ Layout) shows two pages side by side.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "splitWin",
+                        "label": "Split",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Compare",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "compare",
+                        "label": "Compare",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "New",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Multiple windows are not supported yet. Open one document at a time in this window.",
+                        "disabledStatusTip": "Multiple windows are not supported yet.",
+                        "disabledToolTip": "Multiple windows are not supported yet. Open one document at a time in this window.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "newWin",
+                        "label": "New",
+                        "plannedHidden": true
+                    }
+                ],
+                "missingIconAsset": 5,
+                "noToolTip": 18,
+                "rendered": 20,
+                "screenshot": "tab-view.png",
+                "tab": "View"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Edit Text",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "editText",
+                        "label": "Edit Text",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Add Text",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "addText",
+                        "label": "Add Text",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Insert",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Inserting text into existing content is not available yet. Add Text (Edit ▸ Text) places a new text box you can position",
+                        "disabledStatusTip": "Inserting text into existing content is not available yet.",
+                        "disabledToolTip": "Inserting text into existing content is not available yet. Add Text (Edit ▸ Text) places a new text box you can position",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "insertText",
+                        "label": "Insert",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Delete",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Deleting text objects is not available yet. Redaction (Protect ▸ Mark) permanently removes content.",
+                        "disabledStatusTip": "Deleting text objects is not available yet.",
+                        "disabledToolTip": "Deleting text objects is not available yet. Redaction (Protect ▸ Mark) permanently removes content.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "deleteText",
+                        "label": "Delete",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Image",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "image",
+                        "label": "Image",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Link",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Editing links is not available yet. Existing links stay clickable and are preserved on save.",
+                        "disabledStatusTip": "Editing links is not available yet.",
+                        "disabledToolTip": "Editing links is not available yet. Existing links stay clickable and are preserved on save.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "link",
+                        "label": "Link",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Attach",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Attaching files is not available yet. Existing attachments can be exported from the Files panel (left sidebar).",
+                        "disabledStatusTip": "Attaching files is not available yet.",
+                        "disabledToolTip": "Attaching files is not available yet. Existing attachments can be exported from the Files panel (left sidebar).",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "attach",
+                        "label": "Attach",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Delete",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "delete",
+                        "label": "Delete",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Align L",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Object alignment is not available yet. Move objects precisely with the Select tool.",
+                        "disabledStatusTip": "Object alignment is not available yet.",
+                        "disabledToolTip": "Object alignment is not available yet. Move objects precisely with the Select tool.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "alignL",
+                        "label": "Align L",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Align C",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Object alignment is not available yet. Move objects precisely with the Select tool.",
+                        "disabledStatusTip": "Object alignment is not available yet.",
+                        "disabledToolTip": "Object alignment is not available yet. Move objects precisely with the Select tool.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "alignC",
+                        "label": "Align C",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Align R",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Object alignment is not available yet. Move objects precisely with the Select tool.",
+                        "disabledStatusTip": "Object alignment is not available yet.",
+                        "disabledToolTip": "Object alignment is not available yet. Move objects precisely with the Select tool.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "alignR",
+                        "label": "Align R",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Distribute",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Object distribution is not available yet. Move objects precisely with the Select tool.",
+                        "disabledStatusTip": "Object distribution is not available yet.",
+                        "disabledToolTip": "Object distribution is not available yet. Move objects precisely with the Select tool.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "distribute",
+                        "label": "Distribute",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Group",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Grouping objects is not available yet. Move or delete objects individually with the Select tool.",
+                        "disabledStatusTip": "Grouping objects is not available yet.",
+                        "disabledToolTip": "Grouping objects is not available yet. Move or delete objects individually with the Select tool.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "group",
+                        "label": "Group",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Order",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Object stacking order is not available yet. Move or delete objects individually with the Select tool.",
+                        "disabledStatusTip": "Object stacking order is not available yet.",
+                        "disabledToolTip": "Object stacking order is not available yet. Move or delete objects individually with the Select tool.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "layerOrder",
+                        "label": "Order",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Run OCR",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "ocr",
+                        "label": "Run OCR",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Verify Text",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "ocrVerify",
+                        "label": "Verify Text",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Language",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "ocrLang",
+                        "label": "Language",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Settings",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "OCR has no separate settings dialog yet. Choose the recognition language on the OCR Verify screen (Tools ▸ OCR).",
+                        "disabledStatusTip": "OCR has no separate settings dialog yet.",
+                        "disabledToolTip": "OCR has no separate settings dialog yet. Choose the recognition language on the OCR Verify screen (Tools ▸ OCR).",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "ocrSettings",
+                        "label": "Settings",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Measure",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "measure",
+                        "label": "Measure",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Distance",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "distance",
+                        "label": "Distance",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Area",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "area",
+                        "label": "Area",
+                        "plannedHidden": false
+                    }
+                ],
+                "missingIconAsset": 1,
+                "noToolTip": 10,
+                "rendered": 21,
+                "screenshot": "tab-edit.png",
+                "tab": "Edit"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Insert",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "insertPage",
+                        "label": "Insert",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Delete",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "deletePage",
+                        "label": "Delete",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Rotate",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "rotate",
+                        "label": "Rotate",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Replace",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Page replacement is not available yet. Delete the pages, then insert the replacement file's pages (Organize ▸ Pages).",
+                        "disabledStatusTip": "Page replacement is not available yet.",
+                        "disabledToolTip": "Page replacement is not available yet. Delete the pages, then insert the replacement file's pages (Organize ▸ Pages).",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "replace",
+                        "label": "Replace",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Reorder",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "reorder",
+                        "label": "Reorder",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Reverse",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "One-click page reversal is not available yet. Reorder pages by drag in the Pages task (Organize ▸ Pages).",
+                        "disabledStatusTip": "One-click page reversal is not available yet.",
+                        "disabledToolTip": "One-click page reversal is not available yet. Reorder pages by drag in the Pages task (Organize ▸ Pages).",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "reverse",
+                        "label": "Reverse",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Split",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "split",
+                        "label": "Split",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Merge",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "merge",
+                        "label": "Merge",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Extract",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "extract",
+                        "label": "Extract",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Compare",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "compareDocs",
+                        "label": "Compare",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Page Numbers",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "pageNums",
+                        "label": "Page Numbers",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Header/Footer",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "header",
+                        "label": "Header/Footer",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Bates",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "bates",
+                        "label": "Bates",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Watermark",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "watermark",
+                        "label": "Watermark",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Background",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Page backgrounds are not available yet. Watermark (Organize ▸ Decorate) adds a visible overlay to every page.",
+                        "disabledStatusTip": "Page backgrounds are not available yet.",
+                        "disabledToolTip": "Page backgrounds are not available yet. Watermark (Organize ▸ Decorate) adds a visible overlay to every page.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "background",
+                        "label": "Background",
+                        "plannedHidden": true
+                    }
+                ],
+                "missingIconAsset": 2,
+                "noToolTip": 12,
+                "rendered": 15,
+                "screenshot": "tab-organize.png",
+                "tab": "Organize"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Highlight",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "highlight",
+                        "label": "Highlight",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Underline",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "underline",
+                        "label": "Underline",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Strikeout",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "strike",
+                        "label": "Strikeout",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Squiggly",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "squiggly",
+                        "label": "Squiggly",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Sticky Note",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "note",
+                        "label": "Sticky Note",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Callout",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "callout",
+                        "label": "Callout",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Text Box",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "textbox",
+                        "label": "Text Box",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Line",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "line",
+                        "label": "Line",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Arrow",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "arrow",
+                        "label": "Arrow",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Rectangle",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "rect",
+                        "label": "Rectangle",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Oval",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "oval",
+                        "label": "Oval",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Polyline",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Polyline drawing is not available yet. Use the Pencil for freehand shapes or Line for straight segments.",
+                        "disabledStatusTip": "Polyline drawing is not available yet.",
+                        "disabledToolTip": "Polyline drawing is not available yet. Use the Pencil for freehand shapes or Line for straight segments.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": false,
+                        "id": "poly",
+                        "label": "Polyline",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Pencil",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "pencil",
+                        "label": "Pencil",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Eraser",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "eraser",
+                        "label": "Eraser",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Stamp",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "stamp",
+                        "label": "Stamp",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Custom",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "customStamp",
+                        "label": "Custom",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Summary",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "The review summary lives in the Comments panel. Open the Comments panel (left sidebar) — it shows the summary and export",
+                        "disabledStatusTip": "The review summary lives in the Comments panel.",
+                        "disabledToolTip": "The review summary lives in the Comments panel. Open the Comments panel (left sidebar) — it shows the summary and export",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "summary",
+                        "label": "Summary",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Filter",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Comment filters live in the Comments panel. Open the Comments panel (left sidebar) to filter the review list.",
+                        "disabledStatusTip": "Comment filters live in the Comments panel.",
+                        "disabledToolTip": "Comment filters live in the Comments panel. Open the Comments panel (left sidebar) to filter the review list.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "filterComm",
+                        "label": "Filter",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Status",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Comment review statuses live in the Comments panel. Open the Comments panel (left sidebar) to set review statuses.",
+                        "disabledStatusTip": "Comment review statuses live in the Comments panel.",
+                        "disabledToolTip": "Comment review statuses live in the Comments panel. Open the Comments panel (left sidebar) to set review statuses.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "statusComm",
+                        "label": "Status",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Track Changes",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Change tracking is not available yet. The Comments panel lists every annotation with its author and date.",
+                        "disabledStatusTip": "Change tracking is not available yet.",
+                        "disabledToolTip": "Change tracking is not available yet. The Comments panel lists every annotation with its author and date.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "trackChanges",
+                        "label": "Track Changes",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Reply",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Replying works on a selected annotation. Select an annotation, then reply in the Inspector's reply thread (right sidebar",
+                        "disabledStatusTip": "Replying works on a selected annotation.",
+                        "disabledToolTip": "Replying works on a selected annotation. Select an annotation, then reply in the Inspector's reply thread (right sidebar",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "reply",
+                        "label": "Reply",
+                        "plannedHidden": true
+                    }
+                ],
+                "missingIconAsset": 4,
+                "noToolTip": 15,
+                "rendered": 21,
+                "screenshot": "tab-comment.png",
+                "tab": "Comment"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Word",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toWord",
+                        "label": "Word",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Excel",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toExcel",
+                        "label": "Excel",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "PowerPoint",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toPPT",
+                        "label": "PowerPoint",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "HTML",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toHTML",
+                        "label": "HTML",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Markdown",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Markdown export is not available yet. Text (Convert ▸ Text) or HTML export covers plain-text and web use.",
+                        "disabledStatusTip": "Markdown export is not available yet.",
+                        "disabledToolTip": "Markdown export is not available yet. Text (Convert ▸ Text) or HTML export covers plain-text and web use.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "toMD",
+                        "label": "Markdown",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "EPUB",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "EPUB export is not available yet. Text (Convert ▸ Text) or HTML export covers plain-text and web use.",
+                        "disabledStatusTip": "EPUB export is not available yet.",
+                        "disabledToolTip": "EPUB export is not available yet. Text (Convert ▸ Text) or HTML export covers plain-text and web use.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "toEPUB",
+                        "label": "EPUB",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Text",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toText",
+                        "label": "Text",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Image",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toImage",
+                        "label": "Image",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "CSV",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "toCSV",
+                        "label": "CSV",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "From File",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "fromFile",
+                        "label": "From File",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Scanner",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Scanner capture is not available yet. Import scanned images with Images to PDF, then run OCR (Edit ▸ Run OCR).",
+                        "disabledStatusTip": "Scanner capture is not available yet.",
+                        "disabledToolTip": "Scanner capture is not available yet. Import scanned images with Images to PDF, then run OCR (Edit ▸ Run OCR).",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "fromScan",
+                        "label": "Scanner",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Web Page",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Web-page capture is not available yet. Print the page to PDF from your browser and open it here.",
+                        "disabledStatusTip": "Web-page capture is not available yet.",
+                        "disabledToolTip": "Web-page capture is not available yet. Print the page to PDF from your browser and open it here.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "fromWeb",
+                        "label": "Web Page",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Combine",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "combinePDF",
+                        "label": "Combine",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Extract Tables",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Dedicated table extraction is not available yet. CSV export (Convert ▸ CSV) keeps the column layout for spreadsheet use.",
+                        "disabledStatusTip": "Dedicated table extraction is not available yet.",
+                        "disabledToolTip": "Dedicated table extraction is not available yet. CSV export (Convert ▸ CSV) keeps the column layout for spreadsheet use.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "extractTables",
+                        "label": "Extract Tables",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Auto-detect",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Automatic table detection is not available yet. CSV export (Convert ▸ CSV) captures text with column structure.",
+                        "disabledStatusTip": "Automatic table detection is not available yet.",
+                        "disabledToolTip": "Automatic table detection is not available yet. CSV export (Convert ▸ CSV) captures text with column structure.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "detectTables",
+                        "label": "Auto-detect",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Export CSV",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "exportCSV",
+                        "label": "Export CSV",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Compress",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "compress",
+                        "label": "Compress",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Reduce Size",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "reduce",
+                        "label": "Reduce Size",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "PDF/A",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "pdfA",
+                        "label": "PDF/A",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Batch",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "batchConv",
+                        "label": "Batch",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Preset",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Saved conversion presets are not available yet. File ▸ Export Presets… stores reusable export settings.",
+                        "disabledStatusTip": "Saved conversion presets are not available yet.",
+                        "disabledToolTip": "Saved conversion presets are not available yet. File ▸ Export Presets… stores reusable export settings.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "preset",
+                        "label": "Preset",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Watch Folder",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "watch",
+                        "label": "Watch Folder",
+                        "plannedHidden": false
+                    }
+                ],
+                "missingIconAsset": 0,
+                "noToolTip": 15,
+                "rendered": 22,
+                "screenshot": "tab-convert.png",
+                "tab": "Convert"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Text Field",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "textField",
+                        "label": "Text Field",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Checkbox",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "checkbox",
+                        "label": "Checkbox",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Radio",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "radio",
+                        "label": "Radio",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Dropdown",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "dropdown",
+                        "label": "Dropdown",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "List Box",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "listbox",
+                        "label": "List Box",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Button",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "button",
+                        "label": "Button",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Date",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "dateField",
+                        "label": "Date",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Numeric",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "numField",
+                        "label": "Numeric",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Signature",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "sigField",
+                        "label": "Signature",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Create Form",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "createForm",
+                        "label": "Create Form",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Auto-detect",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "autoDetect",
+                        "label": "Auto-detect",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Tab Order",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "tabs",
+                        "label": "Tab Order",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Validation",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Field validation rules are not editable yet. The Form Builder (Forms tab) creates fields and edits their properties.",
+                        "disabledStatusTip": "Field validation rules are not editable yet.",
+                        "disabledToolTip": "Field validation rules are not editable yet. The Form Builder (Forms tab) creates fields and edits their properties.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "rules",
+                        "label": "Validation",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Required",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Marking fields as required is not available yet. The Form Builder (Forms tab) creates fields and edits their properties.",
+                        "disabledStatusTip": "Marking fields as required is not available yet.",
+                        "disabledToolTip": "Marking fields as required is not available yet. The Form Builder (Forms tab) creates fields and edits their properties.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "required",
+                        "label": "Required",
+                        "plannedHidden": true
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Calculation",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "calc",
+                        "label": "Calculation",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Export Data",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "export",
+                        "label": "Export Data",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Import Data",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": false,
+                        "id": "import",
+                        "label": "Import Data",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Reset",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Resetting filled form values is not available yet. Undo recent edits (Ctrl+Z), or reopen the original form file.",
+                        "disabledStatusTip": "Resetting filled form values is not available yet.",
+                        "disabledToolTip": "Resetting filled form values is not available yet. Undo recent edits (Ctrl+Z), or reopen the original form file.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "reset",
+                        "label": "Reset",
+                        "plannedHidden": true
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Flatten",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Flattening form fields is not available yet. No in-app alternative yet — saved copies keep their fields editable.",
+                        "disabledStatusTip": "Flattening form fields is not available yet.",
+                        "disabledToolTip": "Flattening form fields is not available yet. No in-app alternative yet — saved copies keep their fields editable.",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "flatten",
+                        "label": "Flatten",
+                        "plannedHidden": true
+                    }
+                ],
+                "missingIconAsset": 1,
+                "noToolTip": 15,
+                "rendered": 19,
+                "screenshot": "tab-forms.png",
+                "tab": "Forms"
+            },
+            {
+                "blankTiles": 0,
+                "buttonVsActionStateMismatch": 0,
+                "entries": [
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Password",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "password",
+                        "label": "Password",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Permissions",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "permissions",
+                        "label": "Permissions",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Encrypt",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "encrypt",
+                        "label": "Encrypt",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Encrypt (Certs)",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "certEncrypt",
+                        "label": "Encrypt (Certs)",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Remove Sec.",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "removeSec",
+                        "label": "Remove Sec.",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Mark",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "markRedact",
+                        "label": "Mark",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Apply",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "applyRedact",
+                        "label": "Apply",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Pattern",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "patternRedact",
+                        "label": "Pattern",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Regex",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "regexRedact",
+                        "label": "Regex",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Sanitize",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "sanitize",
+                        "label": "Sanitize",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Certify",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "certify",
+                        "label": "Certify",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Sign",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "sign",
+                        "label": "Sign",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Prepare Request",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "prepareSigningReq",
+                        "label": "Prepare Request",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Timestamp",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "timestamp",
+                        "label": "Timestamp",
+                        "plannedHidden": false
+                    },
+                    {
+                        "actionEnabled": true,
+                        "blankTile": false,
+                        "buttonEnabled": true,
+                        "buttonText": "Validate",
+                        "buttonVisible": true,
+                        "hasController": true,
+                        "hasToolTip": false,
+                        "iconAssetExists": true,
+                        "id": "validateSig",
+                        "label": "Validate",
+                        "plannedHidden": false
+                    },
+                    {
+                        "blankTile": false,
+                        "buttonEnabled": false,
+                        "buttonText": "Trust Store",
+                        "buttonVisible": true,
+                        "disabledAccessibleDescription": "Certificate trust management is not available yet. Signature badges on the page show each signature's validity state (ri",
+                        "disabledStatusTip": "Certificate trust management is not available yet.",
+                        "disabledToolTip": "Certificate trust management is not available yet. Signature badges on the page show each signature's validity state (ri",
+                        "hasController": false,
+                        "hasToolTip": true,
+                        "iconAssetExists": true,
+                        "id": "trust",
+                        "label": "Trust Store",
+                        "plannedHidden": true
+                    }
+                ],
+                "missingIconAsset": 0,
+                "noToolTip": 15,
+                "rendered": 16,
+                "screenshot": "tab-protect.png",
+                "tab": "Protect"
+            }
+        ]
+    },
+    "screens": {
+        "comments": {
+            "grabSize": {
+                "h": 1080,
+                "w": 1920
+            },
+            "screenshot": "screen-comments.png",
+            "summaryButtons": [
+            ]
+        },
+        "modeControllerFound": true,
+        "screens": [
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 42,
+                    "visibleToolButtons": 58
+                },
+                "currentScreen": "compare",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "compare",
+                "screenshot": "screen-compare.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 39,
+                    "visibleToolButtons": 49
+                },
+                "currentScreen": "batch",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "batch",
+                "screenshot": "screen-batch.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 234,
+                        "needPx": 262,
+                        "objectName": "",
+                        "text": "word corrections are saved, not this text"
+                    },
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 37,
+                    "visibleToolButtons": 54
+                },
+                "currentScreen": "ocr",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "ocr",
+                "screenshot": "screen-ocr.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 44,
+                    "visibleToolButtons": 49
+                },
+                "currentScreen": "redact",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "redact",
+                "screenshot": "screen-redact.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 38,
+                    "visibleToolButtons": 42
+                },
+                "currentScreen": "signature",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "signature",
+                "screenshot": "screen-signature.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 42,
+                    "visibleToolButtons": 48
+                },
+                "currentScreen": "measure",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "measure",
+                "screenshot": "screen-measure.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 38,
+                    "visibleToolButtons": 42
+                },
+                "currentScreen": "accessibility",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "accessibility",
+                "screenshot": "screen-accessibility.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 51,
+                    "visibleToolButtons": 58
+                },
+                "currentScreen": "form",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "form",
+                "screenshot": "screen-form.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 38,
+                    "visibleToolButtons": 48
+                },
+                "currentScreen": "pdfa",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "pdfa",
+                "screenshot": "screen-pdfa.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "controls": {
+                    "blankTiles": 2,
+                    "noTipButtons": 38,
+                    "visibleToolButtons": 44
+                },
+                "currentScreen": "pages",
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "grewPastRequested": false,
+                "id": "pages",
+                "screenshot": "screen-pages.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "id": "compress",
+                "modalOpened": true,
+                "screenshot": "screen-compress-dialog.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "id": "watermark",
+                "modalOpened": true,
+                "screenshot": "screen-watermark-dialog.png",
+                "statusBar": {
+                    "currentMessage": "",
+                    "labels": [
+                        "/ 1",
+                        "ZOOM 100%"
+                    ]
+                }
+            },
+            {
+                "clipSuspects": [
+                    {
+                        "class": "QLabel",
+                        "havePx": 138,
+                        "needPx": 270,
+                        "objectName": "",
+                        "text": "Select an annotation to\ninspect its properties"
+                    }
+                ],
+                "grabSize": {
+                    "h": 1080,
+                    "w": 1920
+                },
+                "screenshot": "screen-batch-preset-pipeline.png",
+                "visibleLabels": [
+                    "BATCH PROCESSING",
+                    "INPUT FILES",
+                    "0 files",
+                    "Drop PDF files here or use buttons below",
+                    "HOT FOLDER",
+                    "OPERATION",
+                    "Preset:",
+                    "No preset selected.",
+                    "Output Folder:",
+                    "IDLE"
+                ]
+            }
+        ]
+    },
+    "tag": "large-100",
+    "themes": {
+        "dark": {
+            "contrastWindowVsText": 12.58663237560296,
+            "modeGrabSize": {
+                "h": 1080,
+                "w": 1920
+            },
+            "screenshotMode": "compare.png",
+            "screenshotWelcome": "welcome.png",
+            "theme": "dark",
+            "welcomeGrabSize": {
+                "h": 1080,
+                "w": 1920
+            }
+        },
+        "highcontrast": {
+            "contrastWindowVsText": 21,
+            "modeGrabSize": {
+                "h": 1080,
+                "w": 1920
+            },
+            "screenshotMode": "compare.png",
+            "screenshotWelcome": "welcome.png",
+            "theme": "highcontrast",
+            "welcomeGrabSize": {
+                "h": 1080,
+                "w": 1920
+            }
+        },
+        "light": {
+            "contrastWindowVsText": 13.799368822880417,
+            "modeGrabSize": {
+                "h": 1080,
+                "w": 1920
+            },
+            "screenshotMode": "compare.png",
+            "screenshotWelcome": "welcome.png",
+            "theme": "light",
+            "welcomeGrabSize": {
+                "h": 1080,
+                "w": 1920
+            }
+        }
+    },
+    "viewerPages": 1,
+    "welcome": {
+        "cards": [
+            {
+                "accessibleName": "Open PDF file",
+                "enabled": true,
+                "id": "welcomeCard-open",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Edit a PDF document",
+                "enabled": true,
+                "id": "welcomeCard-edit",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Convert documents",
+                "enabled": true,
+                "id": "welcomeCard-convert",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Recognize text with OCR",
+                "enabled": true,
+                "id": "welcomeCard-ocr",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Compress a document",
+                "enabled": true,
+                "id": "welcomeCard-compress",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Merge PDF files",
+                "enabled": true,
+                "id": "welcomeCard-merge",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Split or extract pages",
+                "enabled": true,
+                "id": "welcomeCard-splitExtract",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Organize pages",
+                "enabled": true,
+                "id": "welcomeCard-organize",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Annotate a document",
+                "enabled": true,
+                "id": "welcomeCard-annotate",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Fill forms and sign",
+                "enabled": true,
+                "id": "welcomeCard-fillSign",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Protect or redact a document",
+                "enabled": true,
+                "id": "welcomeCard-protect",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Import Office document",
+                "enabled": false,
+                "id": "welcomeCard-office",
+                "text": "",
+                "visible": true
+            },
+            {
+                "accessibleName": "Images to PDF",
+                "enabled": true,
+                "id": "welcomeCard-images",
+                "text": "",
+                "visible": true
+            }
+        ],
+        "clipSuspects": [
+        ],
+        "dropTargetTexts": [
+        ],
+        "found": true,
+        "links": [
+            {
+                "id": "welcomeLink-batch",
+                "text": "Batch",
+                "visible": true
+            },
+            {
+                "id": "welcomeLink-compare",
+                "text": "Compare",
+                "visible": true
+            }
+        ],
+        "screenshot": "welcome.png",
+        "visibleCardCount": 13,
+        "welcomeAcceptsDrops": false
+    }
+}

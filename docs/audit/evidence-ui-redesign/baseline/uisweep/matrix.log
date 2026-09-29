@@ -1,0 +1,14 @@
+MATRIX BEGIN 2026-09-30T00:13:06+03:00
+== cell small-100 (1366x768 @ 1.0)
+rc=0 tag=small-100
+== cell small-150 (1366x768 @ 1.5)
+rc=0 tag=small-150
+== cell small-200 (1366x768 @ 2.0)
+rc=0 tag=small-200
+== cell large-100 (1920x1080 @ 1.0)
+rc=0 tag=large-100
+== cell large-150 (1920x1080 @ 1.5)
+rc=0 tag=large-150
+== cell large-200 (1920x1080 @ 2.0)
+rc=0 tag=large-200
+MATRIX END total=6 rcFailures=6 2026-09-30T00:15:27+03:00
