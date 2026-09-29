@@ -572,9 +572,21 @@ public:
             dssObj.GetDictionary() = dss;
             catalog.AddKey("DSS", dssObj.GetIndirectReference());
 
-            // Write as incremental update
+            // Write as incremental update. NoMetadataUpdate is the PAdES LTV
+            // contract for THIS revision: the unsigned update must add /DSS
+            // and nothing else. PoDoFo's SaveUpdate otherwise refreshes the
+            // Info /ModDate (PdfMemDocument::beforeWrite → SetModifyDate(
+            // LocalNow())), so whenever the wall clock crossed a second
+            // between the signing save and this DSS save, the Info object
+            // (a NON-catalog object present in the signed revision) was
+            // re-emitted into the DSS update — and isLegitimateIncrementalAppend
+            // then honestly flagged the app's OWN revision as a shadow attack
+            // ("modified non-catalog object 14 0 R"), downgrading every B-LT
+            // document that signed near a second boundary (the intermittent
+            // CI failure of the INV-1 pin testOwnBltDssRevisionNotDowngraded,
+            // run 36486624682: got ValidWithUnsignedChanges).
             FileStreamDevice output(signedFilePath.toStdString(), FileMode::Append);
-            doc.SaveUpdate(output);
+            doc.SaveUpdate(output, PdfSaveOptions::NoMetadataUpdate);
             return true;
         } catch (const PdfError &e) {
             qWarning() << "DSS dictionary build failed:" << e.what();
