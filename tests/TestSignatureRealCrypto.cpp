@@ -25,6 +25,8 @@
 #include <QByteArray>
 #include <QCryptographicHash>
 #include <QImage>
+#include <QThread>
+#include <fstream>
 
 #include "engines/SignatureManager.h"
 #include "engines/SafeSave.h"
@@ -75,6 +77,17 @@ static X509_STORE* buildTestStore()
         // Still return the store; test will show UntrustedChain instead of crashing
     }
     return store;
+}
+
+// The artifact form of the INV-1 invariant: the signed file carries exactly
+// ONE /Info object (PoDoFo writes it as `14 0 obj<</ModDate(...)>>` for this
+// fixture), so any second literal in the byte stream is a re-emitted /Info —
+// a base object redefined by an incremental revision.
+static int signedModDateCount(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return -1;
+    return int(f.readAll().count("<</ModDate("));
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +730,61 @@ private slots:
                                     "unsigned-attack revision, got: %1").arg(info.trustStatus)));
         QVERIFY2(info.isValid,
                  "B_LT: the app's own DSS revision must keep isValid=true");
+    }
+
+    // -----------------------------------------------------------------------
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.7c — the deterministic form of the
+    // once-on-CI flake of testOwnBltDssRevisionNotDowngraded (run 36486624682:
+    // got ValidWithUnsignedChanges, "Shadow attack: modified non-catalog
+    // object 14 0 R" — object 14 IS /Info). Root cause: buildDssDictionary
+    // appended the DSS revision with a bare PdfMemDocument::SaveUpdate, whose
+    // save-time metadata refresh stamps /Info's /ModDate. When the append
+    // lands in a LATER wall-clock second than the signing write (CI-load
+    // territory, ~a one-in-ten race in production), /Info actually changes
+    // and the DSS revision re-emits it — a redefined BASE object outside the
+    // catalog, which the INV-1 scan must and does treat as a shadow attack.
+    // The production append now saves with PdfSaveOptions::NoMetadataUpdate
+    // (the DSS revision is DSS-ONLY by construction, the same law as the
+    // expiry path). This pin forces the second-crossing through the real
+    // production block, so the race is deterministic: 1100 ms between the
+    // signing write and the DSS append. The <</ModDate count is the artifact
+    // form of the same invariant: exactly one /Info object may exist.
+    // -----------------------------------------------------------------------
+    void testDssAppendDoesNotReemitInfoAcrossSecondBoundary()
+    {
+        REQUIRE_FIXTURES();
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString output = m_tmpDir.filePath("inv1_dss_second_boundary.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, output, kP12Path, kP12Pass, "INV1-BOUNDARY", "")
+                == SignOutcome::Success);
+        QCOMPARE(signedModDateCount(output), 1);
+
+        // Cross the wall-clock second boundary, then run the PRODUCTION DSS
+        // append (Private::buildDssDictionary via the test-only seam).
+        QThread::msleep(1100);
+        QVERIFY2(mgr.appendDssRevisionForTesting(output),
+                 "the DSS append must succeed");
+        QCOMPARE(signedModDateCount(output), 1);
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(output);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "the DSS-extended document must report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.hasDss, "the DSS append must be present");
+        QVERIFY2(info.trustStatus == QLatin1String("Valid") ||
+                 info.trustStatus == QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("the DSS revision must not be treated as an unsigned-attack "
+                                    "revision when it lands in a later second, got: %1")
+                                .arg(info.trustStatus)));
+        QVERIFY2(info.isValid,
+                 "the DSS append must keep isValid=true");
     }
 
     // -----------------------------------------------------------------------

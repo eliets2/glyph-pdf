@@ -1,0 +1,38 @@
+validateSignatures: field "Signature1" ByteRange: 0 490 66028 1922
+CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+extractOcspFromDss: catalog keys: false
+extractOcspFromDss: DSS not found or not dictionary
+V0: appended after 10ms ok=1 
+[V0] size=68571 startxrefs:
+validateSignatures: field "Signature1" ByteRange: 0 490 66028 1922
+Found DSS dict. IsRef: false
+S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 14 0 R"
+CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+extractOcspFromDss: catalog keys: true
+extractOcspFromDss: OCSPs not found or not array
+V0: verdict=UntrustedChain valid=0 dss=1
+validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+extractOcspFromDss: catalog keys: false
+extractOcspFromDss: DSS not found or not dictionary
+V1: appended after 1107ms ok=1 
+[V1] size=68570 startxrefs:
+validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+Found DSS dict. IsRef: false
+S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 14 0 R"
+CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+extractOcspFromDss: catalog keys: true
+extractOcspFromDss: OCSPs not found or not array
+V1: verdict=UntrustedChain valid=0 dss=1
+validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+extractOcspFromDss: catalog keys: false
+extractOcspFromDss: DSS not found or not dictionary
+V2: appended after 1799ms ok=1 
+[V2] size=68497 startxrefs:
+validateSignatures: field "Signature1" ByteRange: 0 490 66028 1921
+Found DSS dict. IsRef: false
+CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+extractOcspFromDss: catalog keys: true
+extractOcspFromDss: OCSPs not found or not array
+V2: verdict=UntrustedChain valid=0 dss=1
