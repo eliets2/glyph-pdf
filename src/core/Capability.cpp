@@ -7,9 +7,11 @@
 #include "engines/ocr/RapidOcrEngine.h"  // G11: real model readiness (verifyModelsIn)
 
 #include <QCoreApplication>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QStandardPaths>
+#include <QStringList>
 #include <QWidget>
 
 #include <utility>
@@ -516,6 +518,32 @@ Capability probeOcrLanguageData(const QVariant& param)
         c.status = Availability::Available;
         c.detail = bundled;
         return c;
+    }
+    // Mirror OcrEngine's installed-Tesseract seeding (TESSDATA_PREFIX and the
+    // MSYS2/distro <prefix>/share/tessdata layout): when a system Tesseract
+    // already ships the language pack, first use copies it into AppLocalData
+    // with zero network access — the honest state is Available, not Degraded.
+    {
+        QStringList candidates;
+        const QString prefix = qEnvironmentVariable("TESSDATA_PREFIX");
+        if (!prefix.isEmpty()) {
+            candidates << (prefix + QStringLiteral("/tessdata/") + filename);
+            candidates << (prefix + QStringLiteral("/") + filename);
+        }
+        const QString exe = QStandardPaths::findExecutable(QStringLiteral("tesseract"));
+        if (!exe.isEmpty()) {
+            candidates << QDir::cleanPath(QFileInfo(exe).absolutePath()
+                                          + QStringLiteral("/../share/tessdata/") + filename);
+            candidates << QDir::cleanPath(QFileInfo(exe).absolutePath()
+                                          + QStringLiteral("/tessdata/") + filename);
+        }
+        for (const QString &candidate : candidates) {
+            if (QFileInfo::exists(candidate)) {
+                c.status = Availability::Available;
+                c.detail = candidate;
+                return c;
+            }
+        }
     }
     c.status = Availability::Degraded;
     c.whyNot = QObject::tr("The %1 language data is not installed yet.").arg(displayName);
