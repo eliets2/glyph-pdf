@@ -887,14 +887,43 @@ void HomeController::onImagesToPdf()
     if (outputPath.isEmpty())
         return;
 
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.7b: this busy dialog must not offer
+    // Cancel, and the job must never be wired to QProgressDialog::canceled.
+    // The conversion cannot honor cancellation (convertImagesToPdf is one
+    // uninterruptible paint+save), so a Cancel button is a lie in both
+    // directions: pressed after the job started it changes nothing (the file
+    // appears anyway while the UI said "canceled"), and — the CI-observed
+    // direction — the offscreen platform's known spurious-canceled quirk
+    // firing before the pool thread picks the task up makes QtConcurrent skip
+    // the runnable entirely: the whole route silently produced nothing
+    // (TestWelcomeRoutes imagesRouteProducesAndOpensTheOutput,
+    // 'QFileInfo::exists(out)' false, run 36538793928). An uncancellable busy
+    // dialog keeps the artifact contract honest: the route always produces
+    // its output and always reports its result.
+    // PROGRAM-CONSOLIDATION-2026-09-25 §1.7b: this busy dialog must not offer
+    // Cancel, and the job must never be wired to QProgressDialog::canceled.
+    // The conversion cannot honor cancellation (convertImagesToPdf is one
+    // uninterruptible paint+save), so a Cancel button is a lie in both
+    // directions: pressed after the job started it changes nothing (the file
+    // appears anyway while the UI said "canceled"), and — the CI-observed
+    // direction — the offscreen platform's known spurious-canceled quirk
+    // firing before the pool thread picks the task up makes QtConcurrent skip
+    // the runnable entirely: the whole route silently produced nothing
+    // (TestWelcomeRoutes imagesRouteProducesAndOpensTheOutput,
+    // 'QFileInfo::exists(out)' false, run 36538793928). An uncancellable busy
+    // dialog keeps the artifact contract honest: the route always produces
+    // its output and always reports its result.
     auto* progress = new QProgressDialog(
         tr("Building PDF from %1 image(s)…").arg(imagePaths.size()),
         tr("Cancel"), 0, 0, _mainWindow);
+    progress->setCancelButton(nullptr);
     progress->setWindowModality(Qt::WindowModal);
     progress->setMinimumDuration(300);
 
     auto* watcher = new QFutureWatcher<bool>(_mainWindow);
-    QObject::connect(progress, &QProgressDialog::canceled, watcher, &QFutureWatcher<bool>::cancel);
+    // No canceled→cancel wiring: nothing above can emit canceled, and the
+    // runnable is not interruptible; the guard below stays as a defensive
+    // no-op for any future cancellation-capable conversion.
     QObject::connect(watcher, &QFutureWatcher<bool>::finished, _mainWindow, [=]() {
         progress->close();
         progress->deleteLater();

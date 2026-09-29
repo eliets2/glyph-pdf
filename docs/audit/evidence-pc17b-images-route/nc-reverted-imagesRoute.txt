@@ -1,0 +1,11 @@
+********* Start testing of TestWelcomeRoutes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestWelcomeRoutes::initTestCase()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+FAIL!  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() 'm_win->findChild<QProgressDialog *>()->findChildren<QPushButton *>().isEmpty()' returned FALSE. (the images-route busy dialog must not offer Cancel: the canceled path can only make the artifact silently vanish)
+D:/pdf/pdf-xmpzoom/tests/TestWelcomeRoutes.cpp(503) : failure location
+PASS   : TestWelcomeRoutes::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 300ms
+********* Finished testing of TestWelcomeRoutes *********

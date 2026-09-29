@@ -489,12 +489,22 @@ private slots:
         QVERIFY(c && c->isEnabled());
         pickFilesInSequence({ png, out });
         c->click();
+        // PROGRAM-CONSOLIDATION-2026-09-25 §1.7b: the route's busy dialog must
+        // not offer Cancel at all. The conversion is not interruptible, so the
+        // old canceled→QFutureWatcher::cancel wiring could only make the
+        // artifact silently vanish: a cancel that lands before the pool thread
+        // picks the task up makes QtConcurrent skip the runnable entirely
+        // (probe: cancel-before-start => runnable never runs), and the
+        // offscreen plugin's spurious-canceled quirk supplies exactly that on
+        // CI — run 36538793928, 'QFileInfo::exists(out)' false. The busy
+        // dialog carries no buttons now; the artifact contract below is then
+        // unconditional.
+        QTRY_VERIFY_WITH_TIMEOUT(m_win->findChild<QProgressDialog *>() != nullptr, 10000);
+        QVERIFY2(m_win->findChild<QProgressDialog *>()->findChildren<QPushButton *>().isEmpty(),
+                 "the images-route busy dialog must not offer Cancel: the canceled "
+                 "path can only make the artifact silently vanish");
         // The route's committed contract: the artifact is written and is a
-        // PDF both production readers accept. (The watcher's open-the-output
-        // hop is driven by a QProgressDialog completion whose cancel signal
-        // spuriously fires on the offscreen plugin — pinned as an env
-        // residual, not a route failure; the artifact contract below is the
-        // committed truth.)
+        // PDF both production readers accept.
         QTRY_VERIFY_WITH_TIMEOUT(QFileInfo::exists(out), 30000);
         PdfEditorEngine probeEngine;
         QVERIFY2(probeEngine.loadDocumentForEditing(out),
