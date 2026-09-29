@@ -34,6 +34,7 @@
 #include "app/Bootstrapper.h"
 #include "core/AppContext.h"
 #include "engines/PdfEditorEngine.h"
+#include "engines/SafeSave.h"
 #include "ui/PdfViewerWidget.h"
 
 using gp::MainWindow;
@@ -148,6 +149,62 @@ private slots:
         qInfo().noquote() << "child log:\n" << QString::fromLocal8Bit(child.readAll());
         QVERIFY2(finished, "the child hung: background save and GUI engine call deadlocked (K5)");
         QCOMPARE(child.exitCode(), 0);
+    }
+
+    // K3 (ADR-UI-03 document-ownership design): the parked latch must not
+    // survive a document switch. parkDocumentForWrite(P) swaps the resident
+    // document to the parking device and latches m_parkedForWrite; if the user
+    // switches to Q while a background commit holds the park, the commit's
+    // restore(P) arrives when m_filePath is already Q — on the unfixed widget
+    // that stale restore returned WITHOUT clearing the latch, so the next
+    // parkDocumentForWrite(Q) returned "already parked" WITHOUT releasing Q's
+    // handle, and every later in-place commit to the displayed file failed
+    // "Access is denied" until a manual reload.
+    void documentSwitchWhileParkedDoesNotLatchThePark()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString displayedP = dir.filePath(QStringLiteral("p.pdf"));
+        const QString switchedQ = dir.filePath(QStringLiteral("q.pdf"));
+        makeHeavyPdf(displayedP, 2);
+        makeHeavyPdf(switchedQ, 3);
+        const QString candidate1 = dir.filePath(QStringLiteral("cand1.pdf"));
+        const QString candidate2 = dir.filePath(QStringLiteral("cand2.pdf"));
+        makeHeavyPdf(candidate1, 1);
+        makeHeavyPdf(candidate2, 1);
+
+        PdfViewerWidget w;
+        QVERIFY(w.loadDocument(displayedP));
+        QCOMPARE(w.filePath(), displayedP);
+
+        // Baseline (the established park contract): parking the displayed file
+        // releases its handle, so an in-place commit over it succeeds.
+        QVERIFY(w.parkDocumentForWrite(displayedP));
+        {
+            QString err;
+            QVERIFY2(gp::SafeSave::commitFileToDestination(candidate1, displayedP, &err),
+                     qPrintable(err));
+        }
+
+        // The interleaving: the user switches documents while the park is
+        // held, then the background commit's stale restore lands.
+        QVERIFY(w.loadDocument(switchedQ));
+        w.restoreDocumentAfterWrite(displayedP);
+
+        // The next in-place write to the NEW displayed file must still be able
+        // to release it. On the unfixed widget the latched park made this park
+        // a no-op, so the commit below hit the viewer's open handle and failed
+        // "Access is denied" — the pin's red.
+        QVERIFY(w.parkDocumentForWrite(switchedQ));
+        {
+            QString err;
+            QVERIFY2(gp::SafeSave::commitFileToDestination(candidate2, switchedQ, &err),
+                     qPrintable(QStringLiteral("commit after a document switch failed: %1").arg(err)));
+        }
+        // The viewer recovers: the switched document is displayed again.
+        w.restoreDocumentAfterWrite(switchedQ);
+        QVERIFY(w.isLoaded());
+        QCOMPARE(w.filePath(), switchedQ);
     }
 };
 

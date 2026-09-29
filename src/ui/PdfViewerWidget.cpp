@@ -379,6 +379,14 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
         m_saveDebounceTimer->stop();
     }
     m_filePath = fileName;
+    // K3 (ADR-UI-03 document-ownership design): a (re)load replaces the
+    // resident device wholesale, so a park that predates this load can never
+    // be restored for the OLD path. Leaving the latch set made the NEXT
+    // parkDocumentForWrite() return "already parked" WITHOUT releasing the new
+    // file's handle — every later in-place write to the displayed file failed
+    // "Access is denied" until a manual reload. (The parked device itself is
+    // simply replaced by the load below.)
+    m_parkedForWrite = false;
     emit displayedFileChanged(m_filePath);   // K5: the shell's thread-safe copy
     clearPageCache();
     m_linksForPage = -1;   // §9.1: document changed → link cache is stale
@@ -440,9 +448,16 @@ bool PdfViewerWidget::parkDocumentForWrite(const QString &path)
 
 void PdfViewerWidget::restoreDocumentAfterWrite(const QString &path)
 {
-    if (!m_parkedForWrite || !m_document || path != m_filePath)
+    if (!m_parkedForWrite || !m_document)
         return;
+    // K3: the latch is cleared for EVERY outcome — including a restore that
+    // arrives after the user switched documents (path != m_filePath). A stale
+    // restore that kept the latch would make the next park() a no-op and pin
+    // the new file's handle shut (the K3 pin's access-denied).
     m_parkedForWrite = false;
+    if (path != m_filePath)
+        return;   // the document switched while parked: the new load already
+                  // replaced the parked device; nothing to reload for `path`
     // Full reload from the written file — the bytes are either the committed
     // result or (on a failed commit) the preserved original; either way the
     // displayed document becomes truthful again. reload() resets the overlay
