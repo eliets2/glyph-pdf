@@ -9,6 +9,7 @@
 // P1 (B10): per-language user dictionary — file-backed Add-to-Dictionary;
 // dictionary words stop being flagged in the uncertain-word walk.
 #include <QtTest>
+#include <QComboBox>
 #include <QFile>
 #include <QFileInfo>
 #include <QToolButton>
@@ -176,6 +177,74 @@ private slots:
         removeTestDictionary();
     }
 
+    // ── P2 (B9): ranked spelling suggestions in the word inspector ─────────
+
+    // Pure seam: candidates are ranked by Damerau-Levenshtein distance (≤ 2),
+    // the word itself is never suggested (case-insensitive), and the list
+    // caps at 5.
+    void suggestionsRankByEditDistance()
+    {
+        const QStringList vocab = {
+            QStringLiteral("dolor"),     // sub 1→l            → dist 1
+            QStringLiteral("color"),     // sub d→c, sub 1→l   → dist 2
+            QStringLiteral("colon"),     // dist 3             → excluded
+            QStringLiteral("dolorous"),  // dist 4             → excluded
+            QStringLiteral("colored"),   // dist 4+            → excluded
+        };
+        const QStringList ranked = OCRMode::suggestCorrections(QStringLiteral("do1or"), vocab);
+        QCOMPARE(ranked, (QStringList{ QStringLiteral("dolor"), QStringLiteral("color") }));
+
+        // Transpositions count as ONE edit (Damerau, optimal string alignment).
+        QCOMPARE(OCRMode::suggestCorrections(QStringLiteral("ac"),
+                                             QStringList{ QStringLiteral("ca") }).size(), 1);
+
+        // The word itself (any case) is not suggested.
+        QVERIFY(OCRMode::suggestCorrections(QStringLiteral("Dolor"),
+                                            QStringList{ QStringLiteral("dolor") }).isEmpty());
+
+        // The list is capped at 5: "abc0".."abc7" are all dist 1 from "abc".
+        QStringList near;
+        for (int i = 0; i < 8; ++i) near.append(QStringLiteral("abc%1").arg(i));
+        QCOMPARE(OCRMode::suggestCorrections(QStringLiteral("abc"), near).size(), 5);
+    }
+
+    // Wiring: selecting a word ranks the rest of the page (+ user dictionary)
+    // against its text; activating a suggestion applies the correction through
+    // applyWordCorrection (the reviewed record is updated, box untouched).
+    void suggestionActivationAppliesCorrection()
+    {
+        removeTestDictionary();
+        // The dictionary contributes vocabulary too.
+        QVERIFY(OCRMode::addUserDictionaryWord(QLatin1String(kLang), QStringLiteral("colored")));
+
+        QList<MergedOcrWord> words = makeWords();
+        words[0] = makeWord(QStringLiteral("do1or"), 40, QRectF(10, 10, 60, 14));
+        words[1] = makeWord(QStringLiteral("dolor"), 95, QRectF(10, 40, 40, 14));
+        words[2] = makeWord(QStringLiteral("colored"), 95, QRectF(10, 70, 50, 14));
+
+        OCRMode panel;
+        panel.setUserDictionaryLanguage(QLatin1String(kLang));
+        panel.setReviewSession(makeSession(words));
+
+        panel.selectWord(0);
+        // Vocabulary = page words + dictionary, minus the word itself.
+        // "colored" vs "do1or" is dist > 2 → excluded; only "dolor" qualifies.
+        QCOMPARE(panel.currentSuggestions(), (QStringList{ QStringLiteral("dolor") }));
+
+        // Activating the suggestion applies the correction to the record.
+        QComboBox* combo = panel.findChild<QComboBox*>(QStringLiteral("ocrSuggestionCombo"));
+        QVERIFY(combo);
+        QVERIFY(!combo->itemText(0).isEmpty());
+        emit combo->activated(0);   // Qt6: activated(int) is the user-pick signal
+
+        const QList<OcrReviewedWord> reviewed = panel.reviewedWords();
+        QCOMPARE(reviewed[0].reviewedText, QStringLiteral("dolor"));
+        QCOMPARE(reviewed[0].originalText, QStringLiteral("do1or"));   // provenance kept
+        QCOMPARE(reviewed[0].boundingBox, QRectF(10, 10, 60, 14));     // box untouched
+
+        removeTestDictionary();
+    }
+
 protected:
     // Every dictionary test cleans its file even on failure paths above;
     // this teardown is a belt-and-braces guard for the whole suite.
@@ -188,6 +257,5 @@ protected:
         removeTestDictionary();
     }
 };
-
 QTEST_MAIN(TestOcrVerifyPort)
 #include "TestOcrVerifyPort.moc"

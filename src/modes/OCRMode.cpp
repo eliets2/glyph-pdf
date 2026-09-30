@@ -101,6 +101,85 @@ bool OCRMode::addUserDictionaryWord(const QString &langCode, const QString &word
     return true;
 }
 
+// ── B9: ranked spelling suggestions (ported from archive/final/feat/
+//    ocr-verify-finereader b6753485) ─────────────────────────────────────────
+
+// Bounded Damerau-Levenshtein distance (optimal string alignment).
+static int editDistance(const QString &a, const QString &b)
+{
+    const int n = a.size(), m = b.size();
+    QVector<QVector<int>> d(n + 1, QVector<int>(m + 1, 0));
+    for (int i = 0; i <= n; ++i) d[i][0] = i;
+    for (int j = 0; j <= m; ++j) d[0][j] = j;
+    for (int i = 1; i <= n; ++i) {
+        for (int j = 1; j <= m; ++j) {
+            const int cost = (a.at(i - 1) == b.at(j - 1)) ? 0 : 1;
+            int best = std::min({ d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + cost });
+            if (i > 1 && j > 1 &&
+                a.at(i - 1) == b.at(j - 2) && a.at(i - 2) == b.at(j - 1))
+                best = std::min(best, d[i-2][j-2] + 1); // transposition
+            d[i][j] = best;
+        }
+    }
+    return d[n][m];
+}
+
+QStringList OCRMode::suggestCorrections(const QString &word,
+                                        const QStringList &vocabulary)
+{
+    // upgrade path: replace with Hunspell suggest() behind this same seam.
+    struct Cand { QString text; int dist; };
+    QList<Cand> cands;
+    for (const QString &v : vocabulary) {
+        if (v.isEmpty() || v.compare(word, Qt::CaseInsensitive) == 0) continue;
+        const int d = editDistance(word.toLower(), v.toLower());
+        if (d <= 2) cands.append({v, d});
+    }
+    std::stable_sort(cands.begin(), cands.end(),
+                     [](const Cand &a, const Cand &b) { return a.dist < b.dist; });
+    QStringList out;
+    for (const auto &c : cands) {
+        if (!out.contains(c.text, Qt::CaseInsensitive)) out.append(c.text);
+        if (out.size() >= 5) break;   // FineReader shows a short ranked list
+    }
+    return out;
+}
+
+QStringList OCRMode::currentSuggestions() const
+{
+    const bool valid = m_selectedWordId >= 0 && m_selectedWordId < m_reviewWords.size();
+    return valid ? m_currentSuggestions : QStringList();
+}
+
+void OCRMode::updateSuggestions()
+{
+    // B9: candidate pool = user dictionary + every word on the page, minus the
+    // word under inspection. Bounded per-selection work (review-time only).
+    const bool valid = m_selectedWordId >= 0 && m_selectedWordId < m_reviewWords.size();
+    if (valid) {
+        QStringList vocabulary = m_sessionDictionary;
+        vocabulary.reserve(vocabulary.size() + m_reviewWords.size());
+        for (const auto& rec : m_reviewWords) {
+            const QString t = currentWordText(rec);
+            if (!t.isEmpty() && !vocabulary.contains(t, Qt::CaseInsensitive))
+                vocabulary.append(t);
+        }
+        // suggestCorrections() itself excludes the inspected word (any case).
+        m_currentSuggestions = suggestCorrections(
+            currentWordText(m_reviewWords[m_selectedWordId]), vocabulary);
+    } else {
+        m_currentSuggestions.clear();
+    }
+
+    if (m_suggestionCombo) {
+        QSignalBlocker block(m_suggestionCombo);
+        m_suggestionCombo->clear();
+        for (const QString& s : std::as_const(m_currentSuggestions))
+            m_suggestionCombo->addItem(s);
+        m_suggestionCombo->setVisible(!m_currentSuggestions.isEmpty());
+    }
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 static QFrame* makeStrip(const char* role, int h) {
@@ -591,6 +670,21 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     });
     wordRow->addWidget(m_btnAddToDict);
     zLay->addLayout(wordRow);
+
+    // ── B9: ranked suggestions for the selected word. Activating one applies
+    // it as the word's correction (applyWordCorrection — record updated,
+    // source box untouched). Hidden when there is nothing to suggest.
+    m_suggestionCombo = new QComboBox;
+    m_suggestionCombo->setObjectName("ocrSuggestionCombo");
+    m_suggestionCombo->setAccessibleName(tr("Spelling suggestions for the selected word"));
+    m_suggestionCombo->setToolTip(tr("Ranked suggestions — pick one to correct the word"));
+    m_suggestionCombo->setEnabled(false);
+    m_suggestionCombo->hide();
+    connect(m_suggestionCombo, &QComboBox::activated, this, [this](int index) {
+        if (index < 0 || index >= m_currentSuggestions.size()) return;
+        applyWordCorrection(m_selectedWordId, m_currentSuggestions.at(index));
+    });
+    zLay->addWidget(m_suggestionCombo);
 
     // ── Confidence legend ───────────────────────────────────────────────
     // U03: built from THE one classifier — bandColor for the swatches and
@@ -1169,6 +1263,13 @@ void OCRMode::updateWordInspector()
         const bool hasText = valid && !m_reviewWords[m_selectedWordId].reviewedText.trimmed().isEmpty()
                                        && !m_reviewWords[m_selectedWordId].originalText.trimmed().isEmpty();
         m_btnAddToDict->setEnabled(valid && reviewable && hasText);
+    }
+    // B9: suggestions track the selection (and re-rank after a correction —
+    // the vocabulary reads the current reviewed texts).
+    updateSuggestions();
+    if (m_suggestionCombo) {
+        m_suggestionCombo->setEnabled(valid && reviewable
+                                      && !m_currentSuggestions.isEmpty());
     }
     // U03: the magnifier shows the selected word's source crop; no selection
     // → cleared placeholder (the zoom header drops back to "ZOOM").

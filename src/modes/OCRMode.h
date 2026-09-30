@@ -148,6 +148,19 @@ public:
     /// The loaded session dictionary (test/inspection seam).
     const QStringList& sessionUserDictionary() const { return m_sessionDictionary; }
 
+    // ── B9 (ported from archive/final/feat/ocr-verify-finereader b6753485):
+    // ranked spelling suggestions ────────────────────────────────────────────
+    /// Ranked correction candidates for `word` from `vocabulary`
+    /// (Damerau-Levenshtein ≤ 2, best first, capped at 5; the word itself is
+    /// never suggested). No external spell engine — upgrade path: swap for
+    /// Hunspell suggest() behind this seam.
+    static QStringList suggestCorrections(const QString& word,
+                                          const QStringList& vocabulary);
+    /// The ranked suggestions for the currently selected word (vocabulary =
+    /// session user dictionary + the page's own words). Empty when nothing
+    /// selectable is selected.
+    QStringList currentSuggestions() const;
+
 signals:
     void ocrRequested();
     void reviewAccepted();
@@ -302,6 +315,13 @@ private:
     QString      m_dictLang = QStringLiteral("EN");
     QStringList  m_sessionDictionary;   // loaded words for m_dictLang
     QToolButton* m_btnAddToDict = nullptr;
+
+    // ── B9: ranked spelling suggestions ─────────────────────────────────────
+    QStringList m_currentSuggestions;  // for the current selection
+    QComboBox*  m_suggestionCombo = nullptr;
+    /// Rebuild m_currentSuggestions for the current selection and refresh the
+    /// suggestions combo (B9).
+    void updateSuggestions();
 };
 
 } // namespace gp
