@@ -42,6 +42,22 @@ QJsonDocument AnnotationSerializer::toJson(const QList<AnnotationItem>& items)
         }
         obj["points"] = points;
 
+        // PARITY §9.3 P1 row 15: per-line quads of text-anchored markup ride
+        // the sidecar so pending-embed work keeps its text anchoring across an
+        // app restart (the authoritative /QuadPoints embed still carries it).
+        if (!anno.quads.isEmpty()) {
+            QJsonArray quads;
+            for (const QRectF &q : anno.quads) {
+                QJsonObject qo;
+                qo["x"] = q.x();
+                qo["y"] = q.y();
+                qo["w"] = q.width();
+                qo["h"] = q.height();
+                quads.append(qo);
+            }
+            obj["quads"] = quads;
+        }
+
         // §9.7 P0: cache signature-picker raster ink (typed/uploaded modes) in
         // the sidecar so the overlay survives an app restart before the PDF is
         // saved. PNG keeps it small; an oversized raster is skipped rather
@@ -120,6 +136,15 @@ QList<AnnotationItem> AnnotationSerializer::fromJson(const QJsonDocument& doc)
         for (int j = 0; j < points.size(); ++j) {
             QJsonObject pt = points[j].toObject();
             item.points.append(QPointF(pt["x"].toDouble(), pt["y"].toDouble()));
+        }
+
+        // PARITY §9.3 P1 row 15: restore the per-line quads (top line first —
+        // array order is preserved verbatim in both directions).
+        const QJsonArray quads = obj["quads"].toArray();
+        for (int j = 0; j < quads.size(); ++j) {
+            const QJsonObject qo = quads[j].toObject();
+            item.quads.append(QRectF(qo["x"].toDouble(), qo["y"].toDouble(),
+                                     qo["w"].toDouble(), qo["h"].toDouble()));
         }
 
         // §9.7 P0: restore the cached signature raster (typed/uploaded modes).

@@ -4,6 +4,7 @@
 #include <QWidget>
 #include <QList>
 #include <QPointF>
+#include <QRectF>
 #include <functional>
 #include "core/PdfEnums.h"
 #include "core/OcrTypes.h"
@@ -28,6 +29,28 @@ public:
     // PdfViewerWidget's two-page composite, so the two paths can never
     // diverge (no second painting implementation, no duplicated state).
     static void paintShape(QPainter &painter, const AnnotationItem &anno);
+
+    // ── PARITY §9.3 P1 row 15: text-anchored (QuadPoints) placement ────────
+    // The selection-driven entry point: build a Highlight/Underline/Strikeout/
+    // Squiggly item anchored to the REAL text lines (one rect per line, top
+    // line first — e.g. TextMatchFinder::lineRectsInRegion output or a text
+    // selection's line bounds). The item carries per-line `quads` (serialized
+    // as ISO 32000 §12.5.6.10 /QuadPoints) plus the union `rect` for
+    // selection/inspector compatibility. A `lineRects` list must be non-empty
+    // and the mode one of the four text-markup tools — anything else returns
+    // a plain rect-only item (free-rect markup stays fully functional).
+    static AnnotationItem makeTextAnchoredMarkup(ToolMode mode, int pageIndex,
+                                                 const QList<QRectF> &lineRects,
+                                                 const QColor &color,
+                                                 int thickness);
+
+    // Host-injected text-layer knowledge (PdfViewerWidget owns the document
+    // path): given (page, drag rect in layer space) return the per-line
+    // display rects of the text under the rect. When installed, a text-markup
+    // drag over REAL TEXT commits a text-anchored item; over blank space (or
+    // without a provider) the legacy free-rect commit happens unchanged.
+    void setLineRectsProvider(std::function<QList<QRectF>(int pageIndex, const QRectF &)> provider);
+
 
     void setMode(ToolMode mode);
     void setColor(const QColor &color);
@@ -130,6 +153,8 @@ private:
     QImage m_pendingSignatureImage;
     // T2-6: pending resolved stamp text for the Stamp placement mode.
     QString m_pendingStampText;
+    // PARITY §9.3 P1 row 15: host-injected per-line text rects (see setter).
+    std::function<QList<QRectF>(int pageIndex, const QRectF &)> m_lineRectsProvider;
 
     // ── T1 measurement draft state ──────────────────────────────────────────
     gp::measure::Scale m_measureScale = gp::measure::ptScale();

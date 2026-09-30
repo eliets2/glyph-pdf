@@ -132,6 +132,36 @@ QList<CharBox> extractCharBoxes(FPDF_DOCUMENT doc, int pageIndex) {
     return result;
 }
 
+// PARITY §9.3 P1 row 15: split the char boxes of one matched span into
+// PER-LINE runs (display space, document order — top line first because that
+// is the order the text layer emits lines). A box joins the current run when
+// its vertical band overlaps the run's band (same baseline row; glyph boxes
+// on one line always overlap that line's band); otherwise a new run starts.
+// Whitespace/newline chars carry empty or zero boxes and contribute no
+// geometry, so they neither paint nor break a run by themselves — the break
+// comes from the next line's band not overlapping. This is the seam that
+// feeds text-anchored /QuadPoints markup: a wrapped match becomes one quad
+// PER LINE instead of a union rect spanning the blank gap between lines.
+QList<QRectF> lineRectsForSpan(const QList<CharBox>& chars, int firstChar, int lastChar)
+{
+    QList<QRectF> runs;
+    QRectF run;
+    bool open = false;
+    for (int i = firstChar; i <= lastChar && i < chars.size(); ++i) {
+        const CharBox& cb = chars[i];
+        if (cb.bbox.isNull() || cb.bbox.isEmpty()) continue;
+        if (open && cb.bbox.top() <= run.bottom() + 1.0 && cb.bbox.bottom() >= run.top() - 1.0) {
+            run = run.united(cb.bbox);
+        } else {
+            if (open) runs.append(run);
+            run = cb.bbox;
+            open = true;
+        }
+    }
+    if (open) runs.append(run);
+    return runs;
+}
+
 // Run `pattern` over the reconstructed page text; produce one TextMatch per
 // hit with the union box of its characters and the largest font size in the
 // span. Carries the M-3 input cap; the packa-F4 budget (deadline +
@@ -204,6 +234,10 @@ QList<TextMatch> matchCharBoxes(const QList<CharBox>& chars, int pageIndex,
         tm.rect = box;
         tm.text = m.captured(0);
         tm.fontSize = size;
+        // PARITY §9.3 P1 row 15: per-line rects for the same span (display
+        // space, top line first). A single-line match yields exactly one rect
+        // ≈ the union; a wrapped match yields one per line.
+        tm.lineRects = lineRectsForSpan(chars, firstChar, lastChar);
         results.append(tm);
     }
     return results;
@@ -251,6 +285,44 @@ QList<TextMatch> TextMatchFinder::findMatches(const QString& pdfPath,
     return out;
 }
 
+QList<QRectF> TextMatchFinder::lineRectsInRegion(const QString& pdfPath, int page,
+                                                 const QRectF& region,
+                                                 MatchBudget* budget)
+{
+    if (region.isEmpty()) return {};
+    MatchBudget defaultBudget;
+    MatchBudget* effectiveBudget = budget ? budget : &defaultBudget;
+
+    PdfiumEnvironment env;
+    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
+    if (!doc) {
+        qWarning() << "TextMatchFinder::lineRectsInRegion — could not open PDF" << pdfPath;
+        return {};
+    }
+
+    QList<QRectF> out;
+    const QList<CharBox> chars = extractCharBoxes(doc, page);
+    for (const CharBox& cb : chars) {
+        if (cb.bbox.isNull() || cb.bbox.isEmpty()) continue;
+        // Glyphs UNDER the region only — a blank corner of the drag rect
+        // contributes nothing (that is the whole point of the seam).
+        if (!cb.bbox.intersects(region)) continue;
+        // Reuse the span grouping by feeding one span = all picked chars:
+        // group incrementally instead (same band-merge rule as
+        // lineRectsForSpan) to keep one implementation of "same line".
+        if (!out.isEmpty()
+            && cb.bbox.top() <= out.last().bottom() + 1.0
+            && cb.bbox.bottom() >= out.last().top() - 1.0) {
+            out.last() = out.last().united(cb.bbox);
+        } else {
+            out.append(cb.bbox);
+        }
+    }
+
+    FPDF_CloseDocument(doc);
+    return out;
+}
+
 #else // !HAS_PDFIUM
 
 // R22 (2026-09-14): signature aligned with the header — packa-F4 (88d5686)
@@ -266,6 +338,17 @@ QList<TextMatch> TextMatchFinder::findMatches(const QString& pdfPath,
     Q_UNUSED(pattern);
     Q_UNUSED(budget);
     qWarning() << "TextMatchFinder: PDFium not available — cannot locate text matches.";
+    return {};
+}
+
+QList<QRectF> TextMatchFinder::lineRectsInRegion(const QString& pdfPath, int page,
+                                                 const QRectF& region,
+                                                 MatchBudget* budget) {
+    Q_UNUSED(pdfPath);
+    Q_UNUSED(page);
+    Q_UNUSED(region);
+    Q_UNUSED(budget);
+    qWarning() << "TextMatchFinder: PDFium not available — cannot locate line rects.";
     return {};
 }
 

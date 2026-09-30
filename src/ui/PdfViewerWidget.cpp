@@ -44,6 +44,7 @@
 // All PoDoFo page-manipulation operations are routed through
 // gp::PdfPageOps (engines/podofo/PdfPageOps.h) which lives in pdfws_engines.
 #include "engines/podofo/PdfPageOps.h"
+#include "engines/TextMatchFinder.h"
 #include <QMap>
 #include <QGraphicsColorizeEffect>
 #include "ui/NightModeEffect.h"
@@ -204,6 +205,20 @@ PdfViewerWidget::PdfViewerWidget(QWidget *parent)
 
     m_annotationLayer->setPageAtCallback([this](QPoint){
         return m_pageNavigator->currentPage();
+    });
+
+    // PARITY §9.3 P1 row 15: give the layer the text-layer knowledge it lacks
+    // — the per-line rects of the text under a markup drag, straight from the
+    // real text layer (TextMatchFinder, display space). A text-markup drag
+    // over real text then commits a text-anchored item (per-line quads →
+    // /QuadPoints on save); over blank space the provider returns empty and
+    // the legacy free-rect commit happens unchanged. Same coordinate
+    // convention as every annotation commit in this file (layer/page display
+    // units); the synchronous find is budget-bounded like the Find path.
+    m_annotationLayer->setLineRectsProvider([this](int pageIndex, const QRectF &region) {
+        if (m_filePath.isEmpty())
+            return QList<QRectF>();
+        return TextMatchFinder::lineRectsInRegion(m_filePath, pageIndex, region);
     });
 
     // R17: the reading canvas is a keyboard stop (F6 cycling reaches it) and

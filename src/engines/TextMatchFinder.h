@@ -94,6 +94,21 @@ public:
                                         const QRegularExpression& pattern,
                                         MatchBudget* budget = nullptr);
 
+    // PARITY §9.3 P1 row 15: the placement seam for TEXT-ANCHORED markup.
+    // Per-line display rects of every glyph whose box intersects `region`
+    // (BOTH in the viewer's display space — the same space AnnotationItem::
+    // rect lives in), grouped into line runs top-first, each run the union of
+    // its actual glyph boxes (clipped to the glyphs, never padded out to the
+    // region's blank corners). Feeds AnnotationItem::quads → /QuadPoints so
+    // text-anchored Highlight/Underline/Strikeout/Squiggly hug the real lines
+    // instead of the drag rect (which covers blank space and misses wrapped
+    // lines). Empty result = no text under the region: callers must fall back
+    // to free-rect markup (drag-rect mode stays fully functional).
+    // Same honest budget semantics as findMatches (partial results possible).
+    static QList<QRectF> lineRectsInRegion(const QString& pdfPath, int page,
+                                           const QRectF& region,
+                                           MatchBudget* budget = nullptr);
+
     // T2-2 honesty seam: per-match reflow/geometry warnings for a planned
     // replacement. A warning is emitted when the replacement's length differs
     // from the matched text's length (a drawn-width estimate is impossible

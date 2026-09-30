@@ -34,6 +34,48 @@ bool isSignatureImageMode(ToolMode mode)
     return mode == ToolMode::AddSignatureTyped || mode == ToolMode::AddSignatureUpload;
 }
 
+// PARITY §9.3 P1 row 15: the four tools whose dictionaries carry ISO 32000
+// §12.5.6.10 /QuadPoints when placed text-anchored.
+static bool isTextMarkupMode(ToolMode mode)
+{
+    return mode == ToolMode::Highlight || mode == ToolMode::Underline
+        || mode == ToolMode::Strikeout || mode == ToolMode::Squiggly;
+}
+
+AnnotationItem AnnotationLayer::makeTextAnchoredMarkup(ToolMode mode, int pageIndex,
+                                                       const QList<QRectF> &lineRects,
+                                                       const QColor &color,
+                                                       int thickness)
+{
+    AnnotationItem item;
+    item.mode = mode;
+    item.pageIndex = pageIndex;
+    item.color = color;
+    item.thickness = thickness;
+    if (mode == ToolMode::Highlight) {
+        item.color = Qt::yellow;   // same default as the drag path
+        item.thickness = 10;
+    }
+    if (!isTextMarkupMode(mode) || lineRects.isEmpty())
+        return item;   // free-rect fallback — text anchoring never faked
+    for (const QRectF &r : lineRects) {
+        const QRectF q = r.normalized();
+        if (q.isEmpty()) continue;
+        item.quads.append(q);
+    }
+    QRectF u;
+    for (const QRectF &q : item.quads)
+        u = u.isNull() ? q : u.united(q);
+    item.rect = u;
+    return item;
+}
+
+void AnnotationLayer::setLineRectsProvider(
+    std::function<QList<QRectF>(int pageIndex, const QRectF &)> provider)
+{
+    m_lineRectsProvider = std::move(provider);
+}
+
 // ── T1 measurement helpers (shared by the overlay and the two-page composite
 //    through the single paintShape path) ──────────────────────────────────────
 
@@ -284,10 +326,54 @@ void AnnotationLayer::paintShape(QPainter &painter, const AnnotationItem &anno)
     painter.save();
     painter.setPen(QPen(anno.color, anno.thickness, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
 
+    // PARITY §9.3 P1 row 15: text-anchored markup draws PER LINE when line
+    // quads are present — the markup hugs the actual glyphs on every wrapped
+    // line instead of the union rect (whose blank band between lines and
+    // empty corners must stay unpainted). No quads = legacy drag-rect drawing
+    // below, byte-for-byte the old behavior.
+    const bool useQuads =
+        !anno.quads.isEmpty()
+        && (anno.mode == ToolMode::Highlight || anno.mode == ToolMode::Underline
+            || anno.mode == ToolMode::Strikeout || anno.mode == ToolMode::Squiggly);
+
     if (anno.mode == ToolMode::DrawFreehand) {
         for (int i = 0; i < anno.points.size() - 1; ++i) {
             painter.drawLine(anno.points[i], anno.points[i+1]);
         }
+    } else if (useQuads && anno.mode == ToolMode::Highlight) {
+        QColor highColor = anno.color;
+        highColor.setAlpha(100);
+        for (const QRectF &quad : anno.quads)
+            painter.fillRect(quad.normalized(), highColor);
+    } else if (useQuads && anno.mode == ToolMode::Underline) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        for (const QRectF &quad : anno.quads) {
+            const QRectF q = quad.normalized();
+            painter.drawLine(q.bottomLeft(), q.bottomRight());
+        }
+    } else if (useQuads && anno.mode == ToolMode::Strikeout) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        for (const QRectF &quad : anno.quads) {
+            const QRectF q = quad.normalized();
+            painter.drawLine(QPointF(q.left(), q.center().y()),
+                             QPointF(q.right(), q.center().y()));
+        }
+    } else if (useQuads && anno.mode == ToolMode::Squiggly) {
+        painter.setPen(QPen(anno.color, anno.thickness));
+        QPainterPath path;
+        for (const QRectF &quad : anno.quads) {
+            const QRectF q = quad.normalized();
+            path.moveTo(q.bottomLeft());
+            int waves = qMax(1, static_cast<int>(q.width() / 4));
+            qreal step = q.width() / waves;
+            for (int w = 0; w < waves; ++w) {
+                qreal x = q.left() + w * step;
+                qreal y = q.bottom();
+                path.quadTo(x + step / 4, y - 2, x + step / 2, y);
+                path.quadTo(x + 3 * step / 4, y + 2, x + step, y);
+            }
+        }
+        painter.drawPath(path);
     } else if (anno.mode == ToolMode::Highlight) {
         QColor highColor = anno.color;
         highColor.setAlpha(100);
@@ -929,6 +1015,25 @@ void AnnotationLayer::mouseReleaseEvent(QMouseEvent *event)
             // The text was resolved for THIS placement; consume it so a later
             // manual stamp does not silently reuse a stale author/date.
             m_pendingStampText.clear();
+        }
+        // PARITY §9.3 P1 row 15: when the host installed the text-layer
+        // provider and the drag covers REAL TEXT, commit the markup
+        // text-anchored (per-line quads → /QuadPoints on save) so the mark
+        // hugs the glyphs on every wrapped line. Over blank space — or with
+        // no provider installed — the legacy free-rect commit happens
+        // unchanged: free-rect markup over blank space is a legitimate act
+        // and keeps working exactly as before.
+        if (m_lineRectsProvider && isTextMarkupMode(m_currentNote.mode)) {
+            const QList<QRectF> lines =
+                m_lineRectsProvider(m_currentNote.pageIndex,
+                                    m_currentNote.rect.normalized());
+            if (!lines.isEmpty()) {
+                const AnnotationItem anchored = makeTextAnchoredMarkup(
+                    m_currentNote.mode, m_currentNote.pageIndex, lines,
+                    m_currentNote.color, m_currentNote.thickness);
+                m_currentNote.quads = anchored.quads;
+                m_currentNote.rect = anchored.rect;
+            }
         }
         m_annotations.append(m_currentNote);
         emit annotationsChanged();
