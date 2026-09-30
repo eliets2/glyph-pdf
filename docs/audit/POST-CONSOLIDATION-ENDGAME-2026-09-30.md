@@ -51,6 +51,18 @@ feat/fixall-ci3.
 - Runbook addition: POST_BUILD rules deploy podofo but NOT pdfium.dll beside the
   test exes â fresh test trees need a manual pdfium.dll copy or suites die 0xc0000135.
 
+## Feature-fleet wave 1 — FOLDED (2026-09-30, final tip fd66867c)
+
+All five lanes folded, wave-closing gate: fresh build RC=0 + full serial 189/189.
+Lineage: 2ccfd5ba -> 2ca2df84 (csv evidence) -> 93f34f32 (csv closure) ->
+8315e390 (PARITY-SCORECARD-2026-09-30: July 4.9 -> 8.6 verified; 112 P0/P1
+dispositioned: 83 DONE / 8 PARTIAL / 13 OPEN / 1 OBSOLETE) -> 2e204e15
+(PGR-52/54/55/56) -> 2364cd35 (V-01/02/03 + M-4/M-5) -> fd66867c (AD-01/AD-02/M-2/M-1).
+Highlights: AD-01 consume-side OCSP responder auth (fail-closed both directions);
+AD-02 CONFIRMED (NUL-whitespace evasion is real; second independent /Info-scope
+hole found + fixed); M-1 password off argv via stdin (verified vs 7-Zip 26.02);
+PGR-52 bounded PCRE2 matcher; V-01 third race window found live and closed.
+
 ## OPEN ITEMS (owner)
 
 1. **djot depth budget — CLOSED `505295f4`** (was IN FLIGHT) — the CX-13 gate's first catch: genuine
@@ -59,9 +71,18 @@ feat/fixall-ci3.
    `docs/audit/evidence-fuzz-djot-finding-2026-09-30/`. Fix lane dispatched on
    `feat/djot-depth-budget` (worktree pdf-djotfix); the djot fuzz job stays RED
    by design until it lands — do not waive.
-2. PGR-52 (per-match timeout needs a PCRE2 seam), PGR-54 (failed bates step
-   reporting), PGR-55 (untrimmed redact-entry splits), PGR-56 (confirm flows
-   keyed on error strings) — recorded in the presets-review handoff on main.
+0bis. **Wave-1 lane-surfaced owner items:** M-3 still OPEN (SendForSigningController
+   has zero OcspConsent refs); GLYPH_TESTING/GLYPHPDF_TESTING ifdef-vs-define
+   mismatch leaves the SignatureManager OCSP fixture seams dead in every config
+   (evidence-ad01/README.md); AD-02 deep remediation (xref-based revision
+   enumeration) open beyond the minimal tokenize-consistent fix; M-1 long-term =
+   in-process AES-256 ZIP writer (stdin shrinks, not zeroes, the same-user
+   surface); M-4/M-5 POSIX-bit assertions compile out on Windows - POSIX-side
+   execution UNVERIFIED.
+
+2. PGR-52/54/55/56 — CLOSED by wave 1 (2e204e15): the PCRE2 seam exists
+   (bounded matcher), bates reports -1 on failure, editor trims entry splits,
+   confirm flows key on typed StoreConflict codes.
 3. Standing handoff owner items (CONSOLIDATION-HANDOFF-FIXALL §7): signature
    flake, WelcomeRoutes/Sweep CI flakes, INV-1 CI flake, Rotate View port,
    PGR-33/40/41.
