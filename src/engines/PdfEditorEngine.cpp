@@ -1786,8 +1786,21 @@ bool PdfEditorEngine::applyPatternRedactions(const QRegularExpression& pattern,
         if (pg >= 0 && pg < totalPages) validPages.append(pg);
     }
 
-    const QHash<int, QList<QRectF>> matchesByPage =
-        PatternRedactor::findMatches(pdfPath, validPages, pattern);
+    // PGR-52: the BOUNDED search — a pattern that burns its per-match compute
+    // budget fails the operation honestly instead of silently redacting from
+    // partial results (or silently matching nothing).
+    const PatternRedactor::BoundedMatchResult bounded =
+        PatternRedactor::findMatchesBounded(pdfPath, validPages, pattern);
+    if (bounded.budgetExceeded) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("A redact pattern exceeded its match budget — "
+                              "the document was left unchanged."),
+                  QStringLiteral("applyPatternRedactions: pattern=%1 exceeded its "
+                                 "match budget on page %2 — no redaction applied")
+                      .arg(pattern.pattern()).arg(bounded.exceededPage));
+        return false;
+    }
+    const QHash<int, QList<QRectF>> matchesByPage = bounded.byPage;
 
     for (int pg : validPages) {
         const auto it = matchesByPage.constFind(pg);
@@ -1893,11 +1906,23 @@ bool PdfEditorEngine::applyPatternRedactionsMulti(const QStringList& patterns,
     // them in ONE pass over the in-memory document. This collapses the former
     // N_patterns × (load + find + apply + sanitize-save + reload) into a single
     // load / find / apply / save cycle per file.
+    // PGR-52: every pattern runs through the BOUNDED search; a budget trip
+    // fails the operation honestly BEFORE any excision happens (nothing has
+    // been mutated at this point — the resident document is untouched).
     QHash<int, QList<QRectF>> matchesByPage;
     for (const QRegularExpression& re : compiled) {
-        const QHash<int, QList<QRectF>> found =
-            PatternRedactor::findMatches(pdfPath, validPages, re);
-        for (auto it = found.constBegin(); it != found.constEnd(); ++it) {
+        const PatternRedactor::BoundedMatchResult found =
+            PatternRedactor::findMatchesBounded(pdfPath, validPages, re);
+        if (found.budgetExceeded) {
+            d->setErr(ErrorInfo::Error,
+                      QObject::tr("A redact pattern exceeded its match budget — "
+                                  "the document was left unchanged."),
+                      QStringLiteral("applyPatternRedactionsMulti: pattern=%1 exceeded "
+                                     "its match budget on page %2 — no redaction applied")
+                          .arg(re.pattern()).arg(found.exceededPage));
+            return false;
+        }
+        for (auto it = found.byPage.constBegin(); it != found.byPage.constEnd(); ++it) {
             matchesByPage[it.key()].append(it.value());
         }
     }

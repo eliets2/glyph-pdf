@@ -1,0 +1,59 @@
+UpdateCTestConfiguration  from :D:/pdf/pdf-feat-pgr/build-pgr/DartConfiguration.tcl
+Parse Config file:D:/pdf/pdf-feat-pgr/build-pgr/DartConfiguration.tcl
+Test project D:/pdf/pdf-feat-pgr/build-pgr
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 86
+    Start 86: TestPatternRedact
+
+86: Test command: D:\pdf\pdf-feat-pgr\build-pgr\TestPatternRedact.exe
+86: Working Directory: D:/pdf/pdf-feat-pgr/build-pgr
+86: Environment variables: 
+86:  QT_QPA_PLATFORM=offscreen
+86:  TMP=D:/pdf/pdf-feat-pgr/build-pgr/test-tmp/TestPatternRedact
+86:  TEMP=D:/pdf/pdf-feat-pgr/build-pgr/test-tmp/TestPatternRedact
+86:  TMPDIR=D:/pdf/pdf-feat-pgr/build-pgr/test-tmp/TestPatternRedact
+86: Test timeout computed to be: 60
+86: ********* Start testing of TestPatternRedact *********
+86: Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+86: PASS   : TestPatternRedact::initTestCase()
+86: PASS   : TestPatternRedact::testEmailPatternIsValid()
+86: PASS   : TestPatternRedact::testAvailablePatternsCount()
+86: PASS   : TestPatternRedact::testUnknownPatternIsInvalid()
+86: PASS   : TestPatternRedact::testEmailPatternFindsMatch()
+86: PASS   : TestPatternRedact::testPhonePatternFindsMatch()
+86: PASS   : TestPatternRedact::testSSNPatternFindsMatch()
+86: PASS   : TestPatternRedact::testCreditCardPattern()
+86: PASS   : TestPatternRedact::testCustomRegex()
+86: PASS   : TestPatternRedact::testNoMatchReturnsEmpty()
+86: QWARN  : TestPatternRedact::testInvalidRegexHandledGracefully() PatternRedactor::findMatchesBounded — invalid pattern: "missing terminating ] for character class"
+86: PASS   : TestPatternRedact::testInvalidRegexHandledGracefully()
+86: Fontconfig error: Cannot load default config file: File not found
+86: PASS   : TestPatternRedact::testMultiPatternRedactionCollapsesToSinglePass()
+86: PASS   : TestPatternRedact::testMultiPatternRejectsInvalidPatternBeforeMutation()
+86: PASS   : TestPatternRedact::reviewHostileBacktrackingPatternFailsWithMatchBudgetError()
+86: PASS   : TestPatternRedact::reviewBenignCorpusStillMatchesThroughBoundedEngine()
+86: PASS   : TestPatternRedact::testApplyPatternRedactionRemovesText()
+86: PASS   : TestPatternRedact::cleanupTestCase()
+86: Totals: 17 passed, 0 failed, 0 skipped, 0 blacklisted, 278ms
+86: ********* Finished testing of TestPatternRedact *********
+1/1 Test #86: TestPatternRedact ................   Passed    0.32 sec
+
+The following tests passed:
+	TestPatternRedact
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+headless     =   0.32 sec*proc (1 test)
+patterns     =   0.32 sec*proc (1 test)
+qt           =   0.32 sec*proc (1 test)
+redaction    =   0.32 sec*proc (1 test)
+security     =   0.32 sec*proc (1 test)
+unit         =   0.32 sec*proc (1 test)
+
+Total Test time (real) =   0.33 sec

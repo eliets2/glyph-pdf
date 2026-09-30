@@ -3,14 +3,153 @@
 
 #include <QHash>
 #include <QDebug>
-#include <QElapsedTimer>
 #include <mutex>
+
+// PGR-52 (2026-09-30): the bounded matcher compiles and runs redact patterns
+// against the SAME 16-bit PCRE2 build Qt6Core itself links (libpcre2-16-0.dll),
+// because QRegularExpression exposes no match timeout (verified in the Qt 6.11
+// headers — MatchOption/PatternOption carry nothing of the sort) and PCRE2's
+// implicit default MATCH_LIMIT only made a hostile pattern yield a SILENT
+// "no match" (a redaction false negative), not an honest failure. The
+// interpreter (not JIT) is used so the per-match budget is always enforced.
+#define PCRE2_CODE_UNIT_WIDTH 16
+#include <pcre2.h>
 
 #ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_text.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
 #endif
+
+// ---------------------------------------------------------------------------
+// PGR-52: the bounded PCRE2-16 matcher
+// ---------------------------------------------------------------------------
+
+// Compile options mirror what QRegularExpression does for an equivalent
+// default-constructed pattern (Qt 6 compiles every pattern with PCRE2_UTF
+// because QString is UTF-16; the pattern-syntax options beyond that are
+// opt-in and would already be embedded in the pattern text). The SUBJECT is
+// UTF-16 QString data and is checked (no PCRE2_NO_UTF_CHECK) — a page text
+// with unpaired surrogates yields no matches on that page, exactly what the
+// previous QRegularExpression path did.
+static constexpr quint32 kPcre2CompileOptions = PCRE2_UTF;
+
+class PatternRedactor::BoundedMatcher {
+public:
+    BoundedMatcher(const QRegularExpression& pattern, quint64 matchLimit) {
+        if (pattern.pattern().isEmpty())
+            return;
+        PCRE2_SIZE erroffset = 0;
+        int errcode = 0;
+        m_code = pcre2_compile_16(
+            reinterpret_cast<PCRE2_SPTR16>(pattern.pattern().constData()),
+            PCRE2_ZERO_TERMINATED,
+            kPcre2CompileOptions,
+            &errcode, &erroffset,
+            nullptr /* ccontext */);
+        if (!m_code)
+            return;
+        m_matchContext = pcre2_match_context_create_16(nullptr);
+        if (!m_matchContext) {
+            pcre2_code_free_16(m_code);
+            m_code = nullptr;
+            return;
+        }
+        // THE seam: the per-match compute budget. Both limits are set
+        // explicitly so the budget does not drift with PCRE2 defaults.
+        pcre2_set_match_limit_16(m_matchContext,
+                                 static_cast<uint32_t>(matchLimit));
+        pcre2_set_depth_limit_16(m_matchContext,
+                                 static_cast<uint32_t>(matchLimit));
+        m_matchData = pcre2_match_data_create_from_pattern_16(m_code, nullptr);
+        if (!m_matchData) {
+            pcre2_match_context_free_16(m_matchContext);
+            m_matchContext = nullptr;
+            pcre2_code_free_16(m_code);
+            m_code = nullptr;
+        }
+    }
+
+    ~BoundedMatcher() {
+        if (m_matchData)
+            pcre2_match_data_free_16(m_matchData);
+        if (m_matchContext)
+            pcre2_match_context_free_16(m_matchContext);
+        if (m_code)
+            pcre2_code_free_16(m_code);
+    }
+
+    BoundedMatcher(const BoundedMatcher&) = delete;
+    BoundedMatcher& operator=(const BoundedMatcher&) = delete;
+
+    bool valid() const { return m_code != nullptr; }
+
+    /// Global matching over `subject`, replicating QRegularExpression::
+    /// globalMatch's zero-length-match advance algorithm (the PCRE2-recommended
+    /// NOTEMPTY_ATSTART|ANCHORED retry at the same offset, then step one unit).
+    /// Zero-length spans are NOT emitted (the consumer skips them; the loop
+    /// rules keep them from stalling the scan). Sets *budgetExceeded and stops
+    /// at the FIRST budget trip — the caller converts that to an honest
+    /// failure; partial spans before the trip are returned.
+    QVector<QPair<int, int>> globalMatches(const QString& subject,
+                                           bool* budgetExceeded) const {
+        QVector<QPair<int, int>> spans;
+        if (budgetExceeded)
+            *budgetExceeded = false;
+        if (!valid())
+            return spans;
+
+        const int length = subject.size();
+        const auto* data = reinterpret_cast<PCRE2_SPTR16>(subject.constData());
+        PCRE2_SIZE* const ovec = pcre2_get_ovector_pointer_16(m_matchData);
+        quint32 options = 0;
+
+        int offset = 0;
+        while (offset <= length) {
+            const int rc = pcre2_match_16(m_code, data, length,
+                                          offset, options,
+                                          m_matchData, m_matchContext);
+            if (rc == PCRE2_ERROR_NOMATCH) {
+                if (options == 0)
+                    break;                       // genuinely no more matches
+                options = 0;                     // anchored retry failed
+                ++offset;
+                continue;
+            }
+            if (rc == PCRE2_ERROR_MATCHLIMIT || rc == PCRE2_ERROR_DEPTHLIMIT) {
+                // PGR-52: the pattern burned its per-match budget. HONEST
+                // failure — surfaced, never a silent "no match here".
+                if (budgetExceeded)
+                    *budgetExceeded = true;
+                break;
+            }
+            if (rc < 0) {
+                // UTF-validity or internal errors: no match on this subject —
+                // the same observable result the QRegularExpression path had.
+                break;
+            }
+
+            const int start = static_cast<int>(ovec[0]);
+            const int end   = static_cast<int>(ovec[1]);
+            if (end > start)
+                spans.append({start, end});
+
+            if (end == start) {
+                options = PCRE2_NOTEMPTY_ATSTART | PCRE2_ANCHORED;
+                // offset stays — the retry looks for a non-empty match HERE.
+            } else {
+                options = 0;
+                offset = end;
+            }
+        }
+        return spans;
+    }
+
+private:
+    pcre2_code_16*          m_code         = nullptr;
+    pcre2_match_data_16*    m_matchData    = nullptr;
+    pcre2_match_context_16* m_matchContext = nullptr;
+};
 
 // ---------------------------------------------------------------------------
 // Named pattern definitions (QRegularExpression, Qt syntax)
@@ -160,31 +299,9 @@ PatternRedactor::extractCharsFromOpenDoc(void* docHandle, int pageIndex) {
 }
 #endif
 
-QList<PatternRedactor::CharInfo>
-PatternRedactor::extractCharsWithPositions(const QString& pdfPath, int pageIndex) {
-    QList<CharInfo> result;
-
-#ifdef HAS_PDFIUM
-    PdfiumEnvironment env;
-
-    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
-    if (!doc) {
-        qWarning() << "PatternRedactor: could not open PDF" << pdfPath;
-        return result;
-    }
-
-    result = extractCharsFromOpenDoc(static_cast<void*>(doc), pageIndex);
-
-    FPDF_CloseDocument(doc);
-
-#else
-    Q_UNUSED(pdfPath);
-    Q_UNUSED(pageIndex);
-    qWarning() << "PatternRedactor: PDFium not available — cannot extract character positions.";
-#endif
-
-    return result;
-}
+// extractCharsWithPositions (the per-call FPDF_LoadDocument path) was removed
+// with PGR-52: both findMatches variants now run through findMatchesBounded,
+// which opens the document itself and carries the per-match budget.
 
 QRectF PatternRedactor::mergeCharBoxes(const QList<CharInfo>& chars, int startIdx, int endIdx) {
     // endIdx is exclusive
@@ -246,8 +363,11 @@ QRectF PatternRedactor::mergeCharBoxes(const QList<CharInfo>& chars, int startId
 // ---------------------------------------------------------------------------
 
 QList<QRectF> PatternRedactor::matchChars(const QList<CharInfo>& chars,
-                                          const QRegularExpression& pattern) {
+                                          BoundedMatcher& matcher,
+                                          bool* budgetExceeded) {
     QList<QRectF> results;
+    if (budgetExceeded)
+        *budgetExceeded = false;
     if (chars.isEmpty()) {
         return results;
     }
@@ -259,20 +379,24 @@ QList<QRectF> PatternRedactor::matchChars(const QList<CharInfo>& chars,
         pageText.append(ci.ch);
     }
 
-    // M-3: ReDoS bound. The pattern may be a user-supplied custom regex, and a
-    // page may carry a large amount of text, so globalMatch() can catastrophically
-    // backtrack and hang the UI thread. We bound the work two ways:
-    //   (1) cap the input length fed to the regex (kMaxRegexInput), which is the
+    // M-3 (input cap) + PGR-52 (per-match compute budget). The pattern may be
+    // a user-supplied custom regex, and a page may carry a large amount of
+    // text, so the work is bounded two ways:
+    //   (1) the input length fed to the regex is capped (kMaxRegexInput) — the
     //       primary driver of backtracking blow-up; and
-    //   (2) abort the match loop after a wall-clock budget (kMatchBudgetMs).
-    // Residual limit (documented): a SINGLE pathological QRegularExpressionMatch
-    // step can still run past the budget before next() returns, because PCRE2's
-    // own backtracking is not interrupted mid-step; the input cap keeps that
-    // bounded in practice. A full fix (running the match on a cancellable worker)
-    // is deliberately out of scope for this minimal hardening. Built-in named
-    // patterns are unaffected — they are linear and finish well within the budget.
-    constexpr int kMaxRegexInput  = 256 * 1024;  // chars
-    constexpr qint64 kMatchBudgetMs = 1500;       // wall-clock ceiling
+    //   (2) every pcre2_match call runs under an explicit match_limit /
+    //       depth_limit budget (the BoundedMatcher context) — a hostile
+    //       pattern like `(a+)+$` is cut DETERMINISTICALLY mid-backtrack and
+    //       reported through *budgetExceeded so the caller fails the file
+    //       honestly ("pattern exceeded its match budget").
+    // The former wall-clock loop budget (kMatchBudgetMs) is GONE: it could
+    // only fire BETWEEN matches, so a single pathological match still ran to
+    // completion before it could matter — and its "partial results, keep
+    // going" outcome was precisely the silent skip PGR-52 outlaws. A budget
+    // trip now aborts the scan and is reported.
+    // Built-in named patterns are unaffected — they are linear and finish
+    // orders of magnitude under the budget.
+    constexpr int kMaxRegexInput = 256 * 1024;  // chars
 
     if (pageText.size() > kMaxRegexInput) {
         qWarning() << "PatternRedactor::matchChars — page text truncated from"
@@ -281,21 +405,11 @@ QList<QRectF> PatternRedactor::matchChars(const QList<CharInfo>& chars,
         pageText.truncate(kMaxRegexInput);
     }
 
-    QElapsedTimer timer;
-    timer.start();
-
-    // Run the regex against the (bounded) page text
-    QRegularExpressionMatchIterator it = pattern.globalMatch(pageText);
-    while (it.hasNext()) {
-        if (timer.elapsed() > kMatchBudgetMs) {
-            qWarning() << "PatternRedactor::matchChars — regex match aborted after"
-                       << kMatchBudgetMs << "ms (possible ReDoS / pathological pattern, M-3);"
-                       << "returning partial results";
-            break;
-        }
-        const QRegularExpressionMatch match = it.next();
-        const int startIdx = match.capturedStart();
-        const int endIdx   = match.capturedEnd(); // exclusive
+    const QVector<QPair<int, int>> spans = matcher.globalMatches(pageText,
+                                                                 budgetExceeded);
+    for (const auto& span : spans) {
+        const int startIdx = span.first;
+        const int endIdx   = span.second;   // exclusive
         if (startIdx < 0 || endIdx <= startIdx) continue;
 
         const QRectF bbox = mergeCharBoxes(chars, startIdx, endIdx);
@@ -308,24 +422,84 @@ QList<QRectF> PatternRedactor::matchChars(const QList<CharInfo>& chars,
 }
 
 // ---------------------------------------------------------------------------
+// PGR-52: the bounded batch search (one parse, per-match budget)
+// ---------------------------------------------------------------------------
+
+PatternRedactor::BoundedMatchResult
+PatternRedactor::findMatchesBounded(const QString& pdfPath,
+                                    const QList<int>& pages,
+                                    const QRegularExpression& pattern,
+                                    quint64 matchLimit) {
+    BoundedMatchResult out;
+
+    // Guard: invalid / empty pattern (same contract as the legacy variants).
+    if (!pattern.isValid()) {
+        qWarning() << "PatternRedactor::findMatchesBounded — invalid pattern:"
+                   << pattern.errorString();
+        return out;
+    }
+    if (pattern.pattern().isEmpty() || pages.isEmpty()) {
+        return out;
+    }
+
+    BoundedMatcher matcher(pattern, matchLimit);
+    if (!matcher.valid()) {
+        // Qt already gated validity upstream — this is defensive. An empty
+        // result is a no-match, never a budget claim.
+        qWarning() << "PatternRedactor::findMatchesBounded — the bounded engine "
+                      "refused to compile the pattern:" << pattern.pattern();
+        return out;
+    }
+
+#ifdef HAS_PDFIUM
+    PdfiumEnvironment env;
+
+    // Open (parse) the document ONCE for the whole page set (unchanged from
+    // the batch overload this function carries forward).
+    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
+    if (!doc) {
+        qWarning() << "PatternRedactor::findMatchesBounded — could not open PDF" << pdfPath;
+        return out;
+    }
+
+    for (int pg : pages) {
+        const QList<CharInfo> chars = extractCharsFromOpenDoc(static_cast<void*>(doc), pg);
+        bool exceeded = false;
+        const QList<QRectF> rects = matchChars(chars, matcher, &exceeded);
+        if (exceeded) {
+            // Honest abort: the payload so far is PARTIAL by definition — the
+            // caller (engine/mode boundary) must fail the operation, never
+            // redact from it.
+            out.budgetExceeded = true;
+            out.exceededPage = pg;
+            break;
+        }
+        if (!rects.isEmpty()) {
+            out.byPage.insert(pg, rects);
+        }
+    }
+
+    FPDF_CloseDocument(doc);
+#else
+    // No PDFium: no chars can be extracted, so no match can trip a budget —
+    // the legacy per-page path's behavior (empty results) is correct as-is.
+    Q_UNUSED(pdfPath);
+    Q_UNUSED(matcher);
+#endif
+
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Public API: findMatches (single page)
 // ---------------------------------------------------------------------------
 
 QList<QRectF> PatternRedactor::findMatches(const QString& pdfPath,
                                             int             pageIndex,
                                             const QRegularExpression& pattern) {
-    // Guard: invalid pattern
-    if (!pattern.isValid()) {
-        qWarning() << "PatternRedactor::findMatches — invalid pattern:"
-                   << pattern.errorString();
-        return {};
-    }
-    if (pattern.pattern().isEmpty()) {
-        return {};
-    }
-
-    const QList<CharInfo> chars = extractCharsWithPositions(pdfPath, pageIndex);
-    return matchChars(chars, pattern);
+    // Delegate to the bounded search; this legacy surface keeps its historical
+    // signature (and its no-error payload) for the read-only preview callers.
+    return findMatchesBounded(pdfPath, {pageIndex}, pattern).byPage.value(pageIndex);
 }
 
 // ---------------------------------------------------------------------------
@@ -336,49 +510,7 @@ QHash<int, QList<QRectF>>
 PatternRedactor::findMatches(const QString& pdfPath,
                              const QList<int>& pages,
                              const QRegularExpression& pattern) {
-    QHash<int, QList<QRectF>> out;
-
-    // Guard: invalid / empty pattern (same contract as the single-page variant).
-    if (!pattern.isValid()) {
-        qWarning() << "PatternRedactor::findMatches(batch) — invalid pattern:"
-                   << pattern.errorString();
-        return out;
-    }
-    if (pattern.pattern().isEmpty() || pages.isEmpty()) {
-        return out;
-    }
-
-#ifdef HAS_PDFIUM
-    PdfiumEnvironment env;
-
-    // Open (parse) the document ONCE for the whole page set. Previously each
-    // page went through findMatches() -> extractCharsWithPositions() which called
-    // FPDF_LoadDocument()/FPDF_CloseDocument() per page; in BatchMode that was
-    // N_pages × N_patterns full parses. Now it is one parse per applyPatternRedactions.
-    FPDF_DOCUMENT doc = FPDF_LoadDocument(pdfPath.toLocal8Bit().constData(), nullptr);
-    if (!doc) {
-        qWarning() << "PatternRedactor::findMatches(batch) — could not open PDF" << pdfPath;
-        return out;
-    }
-
-    for (int pg : pages) {
-        const QList<CharInfo> chars = extractCharsFromOpenDoc(static_cast<void*>(doc), pg);
-        const QList<QRectF> rects = matchChars(chars, pattern);
-        if (!rects.isEmpty()) {
-            out.insert(pg, rects);
-        }
-    }
-
-    FPDF_CloseDocument(doc);
-#else
-    // No PDFium: fall back to the per-page path (which logs the unavailability).
-    for (int pg : pages) {
-        const QList<QRectF> rects = findMatches(pdfPath, pg, pattern);
-        if (!rects.isEmpty()) {
-            out.insert(pg, rects);
-        }
-    }
-#endif
-
-    return out;
+    // Legacy surface: same payload contract as before (PGR-52 consumers use
+    // findMatchesBounded so a budget trip is reported, not swallowed).
+    return findMatchesBounded(pdfPath, pages, pattern).byPage;
 }

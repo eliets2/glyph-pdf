@@ -668,7 +668,18 @@ void RedactMode::onMarkAllOccurrences() {
         for (int p = 0; p < pageCount; ++p) pages.append(p);
     }
 
-    const auto matches = PatternRedactor::findMatches(path, pages, rx);
+    // PGR-52: the BOUNDED search — a pattern that burns its per-match compute
+    // budget reports honestly instead of silently placing marks for a partial
+    // match set (an excision that would MISS the surviving occurrences).
+    const PatternRedactor::BoundedMatchResult bounded =
+        PatternRedactor::findMatchesBounded(path, pages, rx);
+    if (bounded.budgetExceeded) {
+        emit statusMessageRequested(
+            tr("Pattern exceeded its match budget — no marks placed. "
+               "Narrow the pattern or the page range."));
+        return;
+    }
+    const auto matches = bounded.byPage;
 
     // PGR-46 (09-24 handoff §9): PatternRedactor rects are RAW USER space
     // (y-up, /Rotate never applied — PGR-37's producer contract); the placed

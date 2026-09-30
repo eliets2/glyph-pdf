@@ -1,0 +1,44 @@
+Test project D:/pdf/pdf-feat-pgr/build-pgr
+    Start 86: TestPatternRedact
+1/1 Test #86: TestPatternRedact ................***Failed    0.44 sec
+********* Start testing of TestPatternRedact *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestPatternRedact::initTestCase()
+PASS   : TestPatternRedact::testEmailPatternIsValid()
+PASS   : TestPatternRedact::testAvailablePatternsCount()
+PASS   : TestPatternRedact::testUnknownPatternIsInvalid()
+PASS   : TestPatternRedact::testEmailPatternFindsMatch()
+PASS   : TestPatternRedact::testPhonePatternFindsMatch()
+PASS   : TestPatternRedact::testSSNPatternFindsMatch()
+PASS   : TestPatternRedact::testCreditCardPattern()
+PASS   : TestPatternRedact::testCustomRegex()
+PASS   : TestPatternRedact::testNoMatchReturnsEmpty()
+QWARN  : TestPatternRedact::testInvalidRegexHandledGracefully() PatternRedactor::findMatchesBounded — invalid pattern: "missing terminating ] for character class"
+PASS   : TestPatternRedact::testInvalidRegexHandledGracefully()
+Fontconfig error: Cannot load default config file: File not found
+PASS   : TestPatternRedact::testMultiPatternRedactionCollapsesToSinglePass()
+PASS   : TestPatternRedact::testMultiPatternRejectsInvalidPatternBeforeMutation()
+FAIL!  : TestPatternRedact::reviewHostileBacktrackingPatternFailsWithMatchBudgetError() '!ok' returned FALSE. (a hostile backtracking pattern must FAIL the file, not silently match nothing (redaction false negative))
+D:/pdf/pdf-feat-pgr/tests/TestPatternRedact.cpp(279) : failure location
+PASS   : TestPatternRedact::reviewBenignCorpusStillMatchesThroughBoundedEngine()
+PASS   : TestPatternRedact::testApplyPatternRedactionRemovesText()
+PASS   : TestPatternRedact::cleanupTestCase()
+Totals: 16 passed, 1 failed, 0 skipped, 0 blacklisted, 308ms
+********* Finished testing of TestPatternRedact *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+headless     =   0.44 sec*proc (1 test)
+patterns     =   0.44 sec*proc (1 test)
+qt           =   0.44 sec*proc (1 test)
+redaction    =   0.44 sec*proc (1 test)
+security     =   0.44 sec*proc (1 test)
+unit         =   0.44 sec*proc (1 test)
+
+Total Test time (real) =   0.45 sec
+
+The following tests FAILED:
+	 86 - TestPatternRedact (Failed)                        headless patterns qt redaction security unit
+Errors while running CTest

@@ -253,6 +253,72 @@ private slots:
                  "A user-facing error must be set for the invalid pattern");
     }
 
+    // ── PGR-52 (2026-09-30): the per-match compute budget ──────────────────
+    // A shareable preset can carry a catastrophically backtracking pattern.
+    // With only Qt's isValid() gate, `(a+)+$` against a non-matching line used
+    // to be cut by PCRE2's IMPLICIT limit and silently yielded NO matches —
+    // a redaction FALSE NEGATIVE (text that must be excised survives the
+    // committed file) — and a slow-pattern stall could hold the batch worker
+    // past the next cancel boundary. The bounded engine now trips an EXPLICIT
+    // per-match budget and the failure surfaces: the file FAILS with the
+    // budget error, it is never silently under-redacted.
+
+    void reviewHostileBacktrackingPatternFailsWithMatchBudgetError() {
+        // 64 a's + 'b': `(a+)+$` can never match (the 'b' blocks $), and the
+        // backtracking ways exceed PCRE2's 10,000,000-step default budget
+        // within the FIRST match attempt — a deterministic, bounded-time trip.
+        const QString evil = QString(64, QLatin1Char('a')) + QLatin1Char('b');
+        const QString path = createPdfWithText(m_tmpDir, "evil_pattern.pdf", evil);
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(path));
+
+        const bool ok = engine.applyPatternRedactionsMulti(
+            QStringList{ QStringLiteral("(a+)+$") }, QList<int>{0});
+        QVERIFY2(!ok, "a hostile backtracking pattern must FAIL the file, "
+                      "not silently match nothing (redaction false negative)");
+        QVERIFY2(engine.lastError().userMessage.contains(
+                     QStringLiteral("match budget")),
+                 qPrintable(engine.lastError().userMessage));
+    }
+
+    void reviewBenignCorpusStillMatchesThroughBoundedEngine() {
+        // PGR-52 control: the bounded PCRE2 engine is the SAME binary Qt links,
+        // and every linear built-in sits orders of magnitude under the budget —
+        // benign corpora must match exactly as before (golden).
+        const QString path = createPdfWithText(
+            m_tmpDir, "benign_bounded.pdf",
+            QStringLiteral("Email admin@secret.org and SSN 123-45-6789"));
+        QVERIFY2(!path.isEmpty(), "PDF creation failed");
+
+        const QRegularExpression email =
+            PatternRedactor::namedPattern(QStringLiteral("email"));
+        const QRegularExpression ssn =
+            PatternRedactor::namedPattern(QStringLiteral("ssn"));
+        QVERIFY(email.isValid() && ssn.isValid());
+
+        const auto emailFound = PatternRedactor::findMatchesBounded(
+            path, QList<int>{0}, email);
+        const auto ssnFound = PatternRedactor::findMatchesBounded(
+            path, QList<int>{0}, ssn);
+
+#ifdef HAS_PDFIUM
+        QVERIFY2(!emailFound.budgetExceeded && !ssnFound.budgetExceeded,
+                 "benign built-in patterns must never trip the budget");
+        QCOMPARE(emailFound.byPage.value(0).size(), 1);
+        QVERIFY2(ssnFound.byPage.value(0).size() >= 1,
+                 qPrintable(QString("Expected >= 1 SSN match, got %1")
+                                .arg(ssnFound.byPage.value(0).size())));
+        QVERIFY2(!emailFound.byPage.value(0).first().isEmpty(),
+                 "Match bounding box must not be empty");
+#else
+        // Without PDFium no chars are extracted — empty results, no budget trip.
+        QVERIFY(!emailFound.budgetExceeded && !ssnFound.budgetExceeded);
+        QVERIFY(emailFound.byPage.isEmpty() && ssnFound.byPage.isEmpty());
+#endif
+    }
+
     void testApplyPatternRedactionRemovesText() {
         // This test verifies the engine-level API end-to-end.
         // Without PDFium, findMatches returns empty → no rects → applyRedactions not called

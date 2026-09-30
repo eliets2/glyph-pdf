@@ -464,6 +464,11 @@ target_link_libraries(pdfws_engines
     PUBLIC  pdfws_core
     PRIVATE podofo::podofo OpenSSL::SSL OpenSSL::Crypto Qt6::Network Qt6::Widgets Qt6::Concurrent libzip::zip
             pdfws_djot docmodel
+    # PGR-52: the bounded redact-pattern matcher runs the SAME 16-bit PCRE2
+    # build Qt6Core links (libpcre2-16-0.dll) directly, so a per-match
+    # match_limit budget is enforceable (Qt exposes no match timeout) and a
+    # hostile shareable-preset pattern fails the file honestly.
+    PRIVATE pcre2-16
 )
 if(WIN32)
     target_link_libraries(pdfws_engines PRIVATE Credui Advapi32 Crypt32)
