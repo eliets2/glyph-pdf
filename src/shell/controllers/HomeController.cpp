@@ -464,7 +464,10 @@ void HomeController::shareViaEmail(const QString& filePath) {
     }
 #endif
 
-    QString url = QString("mailto:?subject=%1&body=%2").arg(subject).arg(body);
+    // M-2 (CWE-93): subject/body are percent-encoded by shareEmailUrl — the
+    // filename is attacker-influenceable document data and an unencoded
+    // mailto let "…&bcc=attacker@evil.example" inject a hidden BCC header.
+    QString url = shareEmailUrl(subject, body);
     QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
 }
 
@@ -749,6 +752,17 @@ HomeController::planForExport(const ExportPresetsPanel::Preset& p) {
         plan.pdfALevel = p.pdfALevel.startsWith(QLatin1Char('3')) ? 3 : 2;
     }
     return plan;
+}
+
+// M-2 (AUDIT-SECURITY-2026-09-25, CWE-93) — see the header note. Both query
+// values are percent-encoded, so CR/LF, '&', '=', '%', spaces and every other
+// header/significant byte lose their protocol meaning: the mail client parses
+// exactly one subject param and one body param, and a hostile filename payload
+// surfaces as inert (visible) subject text instead of a hidden BCC header.
+QString HomeController::shareEmailUrl(const QString& subject, const QString& body) {
+    return QStringLiteral("mailto:?subject=%1&body=%2")
+        .arg(QString::fromUtf8(QUrl::toPercentEncoding(subject)),
+             QString::fromUtf8(QUrl::toPercentEncoding(body)));
 }
 
 // ── Recent files ────────────────────────────────────────────────────────

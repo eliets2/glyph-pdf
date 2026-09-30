@@ -1,0 +1,10 @@
+********* Start testing of TestControllers *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestControllers::initTestCase()
+FAIL!  : TestControllers::testShareEmailUrlEncodesHeaderSignificantChars() Compared values are not the same
+   Actual   (url.count(QLatin1Char('&'))): 2
+   Expected (1)                          : 1
+D:/pdf/pdf-feat-sec/tests/TestControllers.cpp(245) : failure location
+PASS   : TestControllers::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 2ms
+********* Finished testing of TestControllers *********
