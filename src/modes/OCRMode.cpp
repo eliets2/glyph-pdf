@@ -850,6 +850,8 @@ void OCRMode::onRejectResults()
     m_reviewWords.clear();
     m_session = OcrReviewSession();
     m_selectedWordId = -1;
+    // B4: session-scoped Skip-All dispositions die with the results.
+    m_skipAllTokens.clear();
     if (m_scanCanvas) {
         m_scanCanvas->setPageImage(QImage());
         m_scanCanvas->setWords({});
@@ -946,6 +948,9 @@ void OCRMode::onReOcrRegion()
 void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
 {
     m_currentWords = words;
+    // B4: session-scoped Skip-All dispositions die with the results — a fresh
+    // recognition re-flags everything.
+    m_skipAllTokens.clear();
 
     // R08: build the reviewed word records — stable IDs are the delivery
     // order, reviewed text starts as the original text, source boxes are the
@@ -1001,6 +1006,9 @@ void OCRMode::setReviewSession(const OcrReviewSession& session)
     m_currentWords.clear();
     m_reviewWords = session.words;
     m_selectedWordId = -1;
+    // B4: session-scoped Skip-All dispositions die with the results — a fresh
+    // recognition re-flags everything.
+    m_skipAllTokens.clear();
 
     if (m_scanCanvas) {
         m_scanCanvas->setPageImage(session.pageImage);
@@ -1154,11 +1162,12 @@ bool OCRMode::inUserDictionary(const OcrReviewedWord& w) const
 
 bool OCRMode::isFlaggedUncertain(const OcrReviewedWord& w) const
 {
-    // Uncertain = needs human eyes AND the user has not vouched for the word:
-    // LOW band, not removed, and absent from the session user dictionary.
-    // Dictionary suppression is review-status only — the engine's confidence
-    // estimate (and the overlay colors that render it) stay untouched.
-    return isUncertain(w) && !inUserDictionary(w);
+    // Uncertain = needs human eyes AND the user has not dismissed the word:
+    // LOW band, not removed, absent from the session user dictionary (B10)
+    // and not Skip-All-dismissed for this session (B4). Suppression is
+    // review-status only — the engine's confidence estimate (and the overlay
+    // colors that render it) stay untouched.
+    return isUncertain(w) && !inUserDictionary(w) && !isSkippedToken(w);
 }
 
 QString OCRMode::currentDictionaryLanguage() const
@@ -1173,6 +1182,48 @@ void OCRMode::setUserDictionaryLanguage(const QString& langCode)
     m_sessionDictionary = loadUserDictionary(langCode);
     // Suppression changes which words are flagged — refresh the walk state.
     updateNavigationButtons();
+}
+
+// ── B4: token-scoped bulk dispositions (ported from archive/final/feat/
+//    ocr-verify-finereader b4dfe4ea) ─────────────────────────────────────────
+
+bool OCRMode::isSkippedToken(const OcrReviewedWord& w) const
+{
+    return m_skipAllTokens.contains(currentWordText(w));
+}
+
+int OCRMode::skipAllOccurrences(const QString& token)
+{
+    // A review action, like applyWordCorrection: bulk dispositions must not
+    // mutate the walk while a run is in flight or a save is committing.
+    if (token.trimmed().isEmpty()) return -1;
+    if (m_reviewState != ReviewState::ReviewReady) return -1;
+
+    int count = 0;
+    for (const auto& rec : m_reviewWords) {
+        if (currentWordText(rec) == token) ++count;
+    }
+    if (!m_skipAllTokens.contains(token)) m_skipAllTokens.append(token);
+    updateNavigationButtons();
+    return count;
+}
+
+int OCRMode::replaceAllOccurrences(const QString& token, const QString& replacement)
+{
+    // Same review-action discipline; each replacement goes through
+    // applyWordCorrection so the per-record contract (source box untouched,
+    // empty-replacement = removal, overlay refresh) holds for every hit.
+    if (token.trimmed().isEmpty()) return -1;
+    if (m_reviewState != ReviewState::ReviewReady) return -1;
+
+    int count = 0;
+    for (const auto& rec : m_reviewWords) {
+        if (currentWordText(rec) == token
+            && applyWordCorrection(rec.stableId, replacement)) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 // ── R08: word-based review (reviewed words are authoritative) ────────────────
@@ -1571,6 +1622,8 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
     m_reviewWords.clear();
     m_session = OcrReviewSession();
     m_selectedWordId = -1;
+    // B4: no records → no session-scoped Skip-All tokens.
+    m_skipAllTokens.clear();
     if (m_scanCanvas) {
         m_scanCanvas->setPageImage(QImage());
         m_scanCanvas->setWords({});

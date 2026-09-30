@@ -245,6 +245,65 @@ private slots:
         removeTestDictionary();
     }
 
+    // ── P3 (B4): Skip All / Replace All — token-scoped bulk dispositions ───
+
+    // Skip All: every current occurrence of the token leaves the uncertain
+    // walk for THIS session (new deliveries reset it). Review action — it is
+    // rejected outside ReviewReady.
+    void skipAllSuppressesTokenForSession()
+    {
+        QList<MergedOcrWord> words = makeWords();
+        words.append(makeWord(QStringLiteral("beta"), 50, QRectF(10, 100, 40, 14))); // 2nd beta
+
+        OCRMode panel;
+        // Guard: outside ReviewReady a bulk disposition is refused.
+        QCOMPARE(panel.skipAllOccurrences(QStringLiteral("beta")), -1);
+        QCOMPARE(panel.replaceAllOccurrences(QStringLiteral("beta"), QStringLiteral("x")), -1);
+
+        panel.setReviewSession(makeSession(words));
+        QCOMPARE(panel.nextUncertainWord(-1, true), 1);   // beta(65)
+
+        // Two occurrences of "beta" are suppressed in one call.
+        QCOMPARE(panel.skipAllOccurrences(QStringLiteral("beta")), 2);
+        // gamma(40) is the first uncertain word left.
+        QCOMPARE(panel.nextUncertainWord(-1, true), 2);
+        QCOMPARE(panel.nextUncertainWord(2, true), 2);    // sole → wraps to itself
+        // Empty tokens are refused (0 occurrences, no state change).
+        QCOMPARE(panel.skipAllOccurrences(QStringLiteral("  ")), -1);
+
+        // Session scoping: a fresh delivery restores the flags.
+        panel.setReviewSession(makeSession(words));
+        QCOMPARE(panel.nextUncertainWord(-1, true), 1);   // beta flagged again
+    }
+
+    // Replace All: every record whose current text matches the token gets the
+    // replacement through applyWordCorrection — reviewed text changes,
+    // provenance (originalText + boundingBox) is preserved per record.
+    void replaceAllAppliesToEveryOccurrence()
+    {
+        QList<MergedOcrWord> words;
+        words.append(makeWord(QStringLiteral("do1or"), 40, QRectF(10, 10, 60, 14)));
+        words.append(makeWord(QStringLiteral("dolor"), 95, QRectF(10, 40, 40, 14)));
+        words.append(makeWord(QStringLiteral("do1or"), 45, QRectF(80, 10, 60, 14)));
+
+        OCRMode panel;
+        panel.setReviewSession(makeSession(words));
+
+        QCOMPARE(panel.replaceAllOccurrences(QStringLiteral("do1or"), QStringLiteral("dolor")), 2);
+
+        const QList<OcrReviewedWord> reviewed = panel.reviewedWords();
+        QCOMPARE(reviewed[0].reviewedText, QStringLiteral("dolor"));
+        QCOMPARE(reviewed[0].originalText, QStringLiteral("do1or"));
+        QCOMPARE(reviewed[0].boundingBox, QRectF(10, 10, 60, 14));
+        QCOMPARE(reviewed[2].reviewedText, QStringLiteral("dolor"));
+        QCOMPARE(reviewed[2].boundingBox, QRectF(80, 10, 60, 14));
+        // Unmatched words untouched.
+        QCOMPARE(reviewed[1].reviewedText, QStringLiteral("dolor"));
+
+        // Repeated replace-all is idempotent — no record matches anymore.
+        QCOMPARE(panel.replaceAllOccurrences(QStringLiteral("do1or"), QStringLiteral("dolor")), 0);
+    }
+
 protected:
     // Every dictionary test cleans its file even on failure paths above;
     // this teardown is a belt-and-braces guard for the whole suite.

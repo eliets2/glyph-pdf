@@ -161,6 +161,19 @@ public:
     /// selectable is selected.
     QStringList currentSuggestions() const;
 
+    // ── B4 (ported from archive/final/feat/ocr-verify-finereader b4dfe4ea):
+    // token-scoped bulk dispositions (Verify-dialog Skip All / Replace All) ──
+    /// Suppress EVERY current occurrence of `token` in the uncertain walk for
+    /// THIS session ("this word is fine everywhere it appears on this page").
+    /// A review action: -1 outside ReviewReady or for empty tokens; otherwise
+    /// the number of records that left the walk. New deliveries reset it.
+    int skipAllOccurrences(const QString& token);
+    /// Replace EVERY record whose current text equals `token` with
+    /// `replacement` through applyWordCorrection (per-record provenance —
+    /// originalText + boundingBox — is preserved). A review action: -1 outside
+    /// ReviewReady or for empty tokens; otherwise the number replaced.
+    int replaceAllOccurrences(const QString& token, const QString& replacement);
+
 signals:
     void ocrRequested();
     void reviewAccepted();
@@ -322,6 +335,11 @@ private:
     /// Rebuild m_currentSuggestions for the current selection and refresh the
     /// suggestions combo (B9).
     void updateSuggestions();
+
+    // ── B4: session-scoped Skip-All tokens ──────────────────────────────────
+    QStringList m_skipAllTokens;
+    /// True when the word's current text was dismissed via skipAllOccurrences.
+    bool isSkippedToken(const OcrReviewedWord& w) const;
 };
 
 } // namespace gp
