@@ -205,9 +205,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install clang + libFuzzer + Qt6 Core + freetype
-        # libjpeg/libpng/zlib/libssl -dev: pinned so podofo's static configure
-        # picks the SAME optional set every run (deterministic link deps).
-        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config libfreetype-dev libjpeg-dev libpng-dev zlib1g-dev libssl-dev
+        # libjpeg/libpng/zlib/libssl/libxml2 -dev: pinned so podofo's static
+        # configure picks the SAME optional set every run (deterministic link
+        # deps; PdfXMPPacket uses libxml2 for XMP).
+        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config libfreetype-dev libjpeg-dev libpng-dev zlib1g-dev libssl-dev libxml2-dev
       - name: Restore vendored podofo cache (ubuntu)
         id: podofo-cache-lx
         uses: actions/cache@v4

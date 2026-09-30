@@ -98,32 +98,32 @@ for f in $(find src/docmodel src/pdfws_djot -name '*.cpp'); do
 done
 
 echo "[3] build + link the fuzzer"
-# PoDoFo 1.x installs TWO static archives: libpodofo.a (public API) and
-# libpodofo_private.a (utls::RecursionGuard, LogMessage, PdfFilterFactory,
-# GetPdfVersion — run 36647764910's link died on exactly those). Group both
-# (plus the freetype/zlib the static font code pulls) so GNU ld resolves the
-# cycle; fall back to the single shared archive when no private archive
-# exists (shared-build installs).
-PODOFO_LIBS="-L$PODOFO_DIR/lib"
-if [ -f "$PODOFO_DIR/lib/libpodofo_private.a" ]; then
-  PODOFO_LIBS="$PODOFO_LIBS -Wl,--start-group -lpodofo -lpodofo_private -Wl,--end-group"
+# Static podofo link flags. Preferred: the vendored prefix's OWN podofo.pc —
+# PoDoFo 1.1.0 installs THREE archives (libpodofo.a public API, libpodofo_private.a
+# = utls/LogMessage/FilterFactory, libpodofo_3rdparty.a = the vendored chromium
+# fax/jbig2 codecs) and its .pc records the full private list; --static emits
+# exactly what a static consumer needs (learned one layer per run through the
+# acceptance-dispatch chain: 36647764910 private archive, 36648744086 OpenSSL
+# EVP, 36649751719 chromium FaxModule + libxml2 XMP). Fallback: manual group.
+if [ -f "$PODOFO_DIR/lib/pkgconfig/libpodofo.pc" ]; then
+  PODOFO_LIBS="$(PKG_CONFIG_PATH="$PODOFO_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" pkg-config --static --libs libpodofo)"
 else
-  PODOFO_LIBS="$PODOFO_LIBS -lpodofo"
+  PODOFO_LIBS="-L$PODOFO_DIR/lib"
+  if [ -f "$PODOFO_DIR/lib/libpodofo_private.a" ]; then
+    PODOFO_LIBS="$PODOFO_LIBS -Wl,--start-group -lpodofo -lpodofo_private -lpodofo_3rdparty -Wl,--end-group"
+  else
+    PODOFO_LIBS="$PODOFO_LIBS -lpodofo"
+  fi
 fi
+# Belt-and-braces appends (duplicates of the .pc list are harmless): the deps
+# podofo's configure bakes in when it saw the headers — freetype, the optional
+# codecs, OpenSSL EVP (PdfEncrypt), libxml2 (PdfXMPPacket) and zlib.
 PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs freetype2 2>/dev/null || true)"
-# The optional codecs podofo's static configure may have baked in (deterministic
-# since the job installs libjpeg-dev/libpng-dev) — each guarded.
-for _pc in libjpeg libpng; do
+for _pc in libjpeg libpng libxml-2.0 openssl; do
   if pkg-config --exists "$_pc" 2>/dev/null; then
     PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs "$_pc")"
   fi
 done
-# PdfEncrypt uses OpenSSL EVP when the configure saw libssl-dev (preinstalled
-# on the runner — run 36648744086's link died on EVP_MD_CTX_new et al.);
-# guarded so an openssl-free podofo stays linkable.
-if pkg-config --exists openssl 2>/dev/null; then
-  PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs openssl)"
-fi
 PODOFO_LIBS="$PODOFO_LIBS -lz"
 
 "$CLANGXX" -std=c++17 $SAN -fsanitize=fuzzer $INC $QT_CFLAGS \
