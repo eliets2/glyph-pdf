@@ -806,6 +806,195 @@ private slots:
     }
 
     // -----------------------------------------------------------------------
+    // AD-02 (AUDIT-ADVERSARIAL-2026-09-25, HYPOTHESIS): the shadow-attack
+    // object scanner matches `N M obj` textually with `\s`; a NUL-whitespace
+    // header (`12 0\0obj`) that PoDoFo's tokenizer accepts (vendored
+    // PdfUtils.h: IsCharWhitespace('\0') == true) but QRegularExpression's
+    // `\s` never matches would smuggle a modified base object past the ISA
+    // classifier — a shadow attack (post-signature content change) keeping
+    // the verdict "Valid".
+    //
+    // ONE dynamic falsification test: build a real signed base, append a
+    // raw-bytes incremental revision whose redefinition of the page
+    // /Contents object uses a NUL header, then (a) check the vendored PoDoFo
+    // honors the redefinition, (b) require isLegitimateIncrementalAppend to
+    // refuse it, (c) require the end-to-end verdict to leave "Valid".
+    //
+    // If PoDoFo rejects NUL headers the hypothesis is refuted and this pin
+    // freezes that assumption (the scanner refuses via the structural-parse
+    // catch). Either way the safe property is pinned; this test must never
+    // be weakened.
+    // -----------------------------------------------------------------------
+    void testNulWhitespaceObjectHeaderShadowScan()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // A real signed base: ByteRange covers these bytes and stays intact.
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString signedPath = m_tmpDir.filePath("ad02_base_signed.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, signedPath, kP12Path, kP12Pass, "AD02", "")
+                == SignOutcome::Success);
+
+        QFile baseFile(signedPath);
+        QVERIFY(baseFile.open(QIODevice::ReadOnly));
+        QByteArray base = baseFile.readAll();
+        baseFile.close();
+        QVERIFY(!base.isEmpty());
+
+        // Base facts needed to build a well-formed appended revision. The
+        // redefinition target is the first base object carrying a stream
+        // (the shadow-attack surface: a modified base stream behind an
+        // intact ByteRange); the fixture's page may legitimately have no
+        // /Contents (blank generated page).
+        uint32_t targetObjNum = 0;
+        uint32_t catalogObjNum = 0;
+        uint32_t maxObjNum = 0;
+        qint64 prevStartXref = -1;
+        {
+            PoDoFo::PdfMemDocument baseDoc;
+            baseDoc.LoadFromBuffer(
+                PoDoFo::bufferview(base.constData(), base.size()));
+            catalogObjNum = baseDoc.GetCatalog().GetObject()
+                                .GetIndirectReference().ObjectNumber();
+            for (const auto &obj : baseDoc.GetObjects()) {
+                if (!obj) continue;
+                const uint32_t n = obj->GetIndirectReference().ObjectNumber();
+                if (n > maxObjNum) maxObjNum = n;
+                if (targetObjNum == 0 && n != catalogObjNum && obj->HasStream())
+                    targetObjNum = n;
+            }
+            QVERIFY2(targetObjNum != 0,
+                     "base PDF must contain a stream object to redefine");
+        }
+        {
+            // Anchor on the final %%EOF: a naive lastIndexOf("startxref")
+            // can land inside the binary CMS DER of the signature.
+            qsizetype eof = base.lastIndexOf("%%EOF");
+            QVERIFY(eof > 0);
+            qsizetype sx = base.lastIndexOf("startxref", eof);
+            QVERIFY2(sx >= 0, "base PDF must carry a startxref");
+            // Qt6 toLongLong needs a full-string parse: truncate at the
+            // newline instead of feeding it "NNN\n%%EOF".
+            QByteArray sxDigits = base.mid(sx + 9).trimmed();
+            qsizetype nl = sxDigits.indexOf('\n');
+            if (nl > 0) sxDigits.truncate(nl);
+            prevStartXref = sxDigits.toLongLong();
+            QVERIFY2(prevStartXref > 0,
+                     qPrintable(QString("base startxref parse failed: context=%1")
+                                .arg(QString::fromLatin1(base.mid(sx, 40).toHex()))));
+        }
+
+        // Hand-craft the attacker revision: raw bytes, NUL where the space
+        // before the `obj` keyword goes. The appended /Contents redefinition
+        // carries attacker-visible content — a classic shadow attack.
+        QByteArray evilPayload = "BT /F1 24 Tf 72 700 Td (AD-02 SHADOW CONTENT) Tj ET";
+        QByteArray tail;
+        tail.append("% AD-02 NUL-whitespace header probe\n");
+        qint64 objOffset = static_cast<qint64>(base.size()) + tail.size();
+        tail += QByteArray::number(targetObjNum);
+        tail += ' ';
+        tail += '0';
+        tail += '\0';   // NUL between generation and `obj` — PoDoFo whitespace, regex non-whitespace
+        tail += "obj\n";
+        tail += "<< /Length " + QByteArray::number(static_cast<int>(evilPayload.size())) + " >>\nstream\n";
+        tail += evilPayload;
+        tail += "\nendstream\nendobj\n";
+        qint64 xrefOffset = static_cast<qint64>(base.size()) + tail.size();
+        tail += "xref\n";
+        tail += QByteArray::number(targetObjNum) + " 1\n";
+        char xrefEntry[21];
+        snprintf(xrefEntry, sizeof(xrefEntry), "%010lld 00000 n \r\n",
+                 static_cast<long long>(objOffset));
+        tail += xrefEntry;
+        tail += "trailer\n<< /Size " + QByteArray::number(maxObjNum + 1)
+                + " /Root " + QByteArray::number(catalogObjNum) + " 0 R /Prev "
+                + QByteArray::number(prevStartXref) + " >>\n";
+        tail += "startxref\n" + QByteArray::number(xrefOffset) + "\n%%EOF\n";
+
+        QByteArray full = base + tail;
+
+        // Sanity: the NUL header must actually be NUL-separated (size-based
+        // search — a NUL inside QByteArray data is preserved by operator+=).
+        QVERIFY2(tail.contains('\0'),
+                 "probe revision header must contain the NUL whitespace byte");
+
+        // (a) Does the vendored PoDoFo HONOR the NUL-header redefinition?
+        bool podofoHonors = false;
+        QString podofoOutcome;
+        try {
+            PoDoFo::PdfMemDocument fullDoc;
+            fullDoc.LoadFromBuffer(
+                PoDoFo::bufferview(full.constData(), full.size()));
+            PoDoFo::PdfReference ref(static_cast<uint32_t>(targetObjNum), 0);
+            const PoDoFo::PdfObject *redefined = nullptr;
+            try {
+                redefined = &fullDoc.GetObjects().MustGetObject(ref);
+            } catch (const PoDoFo::PdfError &) {
+                redefined = nullptr;
+            }
+            if (redefined && redefined->HasStream()) {
+                PoDoFo::charbuff buf;
+                redefined->GetStream()->CopyTo(buf);
+                if (QByteArray(buf.data(), static_cast<int>(buf.size()))
+                        .contains("AD-02 SHADOW CONTENT")) {
+                    podofoHonors = true;
+                    podofoOutcome = QStringLiteral(
+                        "PoDoFo 1.1.0 honors the NUL-header redefinition: resolving the "
+                        "base object number now yields the attacker payload stream");
+                }
+            }
+            if (!podofoHonors)
+                podofoOutcome = QStringLiteral(
+                    "PoDoFo parsed the revision but did not resolve the NUL-header "
+                    "redefinition as the page /Contents");
+        } catch (const PoDoFo::PdfError &e) {
+            podofoOutcome = QStringLiteral(
+                "PoDoFo REJECTS the NUL-whitespace header (PdfError: %1) — "
+                "tokenizer never accepts it, hypothesis REFUTED")
+                .arg(e.what());
+        }
+        qWarning() << "AD-02 falsification outcome:" << podofoOutcome;
+
+        // (b) The ISA classifier must refuse the revision — either because it
+        // now SEES the NUL-header object (fix) or because the structural parse
+        // rejects it (refutation path).
+        QString reason;
+        const bool classifiedLegit =
+            SignatureManager::isLegitimateIncrementalAppend(tail, base, reason);
+        QVERIFY2(!classifiedLegit,
+                 qPrintable(QString("AD-02: a NUL-whitespace object header must not pass "
+                                    "the shadow-attack scan (scanner outcome: %1; reason: %2)")
+                                .arg(podofoOutcome, reason)));
+
+        // (c) End-to-end: append the same revision to the signed file and
+        // require the verdict to leave "Valid" — a modified base object behind
+        // an intact ByteRange must never present as clean.
+        QString attackedPath = m_tmpDir.filePath("ad02_attacked.pdf");
+        {
+            QFile out(attackedPath);
+            QVERIFY(out.open(QIODevice::WriteOnly));
+            QCOMPARE(out.write(full), static_cast<qint64>(full.size()));
+        }
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(attackedPath);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "attacked PDF must still report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.trustStatus != QLatin1String("Valid") &&
+                 info.trustStatus != QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("AD-02: shadow-attacked document must not validate "
+                                    "clean, got: %1 (%2)").arg(info.trustStatus, podofoOutcome)));
+        QVERIFY2(!info.isValid,
+                 "AD-02: isValid must be false while the appended revision is refused");
+    }
+
+    // -----------------------------------------------------------------------
     // Adversarial Test 10 (M2-P4): Tampered PDF reports integrityIntact=false
     // Sign a PDF, flip one byte in the signed byte range, then validate.
     // -----------------------------------------------------------------------

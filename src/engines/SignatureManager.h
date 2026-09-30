@@ -152,14 +152,21 @@ public:
     QList<SignatureInfo> validateSignatures(const QString &filePath) override;
     QList<SignatureFieldAnchor> signatureFieldAnchors(const QString &filePath) override;
 
+    // Shadow-attack scan for one appended revision (query-only, same
+    // testability status as appendDssRevisionForTesting): true when the
+    // trailing bytes are a legitimate incremental append (B-LT /DSS update,
+    // /Info ModDate save noise, new DocTimeStamp). Public so the AD-02
+    // falsification pin can observe the classifier verdict directly instead
+    // of inferring it from the validateSignatures downgrade. Never mutates.
+    static bool isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
+                                              const QByteArray& baseDocument,
+                                              QString& reason);
+
     // §9.7 P1: exact degradation detail (which B-LT/B-LTA piece is missing)
     // for the most recent signDocument/certifyDocument call.
     SignatureOutcomeDetail lastSignOutcomeDetail() override;
 
 private:
-    static bool isLegitimateIncrementalAppend(const QByteArray& trailingBytes,
-                                              const QByteArray& baseDocument,
-                                              QString& reason);
 
     // Shared signing core used by both signDocument (certificationLevel == 0) and
     // certifyDocument (certificationLevel 1..3 -> /DocMDP). See SignatureManager.cpp.

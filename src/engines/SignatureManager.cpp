@@ -2462,7 +2462,18 @@ bool SignatureManager::isLegitimateIncrementalAppend(const QByteArray& trailingB
         // This is necessary because PoDoFo merges updates; an updated object might
         // have the exact same reference (ObjectNumber and GenerationNumber) as the base,
         // making it impossible to detect modifications just by comparing object lists.
-        QRegularExpression objRe("(\\d+)\\s+(\\d+)\\s+obj");
+        //
+        // AD-02 (AUDIT-ADVERSARIAL-2026-09-25, dynamic-confirmed): the separator
+        // class MUST be the PDF whitespace set (ISO 32000-1 §7.2.2: NUL, TAB, LF,
+        // FF, CR, SP — what PoDoFo's IsCharWhitespace accepts), not `\s`. PCRE2
+        // `\s` never matches NUL, so a `12 0<NUL>obj` header was tokenized as a
+        // real object redefinition by PoDoFo while this scan silently skipped it
+        // — a modified base object (shadow attack) passed the classifier with an
+        // empty reason and the verdict stayed Valid. Probe-proven in
+        // testNulWhitespaceObjectHeaderShadowScan (evidence-ad02). The explicit
+        // class keeps the scan tokenize-consistent with the vendored parser.
+        QRegularExpression objRe(
+            "([0-9]+)[ \\t\\n\\x0B\\f\\r\\x{0000}]+([0-9]+)[ \\t\\n\\x0B\\f\\r\\x{0000}]+obj");
         QRegularExpressionMatchIterator matchIt = objRe.globalMatch(QString::fromUtf8(trailingBytes));
         while (matchIt.hasNext()) {
             QRegularExpressionMatch match = matchIt.next();
@@ -2500,9 +2511,18 @@ bool SignatureManager::isLegitimateIncrementalAppend(const QByteArray& trailingB
                 // the save crosses a second boundary. Only a value-only
                 // /ModDate refresh passes; every other metadata change is
                 // still the metadata ISA the attack pins exercise.
+                //
+                // AD-02 (dynamic-confirmed during the NUL-header
+                // falsification, evidence-ad02): the /Info allowance MUST be
+                // scoped to the MATCHED object. Without `rawInfoObj == objNum`
+                // this branch continued on ANY modified base object whenever
+                // the base /Info (wherever it lives) happened to be intact —
+                // silently whitelisting exactly the "modified non-catalog
+                // object" shadow attack this scan exists to catch.
                 uint32_t rawInfoObj = 0;
                 QString infoDetail;
                 if (inv1RawTrailerInfoObjNum(baseDocument, rawInfoObj) &&
+                    rawInfoObj == objNum &&
                     inv1InfoModDateOnlyUpdate(baseDoc, doc, rawInfoObj, infoDetail))
                     continue;
                 // Modified existing non-catalog object → suspicious content change.
