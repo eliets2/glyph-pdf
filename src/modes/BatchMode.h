@@ -288,6 +288,19 @@ public:
         m_presetRaceHook = std::move(hook);
     }
 
+    // PGR-54 (2026-09-30): deterministic MID-CHAIN step-fault seam — invoked
+    // on the worker right where the real step executor runs (after the step's
+    // candidate is reserved, before any mutation); returning true fails THAT
+    // step through the same path a real failure takes (candidate discarded,
+    // chain aborted, honest per-step records). This is the seam the presets-
+    // review lane lacked: without it no deterministic bates failure at step
+    // N existed to pin the firstBates "actually stamped" contract against.
+    // Production never sets it; the run captures it by value. MUST be set
+    // before onRunBatch().
+    void setPresetStepFaultHookForTest(std::function<bool(int stepIndex)> hook) {
+        m_presetStepFaultHook = std::move(hook);
+    }
+
     // R26-P2 U2: drives the watcher's ingest path synchronously (the debounce
     // timer's work — list the hot folder, ingest new files, auto-run when the
     // option is on). Tests never wait on QFileSystemWatcher timing.
@@ -531,6 +544,8 @@ private:
     // while set, the staged preset's effective onConflict is "rename"
     // (ask degrades, logged) so the watcher path never opens a modal.
     std::function<void(const QString&)> m_presetRaceHook;
+    // PGR-54: the mid-chain step-fault seam (captured by value at run start).
+    std::function<bool(int)> m_presetStepFaultHook;
     bool     m_unattendedAutoRunPending = false;
     QString  m_presetConflictOverride;
     // R26-P2 U4 (plan §4.6, N3): the batch-scoped abort cause of the CURRENT

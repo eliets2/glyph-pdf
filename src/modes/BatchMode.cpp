@@ -1356,6 +1356,7 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
                     const BatchPreset& preset, QMutex* engineMutex,
                     PresetRunState* runState, QList<BatchStepResult>* stepRecords,
                     const std::function<void(const QString&)>& raceHook,
+                    const std::function<bool(int)>& stepFaultHook,
                     QString* resolvedOutput, QString* techDetail,
                     bool* batchScoped = nullptr) {
     // PDFium (QPdfDocument) is not thread-safe: the read-side probes of the
@@ -1455,6 +1456,18 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
                     if (!editor.loadDocumentForEditing(current)) {
                         *techDetail = editor.lastError().technicalDetails;
                         ok = false;
+                    } else if (stepFaultHook && stepFaultHook(i)) {
+                        // PGR-54: the deterministic step-fault seam fires
+                        // exactly where the real executor runs (after this
+                        // step's candidate is reserved, before any mutation),
+                        // so the failed step follows the SAME path a real
+                        // failure takes — the per-step record block below is
+                        // reached with ok == false.
+                        ok = false;
+                        if (techDetail)
+                            *techDetail = QStringLiteral(
+                                "step %1 (%2) failed — fault injected by the "
+                                "test seam").arg(i + 1).arg(step.op);
                     } else {
                         ok = runPresetMutatingStep(editor, step, current, candidate,
                                                    effectiveBatesStart, &lastBatesOut,
@@ -1490,7 +1503,13 @@ bool runPresetChain(const QString& inputPath, const QString& outputPath,
                     runState->lastBatesOut = lastBatesOut;
                 }
                 if (step.op == QLatin1String("bates")) {
-                    record.firstBates = effectiveBatesStart;
+                    // PGR-54: the contract (BatchMode.h) says firstBates is
+                    // the first number ACTUALLY STAMPED (-1 = n/a). A step
+                    // that failed before stamping anything used to report the
+                    // ATTEMPTED start — a number the committed file never
+                    // carried (the failed candidate is discarded and burns no
+                    // number). Failure before any stamp reports -1.
+                    record.firstBates = ok ? effectiveBatesStart : -1;
                     record.lastBates  = ok ? lastBatesOut : -1;
                 }
             }
@@ -1872,6 +1891,8 @@ void BatchMode::onRunClicked() {
     QMutex* engineMutexPtr = &m_engineMutex;
     // R26-P2 U2: captured by value — the member itself is never read cross-thread.
     const std::function<void(const QString&)> raceHook = m_presetRaceHook;
+    // PGR-54: captured by value — the member itself is never read cross-thread.
+    const std::function<bool(int)> stepFaultHook = m_presetStepFaultHook;
 
     auto processFileReal = [=](const QString& inputPath, PresetRunState* runState) -> BatchFileResult {
         BatchFileResult result;
@@ -1947,8 +1968,8 @@ void BatchMode::onRunClicked() {
                 bool fileBatchScoped = false;
                 ok = runPresetChain(inputPath, result.outputPath, capturedPreset,
                                     engineMutexPtr, runState, &result.steps,
-                                    raceHook, &resolvedOut, &techDetail,
-                                    &fileBatchScoped);
+                                    raceHook, stepFaultHook, &resolvedOut,
+                                    &techDetail, &fileBatchScoped);
                 result.batchScoped = fileBatchScoped;
                 if (ok)
                     result.outputPath = resolvedOut;   // report the final (renamed) path

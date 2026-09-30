@@ -137,6 +137,9 @@ private slots:
     void batesLaneCancelAtBoundaryIsTruthful();
     void batesLaneDisclosesOrderedRun();
 
+    // ── Presets review owner item (PGR-54) ────────────────────────────────
+    void reviewFailedBatesStepReportsMinusOneNotAttemptedStart();
+
     // ── U2: onConflict "rename" + unattended ingest degrade ──────────────────
     void renamePolicySchemaAndRoundTrip();
     void renameConflictCreatesStem2KeepsOriginal();
@@ -2031,6 +2034,130 @@ void TestBatchPresetsP2::editorUnavailableRuntimeStepDisclosed() {
     QVERIFY(editor.savePreset());
     QCOMPARE(editor.preset().steps.size(), 1);
     QCOMPARE(editor.preset().steps.first().op, QStringLiteral("pdfa-check"));
+}
+
+// ── Presets review owner item (PGR-54) ────────────────────────────────────────
+// runPresetChain's bates record used to write firstBates = the ATTEMPTED start
+// even when the step FAILED before stamping anything, violating the
+// BatchStepResult contract ("the first/last number actually stamped, -1 =
+// n/a") — the report claimed the committed file carried a number it never
+// carried (a failed candidate is discarded and burns no number). The old
+// blocker was the missing deterministic mid-chain bates-failure seam;
+// setPresetStepFaultHookForTest IS that seam — it fails a chosen step exactly
+// where the real executor runs, so the per-step records follow the same path
+// a real failure takes.
+void TestBatchPresetsP2::reviewFailedBatesStepReportsMinusOneNotAttemptedStart() {
+    const QString fx = m_runDir->filePath(QStringLiteral("fixtures"));
+    QDir().mkpath(fx);
+    const QString f1 = createTextPdf(fx, QStringLiteral("a.pdf"),
+                                     { QStringLiteral("alpha") });
+    QVERIFY(!f1.isEmpty());
+
+    // Fail at step 3 of 5: compress, compress, BATES, compress, compress —
+    // steps 1-2 succeed, the bates step fails mid-chain, steps 4-5 are never
+    // attempted.
+    const QByteArray midFail = QStringLiteral(
+        "{\n"
+        "    \"glyphpreset\": { \"schemaVersion\": 1, \"kind\": \"batch-preset\" },\n"
+        "    \"id\": \"bates-midfail\",\n"
+        "    \"name\": \"Bates Mid-chain Failure\",\n"
+        "    \"created\": \"2026-09-21T00:00:00.000Z\",\n"
+        "    \"modified\": \"2026-09-21T00:00:00.000Z\",\n"
+        "    \"steps\": [\n"
+        "        { \"op\": \"compress\", \"params\": { \"quality\": 75 } },\n"
+        "        { \"op\": \"compress\", \"params\": { \"quality\": 75 } },\n"
+        "        { \"op\": \"bates\", \"params\": { \"digitCount\": 3 } },\n"
+        "        { \"op\": \"compress\", \"params\": { \"quality\": 75 } },\n"
+        "        { \"op\": \"compress\", \"params\": { \"quality\": 75 } }\n"
+        "    ]\n"
+        "}\n").toUtf8();
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("bates-midfail"),
+                           midFail));
+
+    {
+        AppContext ctx = makeCtx();
+        BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.setOperationForTest(7 /* OpPresetPipeline */);
+        bm.refreshPresetsForTest();
+        QVERIFY(bm.selectPresetForTest(QStringLiteral("bates-midfail")));
+        QDir().mkpath(m_runDir->filePath(QStringLiteral("out-mid")));
+        presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out-mid")));
+        bm.addFilesForTest({ f1 });
+        bm.setPresetStepFaultHookForTest([](int stepIndex) { return stepIndex == 2; });
+        runAndWait(bm);
+        QCOMPARE(bm.successCount(), 0);
+        QCOMPARE(bm.failCount(), 1);
+
+        const auto results = bm.runResultsForTest();
+        QCOMPARE(results.size(), 1);
+        QCOMPARE(results.at(0).steps.size(), 5);
+        QCOMPARE(results.at(0).steps.at(2).op, QStringLiteral("bates"));
+        QCOMPARE(int(results.at(0).steps.at(2).status),
+                 int(BatchStepResult::Status::Failed));
+        // THE CONTRACT: a step that failed before stamping anything reports
+        // -1 — never the attempted start (1 here).
+        QCOMPARE(results.at(0).steps.at(2).firstBates, -1);
+        QCOMPARE(results.at(0).steps.at(2).lastBates, -1);
+        QCOMPARE(results.at(0).steps.at(2).bytesOut, qint64(-1));
+        // Steps 4-5 were never attempted — honest skipped rows.
+        QCOMPARE(int(results.at(0).steps.at(3).status),
+                 int(BatchStepResult::Status::Skipped));
+        QCOMPARE(int(results.at(0).steps.at(4).status),
+                 int(BatchStepResult::Status::Skipped));
+    }
+
+    // Fail at step 0 (bates-only preset, fault at the first step): -1 as well.
+    QVERIFY(writeStoreFile(m_storeDir->path(), QStringLiteral("bates-step0"),
+                           batesPresetJson(QStringLiteral("bates-step0"),
+                                           QStringLiteral("{ \"digitCount\": 3 }"))));
+    {
+        AppContext ctx = makeCtx();
+        BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.setOperationForTest(7);
+        bm.refreshPresetsForTest();
+        QVERIFY(bm.selectPresetForTest(QStringLiteral("bates-step0")));
+        QDir().mkpath(m_runDir->filePath(QStringLiteral("out-step0")));
+        presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out-step0")));
+        bm.addFilesForTest({ f1 });
+        bm.setPresetStepFaultHookForTest([](int stepIndex) { return stepIndex == 0; });
+        runAndWait(bm);
+        QCOMPARE(bm.failCount(), 1);
+
+        const auto results = bm.runResultsForTest();
+        QCOMPARE(results.at(0).steps.at(0).op, QStringLiteral("bates"));
+        QCOMPARE(int(results.at(0).steps.at(0).status),
+                 int(BatchStepResult::Status::Failed));
+        QCOMPARE(results.at(0).steps.at(0).firstBates, -1);
+        QCOMPARE(results.at(0).steps.at(0).lastBates, -1);
+    }
+
+    // Success control (no fault): the REAL first/last stamped indexes.
+    {
+        AppContext ctx = makeCtx();
+        BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.setOperationForTest(7);
+        bm.refreshPresetsForTest();
+        QVERIFY(bm.selectPresetForTest(QStringLiteral("bates-step0")));
+        QDir().mkpath(m_runDir->filePath(QStringLiteral("out-ok")));
+        presetOutEdit(bm)->setText(m_runDir->filePath(QStringLiteral("out-ok")));
+        bm.addFilesForTest({ f1 });
+        runAndWait(bm);
+        QCOMPARE(bm.successCount(), 1);
+
+        const auto results = bm.runResultsForTest();
+        QCOMPARE(results.at(0).steps.at(0).status == BatchStepResult::Status::Ok, true);
+        QCOMPARE(results.at(0).steps.at(0).firstBates, 1);
+        QCOMPARE(results.at(0).steps.at(0).lastBates, 1);
+        // Black-box: the stamp actually carried.
+        QVERIFY2(pageText(m_runDir->filePath(QStringLiteral("out-ok"))
+                              + QStringLiteral("/a_bates-step0.pdf"), 0)
+                     .contains(QStringLiteral("001")),
+                 qPrintable(pageText(m_runDir->filePath(QStringLiteral("out-ok"))
+                                         + QStringLiteral("/a_bates-step0.pdf"), 0)));
+    }
 }
 
 // ── Presets review lane (PGR-50) ──────────────────────────────────────────────
