@@ -12,6 +12,7 @@
 #include "ui/SignatureDialog.h"
 #include "ui/MetadataDialog.h"
 #include "ui/OcspConsentDialog.h"  // R24 wiring closure: OCSP network consent
+#include "ui/SanitizeSummaryDialog.h" // §4 #4: pre-commit sanitize summary
 #include "core/interfaces/IPdfEditorEngine.h"
 #include "core/interfaces/ISignatureManager.h"
 #include "engines/SignatureManager.h" // N06: explicit-appearance signing entry points
@@ -705,39 +706,106 @@ void SecurityController::sanitizeDocument() {
     _ctx->undoStack->clear();
     _ctx->document->setPath(viewer->filePath());
 
-    auto* progress = new QProgressDialog(tr("Sanitizing document..."), QString(), 0, 0, _mainWindow);
-    progress->setWindowModality(Qt::WindowModal);
-    progress->setMinimumDuration(0);
-    progress->show();
+    // §4 #4 (PARITY-SCORECARD-2026-09-30, July rows 72-73): classify FIRST
+    // (worker — the load is the expensive part), show the pre-commit summary
+    // with per-category checkboxes, then remove only what stayed checked.
+    auto* analyze = new QProgressDialog(tr("Analyzing document for removable data..."), QString(), 0, 0, _mainWindow);
+    analyze->setWindowModality(Qt::WindowModal);
+    analyze->setMinimumDuration(0);
+    analyze->show();
 
     std::weak_ptr<IPdfEditorEngine> weakEngine = _ctx->pdfEditor;
     std::weak_ptr<DocumentSession> weakDoc = _ctx->document;
     QPointer<SecurityController> self(this);
-    auto result = std::make_shared<std::atomic<bool>>(false);
+    auto plan = std::make_shared<SanitizePlan>();
+    auto analyzed = std::make_shared<std::atomic<bool>>(false);
 
-    QThread* worker = QThread::create([weakEngine, weakDoc, outputPath, result]() {
+    QThread* analyzeWorker = QThread::create([weakEngine, weakDoc, plan, analyzed]() {
         auto engine = weakEngine.lock();
         auto doc = weakDoc.lock();
         if (!engine || !doc) return;
-        result->store(SanitizeDocumentHelper::execute(engine.get(), doc.get(), outputPath));
+        *plan = SanitizeDocumentHelper::classify(engine.get(), doc.get());
+        analyzed->store(true);
     });
 
-    connect(worker, &QThread::finished, _mainWindow, [self, progress, outputPath, result]() {
-        progress->close();
-        progress->deleteLater();
+    connect(analyzeWorker, &QThread::finished, _mainWindow,
+        [self, analyze, plan, analyzed, weakEngine, weakDoc, outputPath]() {
+        analyze->close();
+        analyze->deleteLater();
         if (!self) return;
-        bool ok = result->load();
-        if (ok) {
-            self->_mainWindow->statusBar()->showMessage(tr("Document sanitized and saved to %1").arg(outputPath), 5000);
-        } else {
+        auto engine = weakEngine.lock();
+        auto doc = weakDoc.lock();
+        if (!engine || !doc || !analyzed->load()) {
             QMessageBox::critical(self->_mainWindow, tr("Sanitize Document"),
-                tr("Failed to sanitize the document. The open document was not overwritten."));
+                tr("The document could not be analyzed. Nothing was sanitized and the open document was not changed."));
             self->_mainWindow->statusBar()->showMessage(tr("Sanitization failed."), 5000);
+            return;
         }
-    });
+        if (plan->empty()) {
+            // §4 #4 honesty: nothing to remove — say so instead of rewriting
+            // the file for no effect.
+            QMessageBox::information(self->_mainWindow, tr("Sanitize Document"),
+                tr("No removable hidden data was found in this document. Nothing was changed."));
+            self->_mainWindow->statusBar()->showMessage(
+                tr("Sanitize: nothing to remove — document left unchanged."), 5000);
+            return;
+        }
 
-    connect(worker, &QThread::finished, worker, &QObject::deleteLater);
-    worker->start();
+        // Pre-commit summary: checked categories are removed, unchecked stay.
+        // All-checked is the default (= the former all-or-nothing behavior);
+        // a zero-checked commit is refused inside the dialog.
+        SanitizeSummaryDialog summaryDialog(*plan, self->_mainWindow);
+        if (summaryDialog.exec() != QDialog::Accepted) {
+            self->_mainWindow->statusBar()->showMessage(
+                tr("Sanitization cancelled — nothing was removed."), 5000);
+            return;
+        }
+        const SanitizeCategories selection = summaryDialog.selectedCategories();
+
+        auto* progress = new QProgressDialog(tr("Sanitizing document..."), QString(), 0, 0, self->_mainWindow);
+        progress->setWindowModality(Qt::WindowModal);
+        progress->setMinimumDuration(0);
+        progress->show();
+
+        auto removed = std::make_shared<SanitizePlan>();
+        auto result = std::make_shared<std::atomic<bool>>(false);
+
+        QThread* worker = QThread::create([weakEngine, weakDoc, outputPath, selection, removed, result]() {
+            auto commitEngine = weakEngine.lock();
+            auto commitDoc = weakDoc.lock();
+            if (!commitEngine || !commitDoc) return;
+            result->store(SanitizeDocumentHelper::execute(
+                commitEngine.get(), commitDoc.get(), outputPath, selection, removed.get()));
+        });
+
+        connect(worker, &QThread::finished, self->_mainWindow,
+            [self, progress, outputPath, result, removed]() {
+            progress->close();
+            progress->deleteLater();
+            if (!self) return;
+            bool ok = result->load();
+            if (ok) {
+                // Proof-carrying completion: report what was ACTUALLY removed
+                // per category, so the user can compare it against the summary
+                // they approved.
+                const QString detail = removed->empty()
+                    ? tr("No hidden data was removed (the selected categories had nothing left to remove).")
+                    : tr("Removed: %1").arg(removed->describe());
+                self->_mainWindow->statusBar()->showMessage(
+                    tr("Document sanitized and saved to %1").arg(outputPath), 5000);
+                QMessageBox::information(self->_mainWindow, tr("Sanitize Document"),
+                    tr("Sanitized copy saved to:\n%1\n\n%2").arg(outputPath, detail));
+            } else {
+                QMessageBox::critical(self->_mainWindow, tr("Sanitize Document"),
+                    tr("Failed to sanitize the document. The open document was not overwritten."));
+                self->_mainWindow->statusBar()->showMessage(tr("Sanitization failed."), 5000);
+            }
+        });
+        connect(worker, &QThread::finished, worker, &QObject::deleteLater);
+        worker->start();
+    });
+    connect(analyzeWorker, &QThread::finished, analyzeWorker, &QObject::deleteLater);
+    analyzeWorker->start();
 }
 
 void SecurityController::exportAnnotationPackage() {

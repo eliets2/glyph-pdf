@@ -1,0 +1,26 @@
+********* Start testing of TestSanitizeSelective *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSanitizeSelective::initTestCase()
+FAIL!  : TestSanitizeSelective::classifyReportsExactPerCategoryCountsOnAllNineDirtyCategories() '!plan.empty()' returned FALSE. (classify must find the nine dirty categories)
+D:/pdf/pdf-w2-sanit/tests/TestSanitizeSelective.cpp(420) : failure location
+FAIL!  : TestSanitizeSelective::classifyWalkDoesNotMutateTheDocument() Compared values are not the same
+   Actual   (expectPlanCounts(first, ExpectedCounts())): "Metadata: expected 4, got 0"
+   Expected (QString())                                : ""
+D:/pdf/pdf-w2-sanit/tests/TestSanitizeSelective.cpp(455) : failure location
+FAIL!  : TestSanitizeSelective::uncheckingAttachmentsRemovesEverythingElseAndPreservesTheFiles() Compared values are not the same
+   Actual   (expectPlanCounts(promise, ExpectedCounts())): "Metadata: expected 4, got 0"
+   Expected (QString())                                  : ""
+D:/pdf/pdf-w2-sanit/tests/TestSanitizeSelective.cpp(472) : failure location
+FAIL!  : TestSanitizeSelective::uncheckingBookmarksRemovesEverythingElseAndPreservesTheOutline() 'engine.sanitizeDocument(out, selection, &removed)' returned FALSE. ()
+D:/pdf/pdf-w2-sanit/tests/TestSanitizeSelective.cpp(542) : failure location
+FAIL!  : TestSanitizeSelective::allCheckedSelectiveRunMatchesLegacyFullSanitizeOutcome() Compared values are not the same
+   Actual   (expectPlanCounts(promise, ExpectedCounts())): "Metadata: expected 4, got 0"
+   Expected (QString())                                  : ""
+D:/pdf/pdf-w2-sanit/tests/TestSanitizeSelective.cpp(570) : failure location
+PASS   : TestSanitizeSelective::emptySelectionRefusedAtEngineBoundaryWithoutWritingOutput()
+PASS   : TestSanitizeSelective::summaryDialogDefaultsToAllCheckedAndReflectsThePlan()
+PASS   : TestSanitizeSelective::summaryDialogSelectedCategoriesFollowTheCheckboxes()
+PASS   : TestSanitizeSelective::summaryDialogRefusesZeroCheckedCommitWithHonestMessage()
+PASS   : TestSanitizeSelective::cleanupTestCase()
+Totals: 6 passed, 5 failed, 0 skipped, 0 blacklisted, 218ms
+********* Finished testing of TestSanitizeSelective *********

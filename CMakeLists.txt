@@ -981,6 +981,9 @@ add_library(pdfws_ui STATIC
     src/ui/SigningProgressPanel.h    src/ui/SigningProgressPanel.cpp
     src/ui/RecipientPickerDialog.h   src/ui/RecipientPickerDialog.cpp
     src/ui/SignaturePicker.h         src/ui/SignaturePicker.cpp
+    # PARITY-SCORECARD-2026-09-30 §4 #4: pre-commit sanitize summary —
+    # per-category checkboxes over the classify plan (rows 72-73).
+    src/ui/SanitizeSummaryDialog.h   src/ui/SanitizeSummaryDialog.cpp
 
     # R24 wiring closure: the OCSP network consent surface (per-document
     # consent dialog + global never-network switch consumed by
@@ -1330,6 +1333,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitization.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;security;sanitization;qt;headless"
+    )
+endif()
+
+# PARITY-SCORECARD-2026-09-30 §4 #4 (July rows 72-73): selective Sanitize
+# + pre-commit summary. R7 pins: exact per-category classify counts, the
+# selective preserve-what-you-kept contract (read back after save), the
+# all-checked == legacy equivalence, the zero-checked honest refusal, and
+# the summary-dialog honesty pins.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitizeSelective.cpp")
+    add_executable(TestSanitizeSelective
+        tests/TestSanitizeSelective.cpp
+    )
+    target_include_directories(TestSanitizeSelective PRIVATE src tests)
+    target_link_libraries(TestSanitizeSelective PRIVATE
+        pdfws_ui pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    if(WIN32)
+    add_custom_command(TARGET TestSanitizeSelective POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestSanitizeSelective>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestSanitizeSelective"
+    )
+    endif()
+    add_test(NAME TestSanitizeSelective COMMAND TestSanitizeSelective)
+    set_tests_properties(TestSanitizeSelective PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;security;sanitization;selective;qt;headless"
     )
 endif()
 
