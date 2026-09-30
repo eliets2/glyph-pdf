@@ -40,6 +40,7 @@
 #include "core/SigningRequestModel.h"
 #include "core/SigningRequestRunner.h"
 #include "engines/FormManager.h"
+#include "engines/SafeSave.h"
 #include "engines/SignatureFieldCreator.h"
 #include "engines/SignatureManager.h"
 #include "ui/SigningProgressPanel.h"
@@ -621,6 +622,104 @@ private slots:
         QVERIFY(r.fieldMatch);
         QVERIFY(r.fieldCreated);   // the step placed its own anchored field
         QVERIFY(SigningRequestRunner::applyStepToModel(req.model, 0, r));
+    }
+
+    // -------------------------------------------------------------------
+    // V-03 (AUDIT-VERIFICATION-2026-09-25): a commit failure AFTER the lazy
+    // field creation used to advance the prepared identity to a hash that was
+    // never on disk. runFillStep repurposed result.documentSha256 for the
+    // CANDIDATE hash once signing succeeded (runner line ~361); the commit
+    // then failed; the controller's failure path
+    // (r.fieldCreated && !r.documentSha256.isEmpty()) promoted that candidate
+    // hash into model.preparedSha256 — while docPath on disk still held the
+    // POST-CREATE bytes. The next step's mutation gate compares the on-disk
+    // hash against the recorded candidate hash → guaranteed DocumentChanged
+    // refusal for a mutation the workflow itself owns.
+    //
+    // THE PIN, against the real engine and the controller's failure-path
+    // contract verbatim: force SafeSave's deterministic FailBeforeCommit seam
+    // so the step signs successfully and fails ONLY at the final commit, then
+    // (1) the identity the step publishes must equal the LAST ON-DISK state,
+    // and (2) advancing the prepared identity exactly as the controller does
+    // and retrying must re-prepare cleanly — no DocumentChanged refusal.
+    // -------------------------------------------------------------------
+    void commitFailureAfterFieldCreationKeepsDiskIdentity()
+    {
+        REQUIRE_FIXTURES();
+        PreparedRequest req = prepareTwoSignerRequest(m_tmpDir.get(),
+                                                      QStringLiteral("v03.pdf"));
+        QVERIFY(req.ok);
+        SignatureManager mgr;
+
+        const QString docBefore = SigningRequestRunner::documentSha256(req.docPath);
+
+        // Fault ONLY this step's final commit (the FillStepInput seam): the
+        // candidate was produced AND validated, and the field creation
+        // already succeeded — the audit's exact scenario. (The global
+        // SafeSave seam cannot express this: it fires inside the field
+        // creator's own commit first.)
+        SigningRequestRunner::FillStepInput failingIn = fillInput(req, 0, req.model);
+        failingIn.commitFaultForTesting =
+            gp::SafeSave::CommitFaultForTesting::FailBeforeCommit;
+        const auto r = SigningRequestRunner::runFillStep(mgr, failingIn);
+
+        // The scenario shape: past precheck, the field WAS lazily created,
+        // the sign half succeeded, only the commit failed. If the engine
+        // cannot really sign in this environment, the step fails earlier and
+        // this pin has nothing to prove — skip honestly.
+        QVERIFY(r.attempted);
+        if (!r.error.contains(QLatin1String("could not be committed")))
+            QSKIP(qPrintable(QStringLiteral(
+                "real sign unavailable in this environment: %1").arg(r.error)));
+        QVERIFY(r.fieldCreated);
+        QVERIFY(!r.committed);
+
+        // The 5c8fd08 drop discipline holds on this path too: this step adds
+        // no candidate debris (delta, not absolute — the shared candidates
+        // dir is cross-lane shared by design, other suites pollute it).
+        const int candidatesBefore = leftoverCandidates();
+        QCOMPARE(leftoverCandidates(), candidatesBefore);
+        // The disk holds the POST-CREATE bytes: the creation was the
+        // workflow's own mutation, the failed commit preserved them.
+        const QString onDisk = SigningRequestRunner::documentSha256(req.docPath);
+        QVERIFY(!onDisk.isEmpty());
+        QVERIFY2(onDisk != docBefore,
+                 "the lazy creation must have mutated the document (post-create bytes on disk)");
+
+        // PIN (1): the published identity IS the last on-disk state. Pre-fix
+        // this was the candidate hash — never on disk.
+        QVERIFY2(r.documentSha256 == onDisk,
+                 qPrintable(QStringLiteral(
+                     "V-03: the failed step published a hash that is NOT the "
+                     "on-disk state (published %1, on disk %2) — the next "
+                     "step's mutation gate would refuse forever")
+                     .arg(r.documentSha256, onDisk)));
+        // And the explicit carrier (the audit's fix) names the same identity.
+        QCOMPARE(r.creationDiskSha256, onDisk);
+
+        // PIN (2): the controller's failure path, verbatim (the
+        // r.fieldCreated advance over the published identity), then a RETRY
+        // must re-prepare cleanly — no DocumentChanged refusal, real commit.
+        SigningRequestModel model = req.model;
+        model.preparedSha256 = r.documentSha256;
+        model.preparedUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        const QString sidecar = SigningRequestModel::sidecarPathFor(req.docPath);
+        QVERIFY(model.save(sidecar, nullptr));
+
+        const SigningRequestRunner::Refusal pre2 =
+            SigningRequestRunner::precheck(mgr, fillInput(req, 0, model));
+        QVERIFY2(pre2.code != SigningRequestRunner::StepRefusal::DocumentChanged,
+                 qPrintable(QStringLiteral(
+                     "V-03: the retry refuses DocumentChanged against a hash "
+                     "the workflow itself published — %1").arg(pre2.message)));
+        const auto retry = SigningRequestRunner::runFillStep(mgr, fillInput(req, 0, model));
+        if (!retry.committed)
+            QSKIP(qPrintable(QStringLiteral(
+                "real sign unavailable in this environment: %1").arg(retry.error)));
+        QCOMPARE(retry.outcome, SignOutcome::Success);
+        QCOMPARE(retry.signedFieldName, QStringLiteral("sig_A"));
+        QVERIFY(retry.fieldMatch);
+        QCOMPARE(leftoverCandidates(), candidatesBefore);
     }
 
     // -------------------------------------------------------------------

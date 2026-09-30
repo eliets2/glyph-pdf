@@ -300,7 +300,17 @@ void SendForSigningController::runSignStep(int signerIndex)
             // creation it just performed.
             if (r.fieldCreated && !r.documentSha256.isEmpty()) {
                 SigningRequestModel model = inputBox->model;
-                model.preparedSha256 = r.documentSha256;
+                // V-03 (AUDIT-VERIFICATION-2026-09-25): advance over the
+                // creation's ON-DISK identity only. A failed step's
+                // documentSha256 is the last on-disk state (post-create
+                // bytes when this step placed the field) — never a candidate
+                // hash that never hit the disk; creationDiskSha256 carries
+                // that identity explicitly and is preferred when present
+                // (the fallback keeps the same guarantee by runner
+                // contract).
+                model.preparedSha256 = !r.creationDiskSha256.isEmpty()
+                                           ? r.creationDiskSha256
+                                           : r.documentSha256;
                 model.preparedUtc = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
                 QString retryErr;
                 if (!model.save(SigningRequestModel::sidecarPathFor(inputBox->docPath),

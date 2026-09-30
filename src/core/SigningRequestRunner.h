@@ -7,6 +7,7 @@
 
 #include "core/SigningRequestModel.h"
 #include "core/interfaces/ISignatureManager.h"
+#include "engines/SafeSave.h"  // CommitFaultForTesting — V-03 pin seam
 
 class SignatureManager;
 
@@ -62,6 +63,17 @@ public:
         // the controller sets solely after its Yes/No dialog (the sidecar
         // copy remains as a display/record value and never gates).
         QString userReconfirmedSha256;
+
+        // V-03 pin seam (AUDIT-VERIFICATION-2026-09-25): a deterministic
+        // failure injected at THIS step's final commit — after the lazy
+        // field creation and the engine's candidate both succeeded, which is
+        // exactly the audit's scenario. The process-global SafeSave seam
+        // cannot express that: it fires inside the field creator's own
+        // commit first, so the field never gets created. Defaults to None
+        // (production behavior unchanged); only the TestSendForSigning pin
+        // sets it.
+        gp::SafeSave::CommitFaultForTesting commitFaultForTesting =
+            gp::SafeSave::CommitFaultForTesting::None;
     };
 
     /// WHY a step refuses before any engine call (checked in this order).
@@ -114,8 +126,23 @@ public:
         bool committed = false;       // signed bytes replaced the document
         bool fieldCreated = false;    // the step created its anchored field first
         QString signatureSummary;     // validation outcome of the new signature
-        QString documentSha256;       // SHA-256 of the post-step (or post-create)
-                                      // document bytes — the next gate identity
+        // V-03 (AUDIT-VERIFICATION-2026-09-25): BOTH hashes below are
+        // on-disk identities, never a candidate hash. documentSha256 is the
+        // on-disk document identity this step is accountable for: the
+        // committed bytes on success; on a FAILED step the last bytes it
+        // observed/produced on disk (the post-create bytes when its own lazy
+        // placement ran — restoring that used to be missing on the
+        // commit-failure path, where the candidate hash leaked out and the
+        // controller advanced the prepared identity to a hash that was never
+        // on disk, making the next step's mutation gate refuse forever).
+        QString documentSha256;       // SHA-256 of the on-disk post-step document
+                                      // bytes — the next gate identity
+        QString creationDiskSha256;   // when THIS step lazily created its field:
+                                      // the post-create on-disk hash, carried
+                                      // SEPARATELY from any candidate hash —
+                                      // the identity a caller advances the
+                                      // request's prepared identity over on a
+                                      // failed step (the audit's fix)
         QString error;                // non-empty = the step failed (with why)
     };
 

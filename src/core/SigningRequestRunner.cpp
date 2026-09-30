@@ -275,6 +275,13 @@ SigningRequestRunner::FillStepResult SigningRequestRunner::runFillStep(Signature
             // result.documentSha256 is repurposed for the CANDIDATE hash
             // after signing, so this observation is kept separately).
             stepDiskIdentityHex = result.documentSha256;
+            // V-03 (AUDIT-VERIFICATION-2026-09-25): the creation-advanced
+            // identity travels on its OWN field. documentSha256 is
+            // overwritten with the candidate hash below once signing
+            // succeeds; a caller advancing the prepared identity over a
+            // FAILED step must use creationDiskSha256 — never a hash that
+            // was never on disk.
+            result.creationDiskSha256 = stepDiskIdentityHex;
         }
     }
 
@@ -375,8 +382,17 @@ SigningRequestRunner::FillStepResult SigningRequestRunner::runFillStep(Signature
     }
     QString commitErr;
     if (!SafeSave::commitFileToDestination(candidate, in.docPath, &commitErr,
-                                           SafeSave::CommitFaultForTesting::None,
+                                           in.commitFaultForTesting,
                                            destIdentity)) {
+        // V-03 (AUDIT-VERIFICATION-2026-09-25): the commit failed — the
+        // candidate is NOT the document. documentSha256 currently holds the
+        // candidate's hash (set after validation above); a caller must never
+        // advance any recorded identity to bytes that never hit the disk,
+        // so restore the last on-disk identity this step observed/produced
+        // (the post-create bytes when the lazy placement ran, else the
+        // mutation gate's current-bytes hash; empty when it can't be known).
+        // The candidate itself is dropped below (5c8fd08 discipline).
+        result.documentSha256 = stepDiskIdentityHex;
         result.error = QStringLiteral("The signed document could not be committed to %1 "
                                       "— the previous document is preserved: %2")
                            .arg(in.docPath, commitErr);
