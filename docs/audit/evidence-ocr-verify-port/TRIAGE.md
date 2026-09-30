@@ -135,3 +135,36 @@ base: the branch is a strict 6-commit fast-forward of main, no divergence.
 Rebase-check at finish: main had not moved (verified via `git fetch origin`).
 
 
+
+## ADDENDUM — rebase onto fresh main (2026-09-30, post-evidence)
+
+During the lane's final check origin/main advanced 02d1a898 → 181247b2
+(4 commits: forms /FT /Sig field, signing OCSP consent gate, MCID reading
+order ×2 — no OCR-verify overlap). Per lane instructions the branch was
+REBASED onto 181247b2 (zero conflicts; single-writer discipline kept —
+rebase, not merge).
+
+Post-rebase unit SHAs (the pre-rebase SHAs in the table above are the same
+content under old parentage):
+
+| Unit | Post-rebase SHA |
+|---|---|
+| P1 B10 dictionary | b0451e84 |
+| P2 B9 suggestions | 9098a7c2 |
+| P3 B4 Skip/Replace All | e77a2fd7 |
+| P4 B7+B12 verified state | 2762cf5e |
+| P5 B14 focus cycling | decf43c5 |
+| triage | 7d422a0b |
+| evidence | d4bd448d (+ this addendum) |
+
+Re-verification at the new base:
+- rebuild all 526 targets: clean;
+- TestOcrVerifyPort + TestOcrVerifyNavigation + TestOcrReviewLifecycle
+  ×3 serial: 3/3 × `100% tests passed`;
+- full serial gate: **100% tests passed, 0 failed out of 191** (main's new
+  commits added one test) — a fully clean gate, no flake involvement.
+
+## FF-ready (final)
+
+`git merge-base HEAD origin/main` == origin/main == **181247b2**; the branch
+tip is a strict fast-forward of origin/main.
