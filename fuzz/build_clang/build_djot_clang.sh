@@ -118,6 +118,12 @@ for _pc in libjpeg libpng; do
     PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs "$_pc")"
   fi
 done
+# PdfEncrypt uses OpenSSL EVP when the configure saw libssl-dev (preinstalled
+# on the runner — run 36648744086's link died on EVP_MD_CTX_new et al.);
+# guarded so an openssl-free podofo stays linkable.
+if pkg-config --exists openssl 2>/dev/null; then
+  PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs openssl)"
+fi
 PODOFO_LIBS="$PODOFO_LIBS -lz"
 
 "$CLANGXX" -std=c++17 $SAN -fsanitize=fuzzer $INC $QT_CFLAGS \
