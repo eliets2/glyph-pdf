@@ -1,6 +1,6 @@
 # POST-CONSOLIDATION ENDGAME — 2026-09-30 (integrator record)
 
-STATUS: FINAL. Origin = `main` only. Every branch dispositioned; every lane folded
+STATUS: FINAL. Origin = `main` only. ADDENDUM: open item 1 (djot depth budget) CLOSED — fix landed as `505295f4` (FF, gate: fresh build RC=0, djot suites 4/4, full serial 189/189); the djot fuzz job should go green on its next runner dispatch (ASan confirmation is the runner's). Every branch dispositioned; every lane folded
 or closed; one fix lane dispatched (djot). Nothing lives outside main except the
 djot fix branch (in flight) and `feat/ui-redesign-p0` (Claude's redesign base).
 
@@ -43,7 +43,7 @@ feat/fixall-ci3.
 
 ## OPEN ITEMS (owner)
 
-1. **djot depth budget (IN FLIGHT)** — the CX-13 gate's first catch: genuine
+1. **djot depth budget — CLOSED `505295f4`** (was IN FLIGHT) — the CX-13 gate's first catch: genuine
    heap-buffer-overflow, unbounded codec recursion (collectInlineText/walkInline,
    LuaDjotCodec.cpp:372/:392) via a 2000-level blockquote bomb. Evidence:
    `docs/audit/evidence-fuzz-djot-finding-2026-09-30/`. Fix lane dispatched on
