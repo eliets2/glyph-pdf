@@ -3155,6 +3155,52 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderMcid.cpp")
     )
 endif()
 
+# PARITY-SCORECARD-2026-09-30 §4 #19: the struct-walk depth cap is the NAMED
+# constant kReadingOrderMaxStructDepth with an honest truncation disclosure
+# (depthTruncated/depthLimit in ReadingOrderResult, surfaced as a warning row)
+# and a settings override clamped to [60, 500].
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderDepthCap.cpp")
+    add_executable(TestReadingOrderDepthCap
+        tests/TestReadingOrderDepthCap.cpp
+    )
+    target_include_directories(TestReadingOrderDepthCap PRIVATE src tests)
+    target_link_libraries(TestReadingOrderDepthCap PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    if(WIN32 AND EXISTS "${PODOFO_VENDOR_DLL}")
+        add_custom_command(TARGET TestReadingOrderDepthCap POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestReadingOrderDepthCap>"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestReadingOrderDepthCap"
+        )
+    endif()
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+        add_custom_command(TARGET TestReadingOrderDepthCap POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll"
+                "$<TARGET_FILE_DIR:TestReadingOrderDepthCap>"
+            COMMENT "Deploying pdfium DLL for TestReadingOrderDepthCap"
+        )
+    endif()
+    add_custom_command(TARGET TestReadingOrderDepthCap POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestReadingOrderDepthCap>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestReadingOrderDepthCap>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestReadingOrderDepthCap"
+    )
+    add_test(NAME TestReadingOrderDepthCap COMMAND TestReadingOrderDepthCap)
+    set_tests_properties(TestReadingOrderDepthCap PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;accessibility;pdfa;reading-order;qt;headless"
+    )
+endif()
+
 # §9.16 P1: round-trip CONTRACT test — plain saveDocument preserves outline
 # bookmarks + URI/GoTo links; the sanitize path's stripping (Outlines, URI
 # actions) is pinned as intentional-and-visible, never silent.

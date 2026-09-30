@@ -32,6 +32,17 @@ inline constexpr int kReadingOrderSlotTolerance = 2;
 /// under-reporting. Triage bound, not a conformance rule.
 inline constexpr int kReadingOrderMaxMarkedContentSpans = 5000;
 
+/// PARITY-SCORECARD-2026-09-30 §4 #19: the structure-tree walk's depth cap —
+/// formerly a bare `depth > 60` literal. A tree deeper than this is walked
+/// only down to the cap and the result DISCLOSES the truncation
+/// (ReadingOrderResult::depthTruncated/depthLimit, surfaced as a warning row)
+/// instead of silently stopping. A settings override
+/// ("accessibility/readingOrderMaxDepth") may raise the cap, clamped into
+/// [kReadingOrderMaxStructDepth, kReadingOrderStructDepthLimit]; the default
+/// is the fail-safe lower bound. Triage bound, not a conformance rule.
+inline constexpr int kReadingOrderMaxStructDepth = 60;
+inline constexpr int kReadingOrderStructDepthLimit = 500;
+
 /// §9.14: tagged-PDF reading-order analysis (exposed for tests).
 struct ReadingOrderResult {
     bool tagged = false;
@@ -44,8 +55,15 @@ struct ReadingOrderResult {
     bool markedContentTruncated = false;
     /// How many distinct marked-content spans were actually resolved.
     int markedSpansAnalyzed = 0;
+    /// True when the structure tree is deeper than the depth cap in effect —
+    /// elements below the cap were never analyzed (§4 #19 honesty pin).
+    bool depthTruncated = false;
+    /// The cap in effect when depthTruncated fired (for the warning text).
+    int depthLimit = 0;
 };
-ReadingOrderResult analyzeReadingOrder(const QString& path);
+ReadingOrderResult analyzeReadingOrder(
+    const QString& path,
+    int maxStructDepth = gp::kReadingOrderMaxStructDepth);
 
 class PdfAValidationPanel : public QFrame {
     Q_OBJECT

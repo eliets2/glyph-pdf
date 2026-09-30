@@ -12,10 +12,12 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSettings>
 #include <QSet>
 #include <QStringList>
 #include <QTextStream>
 #include <QVBoxLayout>
+#include <QVariant>
 #include <algorithm>
 #include <iterator>
 #include <vector>
@@ -450,10 +452,15 @@ int pageIndexOf(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* pg) {
 //
 // PARITY-SCORECARD-2026-09-30 §4 #3: `mcidRefs` (when non-null) additionally
 // collects the marked-content references — bare MCID integers and /MCR dicts —
-// in the same reading order; these were previously skipped entirely.
+// in the same reading order. §4 #19: `maxDepth` is the named depth cap
+// (kReadingOrderMaxStructDepth by default); when a node exists BEYOND it,
+// `depthTruncated` is set so the caller can disclose the truncation instead
+// of silently stopping.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
                         QList<StructElem>& out, int depth, int inheritedPage = -1,
-                        QList<McidRef>* mcidRefs = nullptr);
+                        QList<McidRef>* mcidRefs = nullptr,
+                        int maxDepth = gp::kReadingOrderMaxStructDepth,
+                        bool* depthTruncated = nullptr);
 
 // Extract /BBox top-edge from a struct element's /A layout attribute(s).
 void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, StructElem& e) {
@@ -484,14 +491,22 @@ void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, St
 // reading (document structure) order.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
                         QList<StructElem>& out, int depth, int inheritedPage,
-                        QList<McidRef>* mcidRefs) {
-    if (!node || depth > 60) return;
+                        QList<McidRef>* mcidRefs, int maxDepth,
+                        bool* depthTruncated) {
+    if (!node) return;
+    if (depth > maxDepth) {
+        // §4 #19: a node exists beyond the cap — the walk is being cut short.
+        // Disclose it; never stop silently.
+        if (depthTruncated) *depthTruncated = true;
+        return;
+    }
     node = resolveObj(doc, node);
     if (!node) return;
 
     if (node->IsArray()) {
         for (const auto& child : node->GetArray())
-            collectStructElems(doc, &child, out, depth + 1, inheritedPage, mcidRefs);
+            collectStructElems(doc, &child, out, depth + 1, inheritedPage,
+                               mcidRefs, maxDepth, depthTruncated);
         return;
     }
     if (node->IsNumber()) {
@@ -538,7 +553,8 @@ void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* no
         out.append(e);
     }
     if (const PoDoFo::PdfObject* k = d.FindKey("K"))
-        collectStructElems(doc, k, out, depth + 1, elemPage, mcidRefs);
+        collectStructElems(doc, k, out, depth + 1, elemPage, mcidRefs,
+                           maxDepth, depthTruncated);
 }
 
 // ── PARITY-SCORECARD-2026-09-30 §4 #3 ────────────────────────────────────────
@@ -769,8 +785,14 @@ int collectMarkedSpanPositions(PoDoFo::PdfMemDocument& doc, int pageIdx,
 
 } // namespace
 
-ReadingOrderResult analyzeReadingOrder(const QString& path) {
+ReadingOrderResult analyzeReadingOrder(const QString& path, int maxStructDepth) {
     ReadingOrderResult r;
+    // §4 #19 fail-safe: a nonsensical cap falls back to the named default —
+    // the override can only ever RAISE the bound, never lower it below the
+    // shipped default (clamped again at the settings seam).
+    if (maxStructDepth < gp::kReadingOrderMaxStructDepth
+        || maxStructDepth > gp::kReadingOrderStructDepthLimit)
+        maxStructDepth = gp::kReadingOrderMaxStructDepth;
     try {
         PoDoFo::PdfMemDocument doc;
         doc.Load(path.toUtf8().constData());
@@ -782,7 +804,13 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
 
         QList<StructElem> elems;
         QList<McidRef> mcidRefs;
-        collectStructElems(doc, root, elems, 0, -1, &mcidRefs);
+        bool depthTruncated = false;
+        collectStructElems(doc, root, elems, 0, -1, &mcidRefs, maxStructDepth,
+                           &depthTruncated);
+        if (depthTruncated) {
+            r.depthTruncated = true;
+            r.depthLimit = maxStructDepth;
+        }
         r.elementCount = elems.size();
 
         // ── Element-level analysis (§9.14, unchanged) ───────────────────
@@ -928,8 +956,24 @@ void PdfAValidationPanel::onCheckReadingOrder() {
     m_statusLabel->setText(tr("Analyzing reading order…"));
     const QString path = m_currentDocPath;
     m_submittedReadingOrderPath = path;
-    m_readingOrderWatcher->setFuture(QtConcurrent::run([path]() {
-        return analyzeReadingOrder(path);
+
+    // §4 #19: optional settings override for the struct-walk depth cap.
+    // Anything outside [60, 500] (or unset / non-numeric) falls back to the
+    // fail-safe default — the override can only RAISE the bound.
+    int maxStructDepth = gp::kReadingOrderMaxStructDepth;
+    const QVariant overrideVal =
+        QSettings().value(QStringLiteral("accessibility/readingOrderMaxDepth"));
+    if (overrideVal.isValid()) {
+        bool ok = false;
+        const int requested = overrideVal.toInt(&ok);
+        if (ok)
+            maxStructDepth = std::clamp(requested,
+                                        gp::kReadingOrderMaxStructDepth,
+                                        gp::kReadingOrderStructDepthLimit);
+    }
+
+    m_readingOrderWatcher->setFuture(QtConcurrent::run([path, maxStructDepth]() {
+        return analyzeReadingOrder(path, maxStructDepth);
     }));
 }
 
@@ -955,9 +999,15 @@ void PdfAValidationPanel::onReadingOrderFinished() {
         delete item;
     }
 
-    // Bounded-sample disclosure (PARITY-SCORECARD-2026-09-30 §4 #3): a
-    // marked-content walk that stopped at kReadingOrderMaxMarkedContentSpans
-    // is never silent, and a truncated analysis never reads as "OK".
+    // Bounded-sample disclosures (PARITY-SCORECARD-2026-09-30 §4 #3 and #19):
+    // a walk that stopped at a cap is never silent, and a truncated analysis
+    // never reads as "OK".
+    if (r.depthTruncated) {
+        m_issuesLayout->addWidget(issueRow(this, QStringLiteral("RO"),
+            tr("Struct tree deeper than %1 — analysis truncated; results may be incomplete.")
+                .arg(r.depthLimit),
+            /*err=*/false, /*pageNumber=*/-1));
+    }
     if (r.markedContentTruncated) {
         m_issuesLayout->addWidget(issueRow(this, QStringLiteral("RO"),
             tr("Marked-content sample truncated at %1 spans — results may be incomplete.")
@@ -965,7 +1015,7 @@ void PdfAValidationPanel::onReadingOrderFinished() {
             /*err=*/false, /*pageNumber=*/-1));
     }
 
-    if (r.issues.isEmpty() && !r.markedContentTruncated) {
+    if (r.issues.isEmpty() && !r.depthTruncated && !r.markedContentTruncated) {
         m_statusLabel->setText(tr("✓ %1 elements. Reading order: OK.").arg(r.elementCount));
         m_issuesHeading->hide();
         m_issuesList->hide();
@@ -980,7 +1030,7 @@ void PdfAValidationPanel::onReadingOrderFinished() {
     if (r.issues.isEmpty()) {
         // Truncated with no findings: honest partial result, never "OK".
         m_statusLabel->setText(
-            tr("%1 elements. Marked-content sample truncated — results may be incomplete.")
+            tr("%1 elements. Analysis truncated at a bound — results may be incomplete.")
                 .arg(r.elementCount));
     } else {
         m_statusLabel->setText(tr("✗ %1 elements. %2 reading-order issue(s).").arg(r.elementCount).arg(r.issues.size()));
