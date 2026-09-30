@@ -205,7 +205,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install clang + libFuzzer + Qt6 Core + freetype
-        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config libfreetype-dev
+        # libjpeg/libpng/zlib -dev: pinned so podofo's static configure picks
+        # the SAME optional-codec set every run (deterministic link deps).
+        run: sudo apt-get update && sudo apt-get install -y clang qt6-base-dev pkg-config libfreetype-dev libjpeg-dev libpng-dev zlib1g-dev
       - name: Restore vendored podofo cache (ubuntu)
         id: podofo-cache-lx
         uses: actions/cache@v4

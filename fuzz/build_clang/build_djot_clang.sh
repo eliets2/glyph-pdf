@@ -98,10 +98,31 @@ for f in $(find src/docmodel src/pdfws_djot -name '*.cpp'); do
 done
 
 echo "[3] build + link the fuzzer"
+# PoDoFo 1.x installs TWO static archives: libpodofo.a (public API) and
+# libpodofo_private.a (utls::RecursionGuard, LogMessage, PdfFilterFactory,
+# GetPdfVersion — run 36647764910's link died on exactly those). Group both
+# (plus the freetype/zlib the static font code pulls) so GNU ld resolves the
+# cycle; fall back to the single shared archive when no private archive
+# exists (shared-build installs).
+PODOFO_LIBS="-L$PODOFO_DIR/lib"
+if [ -f "$PODOFO_DIR/lib/libpodofo_private.a" ]; then
+  PODOFO_LIBS="$PODOFO_LIBS -Wl,--start-group -lpodofo -lpodofo_private -Wl,--end-group"
+else
+  PODOFO_LIBS="$PODOFO_LIBS -lpodofo"
+fi
+PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs freetype2 2>/dev/null || true)"
+# The optional codecs podofo's static configure may have baked in (deterministic
+# since the job installs libjpeg-dev/libpng-dev) — each guarded.
+for _pc in libjpeg libpng; do
+  if pkg-config --exists "$_pc" 2>/dev/null; then
+    PODOFO_LIBS="$PODOFO_LIBS $(pkg-config --libs "$_pc")"
+  fi
+done
+PODOFO_LIBS="$PODOFO_LIBS -lz"
+
 "$CLANGXX" -std=c++17 $SAN -fsanitize=fuzzer $INC $QT_CFLAGS \
   -DDJOT_LIB_PATH="\"$ROOT/third_party/djot\"" \
-  fuzz/harnesses/harness_djot.cpp "$OUT"/obj/*.o $QT_LIBS \
-  -L"$PODOFO_DIR/lib" -lpodofo \
+  fuzz/harnesses/harness_djot.cpp "$OUT"/obj/*.o $QT_LIBS $PODOFO_LIBS \
   -o fuzz/bin/djot_fuzzer
 
 # INF06: a build that produces no executable must not exit 0.
