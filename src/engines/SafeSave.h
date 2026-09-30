@@ -76,9 +76,16 @@ using ExternalWriteValidateFn = std::function<QString(const QString& candidate)>
 // exited normally (exitCode set); false with `error` when it could not start,
 // was canceled (`*canceled`), crashed, or hit `timeoutMs` — in the cancel and
 // timeout cases the process we own is KILLED before returning.
+//
+// M-1 (AUDIT-SECURITY-2026-09-25, CWE-214): `stdinData` is written to the
+// child's stdin right after start and the write channel is then CLOSED, so
+// interactive-prompt tools can read a secret from the pipe instead of the
+// secret traveling on the process command line (world/audit-readable). Empty
+// by default — every existing caller is unchanged.
 bool runBoundedProcess(const QString& program, const QStringList& args,
                        qint64 timeoutMs, const std::function<bool()>& isCanceled,
-                       bool* canceled, int* exitCode, QString* error);
+                       bool* canceled, int* exitCode, QString* error,
+                       const QByteArray& stdinData = {});
 
 ExternalWriteResult runExternalWriterCommit(
     const QString& program,
@@ -87,7 +94,8 @@ ExternalWriteResult runExternalWriterCommit(
     const QString& candidateSuffix,
     qint64 timeoutMs,
     const std::function<bool()>& isCanceled = {},
-    const ExternalWriteValidateFn& validateCandidate = {});
+    const ExternalWriteValidateFn& validateCandidate = {},
+    const QByteArray& procStdin = {});
 
 // Deterministic test seam for the commit step (mirrors FormManager's
 // SaveFault::Commit injection point: after the bounded copy, before

@@ -1,8 +1,13 @@
 #include <QtTest>
 #include <QApplication>
+#include <QFile>
+#include <QFileInfo>
+#include <QStandardPaths>
+#include <QTemporaryDir>
 #include "core/AppContext.h"
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
+#include "engines/SafeSave.h"
 #include "shell/controllers/HomeController.h"
 #include "shell/controllers/ViewController.h"
 #include "shell/controllers/EditController.h"
@@ -254,6 +259,109 @@ private slots:
                 QStringLiteral("Please find the attached PDF document."));
             QVERIFY(url.startsWith(QStringLiteral("mailto:?subject=PDF%20Document%3A%20report.pdf")));
             QVERIFY(url.contains(QStringLiteral("&body=Please%20find")));
+        }
+    }
+
+    // ── M-1 (AUDIT-SECURITY-2026-09-25, CWE-214): package password off argv ──
+    //
+    // The AES-256 ZIP package password used to travel as `-p<password>` on the
+    // 7-Zip command line — readable by any same-user process (and
+    // /proc/<pid>/cmdline on Linux) for the whole bounded run. The password
+    // now rides the stdin pipe: the shipped 7-Zip 26.02 prompts for it (bare
+    // `-p` on create; NO -p switch on the read-back — a bare `-p` on `t`
+    // parses as an EMPTY password there) and SafeSave::runBoundedProcess
+    // delivers the reply and closes the channel.
+    void testEncryptedPackageArgsCarryNoPassword() {
+        const QString pw = QStringLiteral("S3cret-Passw0rd");
+        const QString cand = QStringLiteral("C:/tmp/glyphpdf-candidate.zip");
+        const QString doc = QStringLiteral("C:/docs/plan.pdf");
+
+        // (a) argv shape: bare `-p`, password appears NOWHERE in argv.
+        const QStringList createArgs =
+            gp::HomeController::encryptedPackageCreateArgs(cand, doc);
+        QVERIFY2(createArgs.contains(QStringLiteral("-p")),
+                 "create must use the bare -p prompt switch");
+        QCOMPARE(createArgs.size(), 6);
+        for (const QString& a : createArgs) {
+            QVERIFY2(!a.contains(pw),
+                     qPrintable(QString("argv element leaks the password: %1").arg(a)));
+        }
+
+        // (b) the read-back argv carries NO -p switch at all.
+        const QStringList validateArgs =
+            gp::HomeController::encryptedPackageValidateArgs(cand);
+        QCOMPARE(validateArgs.size(), 2);
+        for (const QString& a : validateArgs) {
+            QVERIFY2(!a.startsWith(QLatin1String("-p")),
+                     qPrintable(QString("read-back must not pass -p (empty-password parse): %1").arg(a)));
+            QVERIFY2(!a.contains(pw),
+                     qPrintable(QString("argv element leaks the password: %1").arg(a)));
+        }
+
+        // (c) live end-to-end through the REAL 7-Zip + stdin path (QSKIP when
+        // no 7z.exe is installed): the archive must be genuinely encrypted
+        // with the stdin-delivered password and unreadable without it.
+        QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
+        if (sevenZip.isEmpty())
+            sevenZip = QStringLiteral("C:/Program Files/7-Zip/7z.exe");
+        if (!QFileInfo::exists(sevenZip))
+            QSKIP("7z.exe not available on this machine — argv-shape assertions above still ran");
+
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString payloadPath = dir.filePath(QStringLiteral("doc.txt"));
+        {
+            QFile f(payloadPath);
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            QVERIFY(f.write("encrypted package payload") > 0);
+        }
+        const QString archive = dir.filePath(QStringLiteral("pkg.zip"));
+
+        bool canceled = false;
+        int exitCode = -1;
+        QString err;
+        const QByteArray pwStdin = pw.toUtf8() + '\n';
+
+        // create — password on stdin only
+        QVERIFY2(gp::SafeSave::runBoundedProcess(
+                     sevenZip,
+                     gp::HomeController::encryptedPackageCreateArgs(archive, payloadPath),
+                     60000, {}, &canceled, &exitCode, &err, pwStdin),
+                 qPrintable(QStringLiteral("7z create via stdin password failed: %1").arg(err)));
+        QCOMPARE(exitCode, 0);
+        QVERIFY(QFileInfo::exists(archive));
+
+        // read-back with the stdin password must pass
+        exitCode = -1;
+        QVERIFY(gp::SafeSave::runBoundedProcess(
+                    sevenZip, gp::HomeController::encryptedPackageValidateArgs(archive),
+                    60000, {}, &canceled, &exitCode, &err, pwStdin));
+        QCOMPARE(exitCode, 0);
+
+        // negative: a WRONG password on argv must fail (archive really encrypted).
+        // Either a clean nonzero exit or the bounded kill of a hung prompt
+        // both count as "did not open".
+        exitCode = -1;
+        {
+            const bool finished = gp::SafeSave::runBoundedProcess(
+                sevenZip,
+                QStringList{ QStringLiteral("t"), QStringLiteral("-pWRONG"),
+                             QDir::toNativeSeparators(archive) },
+                15000, {}, &canceled, &exitCode, &err);
+            QVERIFY2(!finished || exitCode != 0,
+                     "a wrong password must not open the archive");
+        }
+
+        // negative: NO password at all must fail (nothing is on argv to leak).
+        // 7z prompts and blocks on the open write channel, so the bounded run
+        // kills it at the deadline — that is a fail-closed outcome too.
+        exitCode = -1;
+        {
+            const bool finished = gp::SafeSave::runBoundedProcess(
+                sevenZip, gp::HomeController::encryptedPackageValidateArgs(archive),
+                15000, {}, &canceled, &exitCode, &err);
+            QVERIFY2(!finished || exitCode != 0,
+                     "the archive must not open without the stdin password");
         }
     }
 };

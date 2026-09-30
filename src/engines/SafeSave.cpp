@@ -161,7 +161,8 @@ bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix)
 // cancel/timeout always KILLS the process we own before returning.
 bool runBoundedProcess(const QString& program, const QStringList& args,
                        qint64 timeoutMs, const std::function<bool()>& isCanceled,
-                       bool* canceled, int* exitCode, QString* error)
+                       bool* canceled, int* exitCode, QString* error,
+                       const QByteArray& stdinData)
 {
     *canceled = false;
     QProcess proc;
@@ -169,6 +170,14 @@ bool runBoundedProcess(const QString& program, const QStringList& args,
     if (!proc.waitForStarted(10000)) {
         if (error) *error = QStringLiteral("could not start the external tool: %1").arg(proc.errorString());
         return false;
+    }
+    // M-1 (CWE-214): deliver a secret (e.g. the 7-Zip `-p` prompt reply) via
+    // the stdin pipe and close the channel — the child reads its prompt reply
+    // from the pipe and sees EOF, so nothing waits on the channel. The secret
+    // never appears in argv.
+    if (!stdinData.isEmpty()) {
+        proc.write(stdinData);
+        proc.closeWriteChannel();
     }
     // Bounded wait with cooperative cancellation: the process belongs to this
     // call, so cancel/timeout must stop it (kill) rather than leave it running.
@@ -205,7 +214,8 @@ ExternalWriteResult runExternalWriterCommit(
     const QString& candidateSuffix,
     qint64 timeoutMs,
     const std::function<bool()>& isCanceled,
-    const ExternalWriteValidateFn& validateCandidate)
+    const ExternalWriteValidateFn& validateCandidate,
+    const QByteArray& procStdin)
 {
     ExternalWriteResult r;
     QString candidate;
@@ -229,7 +239,7 @@ ExternalWriteResult runExternalWriterCommit(
     // The tool writes the CANDIDATE it owns — the destination is not an
     // argument at all, so a misbehaving tool cannot touch it before commit.
     const QStringList args = buildArgs(candidate);
-    if (!runBoundedProcess(program, args, timeoutMs, isCanceled, &canceled, &exitCode, &err)) {
+    if (!runBoundedProcess(program, args, timeoutMs, isCanceled, &canceled, &exitCode, &err, procStdin)) {
         r.canceled = canceled;
         r.stage = canceled ? ExternalWriteResult::Stage::Tool : ExternalWriteResult::Stage::Launch;
         r.exitCode = exitCode;

@@ -519,28 +519,27 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
     // destroying it before a result exists (7-Zip now writes a candidate; the
     // checked atomic commit replaces the destination only after validation).
 
-    // 7z a -tzip -mem=AES256 -p<pwd> <candidate.zip> <pdf> — the tool writes
-    // the candidate it owns; the destination is never an argument.
-    auto buildArgs = [password, filePath](const QString& candidate) {
-        return QStringList{ QStringLiteral("a"), QStringLiteral("-tzip"),
-                            QStringLiteral("-mem=AES256"),
-                            QStringLiteral("-p") + password,
-                            QDir::toNativeSeparators(candidate),
-                            QDir::toNativeSeparators(filePath) };
+    // 7z a -tzip -mem=AES256 -p <candidate.zip> <pdf> — the tool writes
+    // the candidate it owns; the destination is never an argument. M-1
+    // (CWE-214): the password is NOT on the command line — the bare `-p`
+    // makes the shipped 7-Zip prompt, and the reply is piped to the child's
+    // stdin (verified against 7-Zip 26.02; see the header note and
+    // docs/audit/evidence-m1-package-argv/).
+    const QByteArray passwordStdin = password.toUtf8() + '\n';
+    auto buildArgs = [filePath](const QString& candidate) {
+        return encryptedPackageCreateArgs(candidate, filePath);
     };
-    // Candidate validation: `7z t -p<pwd> <candidate>` must read the archive
-    // with the chosen password before the candidate may replace the
-    // destination.
-    auto validateCandidate = [sevenZip, password](const QString& candidate) -> QString {
+    // Candidate validation: `7z t <candidate>` (no -p switch — see the
+    // header note) must read the archive with the chosen password before the
+    // candidate may replace the destination; the password arrives on stdin.
+    auto validateCandidate = [sevenZip, passwordStdin](const QString& candidate) -> QString {
         bool canceled = false;
         int exitCode = -1;
         QString err;
         const bool finished = gp::SafeSave::runBoundedProcess(
             sevenZip,
-            QStringList{ QStringLiteral("t"),
-                         QStringLiteral("-p") + password,
-                         QDir::toNativeSeparators(candidate) },
-            60000, {}, &canceled, &exitCode, &err);
+            encryptedPackageValidateArgs(candidate),
+            60000, {}, &canceled, &exitCode, &err, passwordStdin);
         if (!finished || exitCode != 0) {
             return QObject::tr("the candidate archive failed the encrypted "
                                "read-back check (%1)").arg(
@@ -588,11 +587,13 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
     });
 
     watcher->setFuture(QtConcurrent::run([sevenZip, buildArgs, validateCandidate,
-                                          outPath, cancelFlag]() -> PackResult {
+                                          outPath, cancelFlag, passwordStdin]() -> PackResult {
         PackResult r;
         const gp::SafeSave::ExternalWriteResult w = gp::SafeSave::runExternalWriterCommit(
             sevenZip, buildArgs, outPath, QStringLiteral(".zip"), 120000,
-            [cancelFlag]() { return cancelFlag->load(); }, validateCandidate);
+            [cancelFlag]() { return cancelFlag->load(); }, validateCandidate,
+            passwordStdin);
+
         r.ok = w.ok;
         r.canceled = w.canceled;
         r.error = w.error;
@@ -763,6 +764,26 @@ QString HomeController::shareEmailUrl(const QString& subject, const QString& bod
     return QStringLiteral("mailto:?subject=%1&body=%2")
         .arg(QString::fromUtf8(QUrl::toPercentEncoding(subject)),
              QString::fromUtf8(QUrl::toPercentEncoding(body)));
+}
+
+// M-1 (CWE-214) — see the header note. The bare `-p` switch (no value) makes
+// the shipped 7-Zip prompt for the password on stdin; the reply is delivered
+// through SafeSave::runBoundedProcess's stdinData, never through argv.
+QStringList HomeController::encryptedPackageCreateArgs(const QString& candidate,
+                                                       const QString& filePath) {
+    return QStringList{ QStringLiteral("a"), QStringLiteral("-tzip"),
+                        QStringLiteral("-mem=AES256"),
+                        QStringLiteral("-p"),
+                        QDir::toNativeSeparators(candidate),
+                        QDir::toNativeSeparators(filePath) };
+}
+
+// The read-back must OMIT the -p switch entirely: on the shipped 7-Zip a bare
+// `-p` on `t` is parsed as an EMPTY password instead of prompting, which would
+// fail every read-back. No -p at all prompts on stdin for an encrypted archive.
+QStringList HomeController::encryptedPackageValidateArgs(const QString& candidate) {
+    return QStringList{ QStringLiteral("t"),
+                        QDir::toNativeSeparators(candidate) };
 }
 
 // ── Recent files ────────────────────────────────────────────────────────
