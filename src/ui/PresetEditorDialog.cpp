@@ -358,14 +358,29 @@ void PresetEditorDialog::applyParamFormToStep(BatchPresetStep* step) {
         if (auto* w = widget(QStringLiteral("level")))
             p[QStringLiteral("level")] = static_cast<QComboBox*>(w)->currentText();
     } else if (op == QLatin1String("redact")) {
+        // PGR-55 (2026-09-30): split boundaries TRIM. Natural input
+        // "email, phone-us" used to produce ["email", " phone-us"] — refused
+        // at save as an unknown preset key, although the runtime path
+        // (BatchMode::effectiveRedactPatterns) trims the same entries.
+        // Whitespace-only elements are dropped (a trailing "email, " is the
+        // same list as "email"); a list that becomes EMPTY still fails the
+        // save honestly (a redact step with no pattern would redact nothing).
+        const auto splitTrimmed = [](const QString& text) -> QStringList {
+            QStringList out;
+            const QStringList raw = text.split(QLatin1Char(','));
+            for (QString entry : raw) {
+                entry = entry.trimmed();
+                if (!entry.isEmpty())
+                    out.append(entry);
+            }
+            return out;
+        };
         if (auto* w = widget(QStringLiteral("presets")))
-            p[QStringLiteral("presets")] =
-                static_cast<QLineEdit*>(w)->text().split(QLatin1Char(','),
-                                                         Qt::SkipEmptyParts);
+            p[QStringLiteral("presets")] = splitTrimmed(
+                static_cast<QLineEdit*>(w)->text());
         if (auto* w = widget(QStringLiteral("patterns")))
-            p[QStringLiteral("patterns")] =
-                static_cast<QLineEdit*>(w)->text().split(QLatin1Char(','),
-                                                         Qt::SkipEmptyParts);
+            p[QStringLiteral("patterns")] = splitTrimmed(
+                static_cast<QLineEdit*>(w)->text());
     } else if (op == QLatin1String("strip-metadata")) {
         if (auto* w = widget(QStringLiteral("clearInfoDict")))
             p[QStringLiteral("clearInfoDict")] =

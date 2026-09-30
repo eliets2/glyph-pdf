@@ -140,6 +140,9 @@ private slots:
     // ── Presets review owner item (PGR-54) ────────────────────────────────
     void reviewFailedBatesStepReportsMinusOneNotAttemptedStart();
 
+    // ── Presets review owner item (PGR-55) ────────────────────────────────
+    void reviewRedactEntriesTrimmedAtTheEditorSplitBoundary();
+
     // ── U2: onConflict "rename" + unattended ingest degrade ──────────────────
     void renamePolicySchemaAndRoundTrip();
     void renameConflictCreatesStem2KeepsOriginal();
@@ -2157,6 +2160,79 @@ void TestBatchPresetsP2::reviewFailedBatesStepReportsMinusOneNotAttemptedStart()
                      .contains(QStringLiteral("001")),
                  qPrintable(pageText(m_runDir->filePath(QStringLiteral("out-ok"))
                                          + QStringLiteral("/a_bates-step0.pdf"), 0)));
+    }
+}
+
+// ── Presets review owner item (PGR-55) ────────────────────────────────────────
+// The editor split redact entries UNTRIMMED — natural input "email, phone-us"
+// produced ["email", " phone-us"] and the save refused it as an unknown
+// preset key, although the runtime path (BatchMode::effectiveRedactPatterns)
+// trims the same entries. The split boundary now trims every element and
+// drops whitespace-only ones; a list that becomes EMPTY still fails the save
+// honestly (a redact step with no pattern would redact nothing).
+void TestBatchPresetsP2::reviewRedactEntriesTrimmedAtTheEditorSplitBoundary() {
+    // "email, phone-us" (note the space after the comma) saves cleanly, and
+    // the saved list is the TRIMMED pair.
+    {
+        PresetEditorDialog editor(nullptr);
+        auto* name = editor.findChild<QLineEdit*>(QStringLiteral("presetEditorName"));
+        QVERIFY(name);
+        name->setText(QStringLiteral("Trimmed Entries"));
+        editor.addStepForTest(QStringLiteral("redact"));
+        auto* presets = editor.findChild<QLineEdit*>(QStringLiteral("param_presets"));
+        QVERIFY(presets);
+        presets->setText(QStringLiteral("email, phone-us"));
+
+        QVERIFY2(editor.savePreset(),
+                 qPrintable(QStringLiteral("the natural 'email, phone-us' input must "
+                                           "save cleanly: %1")
+                                .arg(editor.saveErrorForTest())));
+        QCOMPARE(editor.preset().steps.size(), 1);
+        const QStringList savedPresets =
+            editor.preset().steps.first()
+                .params.value(QStringLiteral("presets")).toStringList();
+        QCOMPARE(savedPresets.count(), 2);
+        QCOMPARE(savedPresets.at(0), QStringLiteral("email"));
+        QCOMPARE(savedPresets.at(1), QStringLiteral("phone-us"));
+    }
+
+    // Whitespace-only elements are dropped — " email ,  " is exactly ["email"].
+    {
+        PresetEditorDialog editor(nullptr);
+        auto* name = editor.findChild<QLineEdit*>(QStringLiteral("presetEditorName"));
+        QVERIFY(name);
+        name->setText(QStringLiteral("Trailing Separator"));
+        editor.addStepForTest(QStringLiteral("redact"));
+        auto* presets = editor.findChild<QLineEdit*>(QStringLiteral("param_presets"));
+        QVERIFY(presets);
+        presets->setText(QStringLiteral(" email ,  "));
+
+        QVERIFY2(editor.savePreset(),
+                 qPrintable(QStringLiteral("a trailing separator must not break the "
+                                           "save: %1")
+                                .arg(editor.saveErrorForTest())));
+        const QStringList savedPresets =
+            editor.preset().steps.first()
+                .params.value(QStringLiteral("presets")).toStringList();
+        QCOMPARE(savedPresets.count(), 1);
+        QCOMPARE(savedPresets.at(0), QStringLiteral("email"));
+    }
+
+    // An entry list that is whitespace-only THROUGH still refuses honestly —
+    // a redact step with no effective pattern would redact nothing.
+    {
+        PresetEditorDialog editor(nullptr);
+        auto* name = editor.findChild<QLineEdit*>(QStringLiteral("presetEditorName"));
+        QVERIFY(name);
+        name->setText(QStringLiteral("Whitespace Only"));
+        editor.addStepForTest(QStringLiteral("redact"));
+        auto* presets = editor.findChild<QLineEdit*>(QStringLiteral("param_presets"));
+        QVERIFY(presets);
+        presets->setText(QStringLiteral("  ,   "));
+        QVERIFY2(!editor.savePreset(),
+                 "a whitespace-only entry list must still be refused");
+        QVERIFY2(!editor.saveErrorForTest().isEmpty(),
+                 qPrintable(editor.saveErrorForTest()));
     }
 }
 
