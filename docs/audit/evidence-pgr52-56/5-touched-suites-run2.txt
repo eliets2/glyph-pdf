@@ -1,0 +1,77 @@
+Test project D:/pdf/pdf-feat-pgr/build-pgr
+      Start  42: TestSweepW3UxFlows
+ 1/18 Test  #42: TestSweepW3UxFlows ...............   Passed   51.62 sec
+      Start  60: TestBatchMode
+ 2/18 Test  #60: TestBatchMode ....................   Passed    1.34 sec
+      Start  61: TestBatchPresets
+ 3/18 Test  #61: TestBatchPresets .................   Passed    0.45 sec
+      Start  62: TestBatchPresetsP2
+ 4/18 Test  #62: TestBatchPresetsP2 ...............   Passed    3.22 sec
+      Start  63: TestBatchOcrLanguage
+ 5/18 Test  #63: TestBatchOcrLanguage .............   Passed    0.08 sec
+      Start  64: TestBatchOcrSkipText
+ 6/18 Test  #64: TestBatchOcrSkipText .............   Passed    1.46 sec
+      Start  69: TestBatchOpsCoverage
+ 7/18 Test  #69: TestBatchOpsCoverage .............   Passed    0.75 sec
+      Start  84: TestBatchOcrConfidence
+ 8/18 Test  #84: TestBatchOcrConfidence ...........   Passed    0.04 sec
+      Start  86: TestPatternRedact
+ 9/18 Test  #86: TestPatternRedact ................   Passed    0.35 sec
+      Start  97: TestRedactClearMarks
+10/18 Test  #97: TestRedactClearMarks .............   Passed    0.08 sec
+      Start 154: TestRedactMarkAll
+11/18 Test #154: TestRedactMarkAll ................   Passed    0.62 sec
+      Start 171: TestSep13LeadBatchMerge
+12/18 Test #171: TestSep13LeadBatchMerge ..........   Passed    0.91 sec
+      Start 175: R14ProbeSep13Fixes
+13/18 Test #175: R14ProbeSep13Fixes ...............   Passed   25.21 sec
+      Start 178: TestSweepW1PresetAdversary
+14/18 Test #178: TestSweepW1PresetAdversary .......   Passed    0.05 sec
+      Start 183: R14ProbeBatchSkip
+15/18 Test #183: R14ProbeBatchSkip ................***Not Run (Disabled)   0.00 sec
+      Start 184: TestGsdW2Probe
+16/18 Test #184: TestGsdW2Probe ...................   Passed    0.42 sec
+      Start 185: TestPgr37PageSpaceLaw
+17/18 Test #185: TestPgr37PageSpaceLaw ............   Passed    0.21 sec
+      Start 186: TestPgr35BatchCollision
+18/18 Test #186: TestPgr35BatchCollision ..........   Passed    0.15 sec
+
+100% tests passed, 0 tests failed out of 17
+
+Label Time Summary:
+R14-probe     =   0.00 sec*proc (1 test)
+adversary     =   0.05 sec*proc (1 test)
+batch         =   8.44 sec*proc (10 tests)
+confidence    =   0.04 sec*proc (1 test)
+core          =  25.21 sec*proc (1 test)
+gsd           =   0.42 sec*proc (1 test)
+headless      =  86.94 sec*proc (18 tests)
+language      =   0.08 sec*proc (1 test)
+merge         =   0.75 sec*proc (1 test)
+modes         =   5.92 sec*proc (4 tests)
+ocr           =   1.58 sec*proc (3 tests)
+pagespace     =   0.21 sec*proc (1 test)
+patterns      =   0.35 sec*proc (1 test)
+pdfa          =   0.75 sec*proc (1 test)
+pgr35         =   0.15 sec*proc (1 test)
+pgr37         =   0.21 sec*proc (1 test)
+presets       =   3.72 sec*proc (3 tests)
+probe         =   0.42 sec*proc (2 tests)
+qt            =  86.94 sec*proc (18 tests)
+r14review     =  25.21 sec*proc (1 test)
+redact        =   0.75 sec*proc (1 test)
+redaction     =   1.25 sec*proc (4 tests)
+security      =   0.63 sec*proc (3 tests)
+sep13leads    =   0.91 sec*proc (1 test)
+skip-text     =   1.46 sec*proc (1 test)
+sweep-w1      =   0.05 sec*proc (1 test)
+sweep-w3      =  51.62 sec*proc (1 test)
+ui            =  56.63 sec*proc (4 tests)
+unit          =  86.94 sec*proc (17 tests)
+ux-audit      =  51.62 sec*proc (1 test)
+watermark     =   0.75 sec*proc (1 test)
+
+Total Test time (real) =  86.96 sec
+
+The following tests did not run:
+	183 - R14ProbeBatchSkip (Disabled)
