@@ -28,6 +28,10 @@ LaneScheduler::LaneScheduler(int gpuCapacity, int cpuCapacity, QObject* parent)
         gpuWorkerLoop();
         relay->deleteLater();
     }, Qt::QueuedConnection);
+    // V-01 follow-up: do not return to the caller until the worker loop is
+    // inside its first cond-wait — the startup race is then closed by
+    // construction (see the member comment).
+    m_gpuWorkerStarted.acquire();
 }
 
 LaneScheduler::~LaneScheduler() {
@@ -59,6 +63,9 @@ void LaneScheduler::shutdown() {
 }
 
 void LaneScheduler::gpuWorkerLoop() {
+    // V-01 follow-up: publish that the loop is live BEFORE any wait — the
+    // constructor holds its acquire until this fires.
+    m_gpuWorkerStarted.release();
     while (true) {
         GpuTask task;
         {

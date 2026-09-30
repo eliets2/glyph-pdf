@@ -114,6 +114,18 @@ private:
     // Cancellation
     QAtomicInt m_cancelToken{0};
 
+    // V-01 follow-up: the constructor BLOCKS until the GPU worker loop has
+    // actually entered its cond-wait. The loop used to be a queued-event-
+    // loop lambda; a shutdown() arriving before the (possibly starved)
+    // thread ever drained its event queue posted quit() first, the event
+    // loop exited WITHOUT running the worker, and every queued task was left
+    // neither running nor reported — plus submitters parked forever in the
+    // semaphore (the invariant violation this file exists to prevent, seen
+    // live on a 5-lane loaded machine). With the handshake, shutdown() can
+    // only ever race a worker that is ALREADY inside the loop, where the
+    // drain logic below is total.
+    QSemaphore m_gpuWorkerStarted;
+
     // V-01 pin seam (see setGpuSubmitGateForTesting).
     GpuSubmitGateForTesting m_gpuSubmitGateForTesting;
 };

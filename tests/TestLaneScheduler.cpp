@@ -367,7 +367,15 @@ private slots:
                 {Lane::GPU, TaskPriority::Normal, 1, "v01-b"},
                 []() -> int { return 7; });
         });
-        bPastPrecheck.acquire();  // B is committed to the blocking-acquire path
+        // BOUND (a saturated machine can starve the submit thread -- an
+        // unbounded wait here once hung the whole suite): B must commit to
+        // the acquire path within 30s.
+        QElapsedTimer parkWatch; parkWatch.start();
+        bool parked = false;
+        while (!(parked = bPastPrecheck.tryAcquire(1)) && parkWatch.elapsed() < 30000)
+            QThread::msleep(5);
+        QVERIFY2(parked, "B's submit never reached the blocking-acquire path "
+                         "(submit thread starved past the watchdog)");
 
         // shutdown() runs concurrently with B parked in the acquire. It must
         // drain A (still gated) — a watchdog turns a regression hang into a
@@ -381,8 +389,12 @@ private slots:
         shutdownRun.waitForFinished();
         shutdownFinished.storeRelease(1); // B's decision point is now AFTER the worker exited
 
-        // A must always complete normally.
-        QVERIFY(waitForFuture(futureA, 10000));
+        // A must always complete normally (30s -- a starved GPU thread on a
+        // loaded machine is slow, not orphaned; the watchdog separates slow
+        // from NEVER).
+        QVERIFY2(waitForFuture(futureA, 30000),
+                 "task A never finished even though shutdown() drained -- "
+                 "the worker-start race may have eaten it");
         const auto svA = futureA.result();
         QVERIFY2(svA.ok, "task A (already running) must complete");
         QCOMPARE(svA.value, 42);
@@ -390,13 +402,13 @@ private slots:
         // The submit thread always returns (even a refusal path returns the
         // future immediately) — only an ORPHANED task leaves its future
         // unfinished past the watchdog below.
-        QVERIFY2(submitB.isFinished() || waitForFuture(submitB, 10000),
+        QVERIFY2(submitB.isFinished() || waitForFuture(submitB, 30000),
                  "submit() itself hung in the shutdown race");
         QVERIFY(futureB.isValid());
 
         // THE PIN: B ends in exactly one of {completed, reported-refusal} —
         // never orphaned (a future that never finishes = callers hang forever).
-        QVERIFY2(waitForFuture(futureB, 10000),
+        QVERIFY2(waitForFuture(futureB, 30000),
                  "V-01: the submit racing shutdown() was ORPHANED — its future "
                  "never finished (neither ran nor refused; the GPU slot and "
                  "in-flight counter also leaked)");
