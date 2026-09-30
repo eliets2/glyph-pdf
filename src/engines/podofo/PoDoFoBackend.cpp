@@ -5235,6 +5235,14 @@ static ReviewState pdfNameToReviewState(const std::string& name)
     return ReviewState::None;
 }
 
+// PARITY §9.3 P1 row 15: the four markup subtypes whose dictionaries may
+// carry ISO 32000 §12.5.6.10 /QuadPoints (one quad per text line).
+bool isTextMarkupMode(ToolMode mode)
+{
+    return mode == ToolMode::Highlight || mode == ToolMode::Underline
+        || mode == ToolMode::Strikeout || mode == ToolMode::Squiggly;
+}
+
 } // anonymous namespace
 
 // AR-7 D1: helper — apply in-memory AnnotationItem list to any PdfMemDocument.
@@ -5417,6 +5425,34 @@ static void applyAnnotationsToDoc(PoDoFo::PdfMemDocument& doc,
                     verts.Add(uFirst.y());
                 }
                 dict.AddKey("Vertices", verts);
+            } else if (annotType == PoDoFo::PdfAnnotationType::Highlight
+                       || annotType == PoDoFo::PdfAnnotationType::Underline
+                       || annotType == PoDoFo::PdfAnnotationType::StrikeOut
+                       || annotType == PoDoFo::PdfAnnotationType::Squiggly) {
+                // ── PARITY §9.3 P1 row 15: text-anchored markup ────────────
+                // A text selection carries one quad PER LINE (AnnotationItem::
+                // quads, display space, top line first); serialize it as ISO
+                // 32000 §12.5.6.10 /QuadPoints so every reader highlights the
+                // actual glyphs per wrapped line instead of the drag union
+                // rect (which covers blank space and misses line breaks).
+                // Corner order per quad: lower-left, lower-right, upper-right,
+                // upper-left; quads in reading order — the display list is
+                // already top-first, and the page-space law preserves that
+                // order (the top display line maps to the top user y).
+                // Rect-only items keep the legacy serialization exactly (no
+                // QuadPoints key) — free-rect markup is unchanged.
+                if (!anno.quads.isEmpty()) {
+                    PoDoFo::PdfArray qp;
+                    for (const QRectF& quad : anno.quads) {
+                        const QRectF u = gp::PageSpace::viewerToUser(
+                            quad.normalized(), pageGeo);
+                        qp.Add(u.left());   qp.Add(u.y());        // lower-left
+                        qp.Add(u.right());  qp.Add(u.y());        // lower-right
+                        qp.Add(u.right());  qp.Add(u.bottom());   // upper-right
+                        qp.Add(u.left());   qp.Add(u.bottom());   // upper-left
+                    }
+                    dict.AddKey("QuadPoints", qp);
+                }
             }
 
             // ── T1: ISO 32000-1 §12.9 measurement dictionary ────────────────
@@ -5872,6 +5908,41 @@ QList<AnnotationItem> PoDoFoBackend::extractAnnotations(const QString &inputPath
                             const QRectF user(QPointF(qMin(ux0, ux1), qMin(uy0, uy1)),
                                               QPointF(qMax(ux0, ux1), qMax(uy0, uy1)));
                             item.rect = gp::ItemSpace::userToViewer(user, pageGeo);
+                        }
+                    }
+                }
+
+                // ── PARITY §9.3 P1 row 15: /QuadPoints round-trip ────────────
+                // ISO 32000 §12.5.6.10: 8 × n numbers, one quad per text line
+                // (corners lower-left, lower-right, upper-right, upper-left;
+                // quads in reading order). Ours are written in raw user space,
+                // Acrobat's are too — foreign text-anchored markup must load
+                // and render over its lines, not fall back to the /Rect
+                // union. Untrusted input is defensive: a non-multiple-of-8
+                // array or a non-numeric entry degrades to the rect-only
+                // legacy item (quads stays empty), never a crash.
+                if (isTextMarkupMode(item.mode)) {
+                    if (const auto* qp = dict.FindKey("QuadPoints")) {
+                        if (qp->IsArray() && qp->GetArray().size() % 8 == 0) {
+                            const auto& qa = qp->GetArray();
+                            bool allNumeric = true;
+                            for (size_t k = 0; k < qa.size(); ++k)
+                                if (!qa[k].IsNumberOrReal()) { allNumeric = false; break; }
+                            if (allNumeric) {
+                                for (size_t k = 0; k + 7 < qa.size(); k += 8) {
+                                    double xs[4] = { qa[k].GetReal(),     qa[k+2].GetReal(),
+                                                     qa[k+4].GetReal(),   qa[k+6].GetReal() };
+                                    double ys[4] = { qa[k+1].GetReal(),   qa[k+3].GetReal(),
+                                                     qa[k+5].GetReal(),   qa[k+7].GetReal() };
+                                    const QRectF user(
+                                        QPointF(*std::min_element(xs, xs + 4),
+                                                *std::min_element(ys, ys + 4)),
+                                        QPointF(*std::max_element(xs, xs + 4),
+                                                *std::max_element(ys, ys + 4)));
+                                    item.quads.append(
+                                        gp::ItemSpace::userToViewer(user, pageGeo));
+                                }
+                            }
                         }
                     }
                 }

@@ -273,11 +273,13 @@ void TestQuadPointsMarkup::doubleRoundTripIsStable()
                                      { highlightItem(0, twoLineSelection()) }));
     const QList<AnnotationItem> first = backend.extractAnnotations(out1);
     QCOMPARE(first.size(), 1);
-    // AR-4 D2: a backend refuses to mutate a second path while a document is
-    // resident — the chained save takes a fresh backend (TestAnnotationDjot
-    // convention: one instance per document lineage).
-    PoDoFoBackend backend2;
-    QVERIFY(backend2.embedAnnotations(out1, out2, first));
+    // Second generation: the RELOADED items saved again. applyAnnotationsToDoc
+    // is additive (the annots already inside out1 must not be duplicated), so
+    // generation 2 embeds onto a fresh seed — save→reload→save→reload, both
+    // directions, starting from the reloaded model.
+    QString seed2; writeSeedPdf(tmp, "seed2.pdf", seed2);
+    PoDoFoBackend backend2;   // AR-4 D2: one backend instance per lineage
+    QVERIFY(backend2.embedAnnotations(seed2, out2, first));
     const QList<AnnotationItem> second = backend2.extractAnnotations(out2);
     QCOMPARE(second.size(), 1);
 
