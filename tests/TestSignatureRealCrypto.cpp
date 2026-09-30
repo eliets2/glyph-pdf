@@ -32,6 +32,7 @@
 #include <fstream>
 
 #include "engines/SignatureManager.h"
+#include "engines/FormManager.h" // Scorecard #6: place a real /FT /Sig field
 #include "engines/SafeSave.h"
 #include "engines/podofo/PoDoFoBackend.h"
 #include "shell/controllers/SecurityController.h" // R19: the settings seam (readSigningConfig/attainedLevelLabel)
@@ -2192,6 +2193,67 @@ private slots:
         QVERIFY2(leftoverCandidates() == candidatesBefore,
                  "a successful certifyDocument must remove its committed candidate "
                  "from <temp>/glyphpdf-candidates");
+    }
+
+    // -----------------------------------------------------------------------
+    // PARITY-SCORECARD-2026-09-30 §4 #6: a REAL signature field placed by the
+    // Form Builder (FormManager::addSignatureField, /FT /Sig) is signed INTO
+    // by the existing signing path (the engine signs the FIRST unsigned
+    // signature field in document order — no engine-created "Signature N"
+    // field appears), and the existing Validate-All path (validateSignatures)
+    // reads the placed field as a signature field: unsigned before the sign,
+    // integrity-intact after. Fail-before world: the placement was a TEXT box
+    // — the engine then created its own field and the placed name never
+    // received a signature.
+    // -----------------------------------------------------------------------
+    void placedSigFieldIsSignedIntoAndValidates()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        // Prepare the document the Form Builder way: real /FT /Sig placement,
+        // in place through the transactional form-save boundary.
+        const QString placed = tmpCopy(kInputPdf);
+        QVERIFY(QFileInfo::exists(placed));
+        FormManager fm;
+        const QRectF viewerRect(72.0, 72.0, 150.0, 50.0);
+        QVERIFY2(fm.addSignatureField(placed, 0, viewerRect,
+                                      QStringLiteral("sig_placed"), placed),
+                 "addSignatureField must place a real signature field in place");
+
+        // The SignatureInfo path reads it as a signature field BEFORE signing:
+        // present, named, and honestly unsigned (no ByteRange yet).
+        {
+            SignatureManager reader;
+            const QList<SignatureInfo> pre = reader.validateSignatures(placed);
+            bool foundUnsigned = false;
+            for (const SignatureInfo &info : pre) {
+                if (info.fieldName == QStringLiteral("sig_placed")) {
+                    foundUnsigned = true;
+                    QVERIFY2(!info.integrityIntact,
+                             "a freshly placed /Sig field must read as UNSIGNED");
+                }
+            }
+            QVERIFY2(foundUnsigned,
+                     "validateSignatures must list the placed /FT /Sig field");
+        }
+
+        // Sign into it: the engine consumes the FIRST unsigned signature field.
+        const QString signedOut = m_tmpDir.filePath("signed_into_placed.pdf");
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);   // honest offline level
+        QCOMPARE(mgr.signDocument(placed, signedOut, kP12Path, kP12Pass,
+                                  "PlacedFieldPin", ""),
+                 SignOutcome::Success);
+        QVERIFY2(QFileInfo::exists(signedOut), "signed output must exist");
+
+        // Validate-All: exactly ONE approval signature, it lives on the PLACED
+        // field (no engine-created extra field), and its integrity is intact.
+        const QList<SignatureInfo> results = mgr.validateSignatures(signedOut);
+        QCOMPARE(results.size(), 1);
+        QCOMPARE(results.first().fieldName, QStringLiteral("sig_placed"));
+        QVERIFY2(results.first().integrityIntact,
+                 "the signature written into the placed field must validate");
     }
 };
 

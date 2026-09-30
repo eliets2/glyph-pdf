@@ -315,6 +315,16 @@ private:
 
     static bool isFormBuilderMode(ToolMode mode);
 
+public:
+    // Scorecard #6 affordance: the placement rubber-band style per form tool.
+    // Signature placement is visually DISTINCT (dashed deep-green band) from
+    // every text-box-style placement — the drag preview promises a real
+    // /FT /Sig field, not a text field. Empty string = Qt default band.
+    // Pure static so the distinctness is pinnable offscreen (TestFormBuilder).
+    static QString formRubberBandStyleFor(ToolMode mode);
+
+private:
+
     // Render cache (Fix 5)
     struct CachedPage {
         QPixmap pixmap;

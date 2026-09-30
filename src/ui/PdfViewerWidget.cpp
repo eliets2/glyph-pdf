@@ -737,6 +737,18 @@ bool PdfViewerWidget::isFormBuilderMode(ToolMode mode) {
     }
 }
 
+// static — see the header for the affordance contract. Signature placement
+// gets the only non-default band: dashed deep-green, faint green wash —
+// deliberately unlike every text-box-style placement drag on this canvas.
+QString PdfViewerWidget::formRubberBandStyleFor(ToolMode mode) {
+    if (mode == ToolMode::FormAddSignature) {
+        return QStringLiteral(
+            "QRubberBand { border: 2px dashed #0F7B5F; "
+            "background: rgba(15, 123, 95, 46); }");
+    }
+    return QString();
+}
+
 void PdfViewerWidget::deleteSelectedAnnotation()
 {
     // ARC07: annotation deletion is a mutation — the viewer-level read-only
@@ -1173,6 +1185,10 @@ void PdfViewerWidget::mousePressEvent(QMouseEvent *event)
         if (!m_formRubberBand) {
             m_formRubberBand = new QRubberBand(QRubberBand::Rectangle, this);
         }
+        // Scorecard #6: signature placement shows its DISTINCT band (the drag
+        // preview promises a real /FT /Sig field); every other form tool keeps
+        // the default band.
+        m_formRubberBand->setStyleSheet(formRubberBandStyleFor(m_toolMode));
         m_formRubberBand->setGeometry(QRect(m_formRubberBandOrigin, QSize()));
         m_formRubberBand->show();
         m_isPlacingField = true;

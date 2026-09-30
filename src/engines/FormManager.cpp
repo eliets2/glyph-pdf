@@ -1075,6 +1075,65 @@ bool FormManager::addListBox(const QString &pdfFilePath, int pageIndex, const QR
     return ok;
 }
 
+// ── PARITY-SCORECARD-2026-09-30 §4 #6: real digital-signature field ──────────
+// The Form Builder "SIGNATURE" tool used to place a TEXT box (the
+// "Sig uses text box" hard-mapping); this mutator places a REAL /FT /Sig
+// field, modeled on the send-for-signing placement seam
+// (SignatureFieldCreator::createSignatureFields):
+//   * CreateField<PdfSignature> + the raw user /Rect stored verbatim
+//     (W2B-1: PoDoFo's CreateField rect parameter is /Rotate-View-space and
+//     would be transformed again — the same law as every other field here);
+//   * the honest prepared state is UNSIGNED — any placeholder /V (it can sit
+//     on the field dict or the widget dict on other writer versions; a
+//     pre-sign /ByteRange beacon makes every engine consumer classify the
+//     fresh field as ALREADY SIGNED) is dropped, defense-in-depth against
+//     PoDoFo 1.1.0's verified no-/V behavior;
+//   * a spec-basic /SigFieldLock dict (/Type/SigFieldLock /Action/All) —
+//     ISO 32000-1 §12.7.4.5: the fields it names (here: all) lock when the
+//     field is signed. The engine does not consult it, so signing into the
+//     field is unaffected; conforming readers enforce it afterwards;
+//   * SIGNING-PATH WIRING (no new code needed — by construction):
+//     SignatureManager::signDocumentImpl signs the FIRST unsigned signature
+//     field in document order (const-scan, /V-without-ByteRange), so this
+//     placed field is the one the next signing operation fills, and
+//     validateSignatures (the SignatureInfo path) reads it back as a
+//     signature field, unsigned (integrityIntact=false) until signed.
+bool FormManager::addSignatureField(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &fieldName, const QString &outputPath)
+{
+    QString err;
+    const bool ok = runFormSaveTransaction(
+        pdfFilePath, outputPath,
+        [&](PoDoFo::PdfMemDocument& doc) {
+            if (pageIndex < 0 || static_cast<unsigned>(pageIndex) >= doc.GetPages().GetCount())
+                throw SaveAbort{QStringLiteral("invalid page index")};
+            PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIndex);
+            const PoDoFo::Rect pdfRect = fieldRectFromDisplay(rect, page);
+
+            auto& field = page.CreateField<PoDoFo::PdfSignature>(fieldName.toStdString(), pdfRect);
+            setRawFieldRect(field, pdfRect);
+
+            // The honest prepared state is UNSIGNED: drop any placeholder /V
+            // on the field dict and the widget dict (see block comment above).
+            field.GetDictionary().RemoveKey(PoDoFo::PdfName("V"));
+            if (auto* widget = field.GetWidget())
+                widget->GetDictionary().RemoveKey(PoDoFo::PdfName("V"));
+
+            // Spec-basic lock dict (ISO 32000-1 §12.7.4.5): the whole form
+            // locks when this field is signed.
+            PoDoFo::PdfDictionary lock;
+            lock.AddKey(PoDoFo::PdfName("Type"), PoDoFo::PdfName("SigFieldLock"));
+            lock.AddKey(PoDoFo::PdfName("Action"), PoDoFo::PdfName("All"));
+            field.GetDictionary().AddKey(PoDoFo::PdfName("Lock"), lock);
+        },
+        [&](PoDoFo::PdfMemDocument& reopened) {
+            return fieldIsOfType(reopened, fieldName, PoDoFo::PdfFieldType::Signature);
+        },
+        &err);
+    if (!ok) qWarning() << "Error adding signature field:" << err;
+    else qDebug() << "Added signature field" << fieldName << "on page" << pageIndex;
+    return ok;
+}
+
 
 bool FormManager::createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &caption, const QString &action, const QString &outputPath)
 {

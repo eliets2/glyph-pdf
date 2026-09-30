@@ -88,6 +88,17 @@ public:
     virtual bool addListBox(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                              const QString &fieldName, const QStringList &options, bool multiSelect, const QString &outputPath) = 0;
 
+    /// PARITY-SCORECARD-2026-09-30 §4 #6: place a REAL digital-signature field
+    /// (/FT /Sig) — not the legacy text-box stand-in. The field is written
+    /// unsigned (no /V), carries a spec-basic /SigFieldLock dict (/Action /All
+    /// — the form locks when it is signed), and is wired to the existing
+    /// signing path by construction: SignatureManager signs the FIRST unsigned
+    /// signature field in document order, so a placed field is the one the
+    /// next signing operation fills, and the existing SignatureInfo
+    /// (validateSignatures) path reads it back as a signature field.
+    virtual bool addSignatureField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
+                                   const QString &fieldName, const QString &outputPath) = 0;
+
     virtual bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                               const QString &caption, const QString &action, const QString &outputPath) = 0;
 

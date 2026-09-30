@@ -2542,12 +2542,17 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
     add_executable(TestFormBuilder
         tests/TestFormBuilder.cpp
-        src/engines/DocumentSession.cpp
+        # DocumentSession comes from pdfws_engines (transitively via pdfws_ui) —
+        # the old explicit .cpp source here now duplicates its moc symbols.
     )
     target_include_directories(TestFormBuilder PRIVATE src tests)
     target_link_libraries(TestFormBuilder PRIVATE
-        pdfws_engines pdfws_core pdfws_commands podofo::podofo
-        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+        # pdfws_ui: Scorecard #6 pins call FormBuilderMode::toolModeToFieldType
+        # and PdfViewerWidget::formRubberBandStyleFor (both live in pdfws_ui).
+        # Qt6::Pdf + Qt6::PdfWidgets: PdfViewerWidget.h pulls <QPdfDocument>
+        # and <QPdfView> directly.
+        pdfws_ui pdfws_engines pdfws_core pdfws_commands podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
     )
     add_custom_command(TARGET TestFormBuilder POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory

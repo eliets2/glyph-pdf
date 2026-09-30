@@ -33,6 +33,12 @@ public:
                              PdfViewerWidget* canvas,
                              QWidget* parent = nullptr);
 
+    /// Map a FormAddXxx ToolMode to the matching AddFormFieldCommand::FieldType.
+    /// Scorecard #6: FormAddSignature maps to FieldType::Signature (a real
+    /// /FT /Sig field) — NOT the legacy text-box stand-in. Public static so
+    /// the placement contract is pinnable offscreen (TestFormBuilder).
+    static int toolModeToFieldType(ToolMode mode);   // returns -1 if not a form mode
+
 private slots:
     void onFieldButtonToggled(bool checked);
     void onFieldPlacementRequested(int pageIndex, QRectF pdfRect, ToolMode mode);
@@ -51,8 +57,6 @@ private:
     void buildContent(class QVBoxLayout* col);
     void updateNoDocumentState();
     void refreshFieldList();
-    /// Map a FormAddXxx ToolMode to the matching AddFormFieldCommand::FieldType.
-    static int toolModeToFieldType(ToolMode mode);   // returns -1 if not a form mode
     /// Generate a unique field name for the given type on the given page.
     QString uniqueFieldName(ToolMode mode, int pageIndex) const;
 

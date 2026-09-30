@@ -105,6 +105,16 @@ void FormBuilderMode::buildToolbar(QVBoxLayout* col)
         b->setProperty("variant", "ghost");
         b->setCheckable(true);
         b->setAutoExclusive(true);
+        // Scorecard #6 affordance: the SIGNATURE button names what it really
+        // does now — a real /FT /Sig field the signing path fills — and the
+        // placement band it drives is styled distinctly (see
+        // PdfViewerWidget::formRubberBandStyleFor).
+        if (k_fieldModes[i] == ToolMode::FormAddSignature) {
+            b->setToolTip(FormBuilderMode::tr(
+                "Place a real digital-signature field (/FT /Sig). Signing into "
+                "it produces a real, validated signature."));
+            b->setProperty("sigFieldTool", true);
+        }
         if (first) { b->setChecked(true); first = false; }
         b->setProperty("fieldModeIndex", i);
         connect(b, &QToolButton::toggled, this, &FormBuilderMode::onFieldButtonToggled);
@@ -566,7 +576,12 @@ int FormBuilderMode::toolModeToFieldType(ToolMode mode)
         case ToolMode::FormAddListBox:   return static_cast<int>(AddFormFieldCommand::FieldType::ListBox);
         case ToolMode::FormAddDate:      return static_cast<int>(AddFormFieldCommand::FieldType::Date);
         case ToolMode::FormAddNumeric:   return static_cast<int>(AddFormFieldCommand::FieldType::Numeric);
-        case ToolMode::FormAddSignature: return static_cast<int>(AddFormFieldCommand::FieldType::Text); // Sig uses text box
+        // PARITY-SCORECARD-2026-09-30 §4 #6: the SIGNATURE tool places a REAL
+        // digital-signature field (/FT /Sig via FormManager::addSignatureField,
+        // signed by the existing signing path) — the former text-box hard-map
+        // ("Sig uses text box") was the customer-visible parity gap.
+        // Button KEEPS the text-box stand-in (its own parity row, not this one).
+        case ToolMode::FormAddSignature: return static_cast<int>(AddFormFieldCommand::FieldType::Signature);
         case ToolMode::FormAddButton:    return static_cast<int>(AddFormFieldCommand::FieldType::Text); // Button uses text box
         case ToolMode::FormAddCalculated:return static_cast<int>(AddFormFieldCommand::FieldType::Calculated);
         default: return -1;

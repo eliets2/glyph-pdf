@@ -7,7 +7,11 @@
 
 class AddFormFieldCommand : public QUndoCommand {
 public:
-    enum class FieldType { Text, Checkbox, Radio, Dropdown, ListBox, Date, Numeric, Button, Calculated };
+    // PARITY-SCORECARD-2026-09-30 §4 #6: `Signature` places a REAL digital-
+    // signature field (/FT /Sig via IFormManager::addSignatureField) — it is
+    // NOT a text box. Appended at the end: the values travel only as
+    // transient ints (toolModeToFieldType), never persisted.
+    enum class FieldType { Text, Checkbox, Radio, Dropdown, ListBox, Date, Numeric, Button, Calculated, Signature };
 
     AddFormFieldCommand(IFormManager* engine, DocumentSession* doc, FieldType type,
                         int pageIndex, const QRectF& rect, const QString& name, const QStringList& options = {})
@@ -42,6 +46,10 @@ public:
             case FieldType::ListBox: ok = m_engine->addListBox(m_doc->path(), m_page, m_rect, m_name, m_options, true, m_doc->path()); break;
             case FieldType::Date: ok = m_engine->addDateField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
             case FieldType::Numeric: ok = m_engine->addNumericField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
+            // Scorecard #6: a real /FT /Sig field — signed by the existing
+            // signing path (the engine signs the first unsigned signature
+            // field), never a text-box stand-in.
+            case FieldType::Signature: ok = m_engine->addSignatureField(m_doc->path(), m_page, m_rect, m_name, m_doc->path()); break;
             case FieldType::Button: ok = m_engine->createButton(m_doc->path(), m_page, m_rect, m_name, m_options.isEmpty() ? "" : m_options.first(), m_doc->path()); break;
             // Calculated reuses m_options.first() to carry the JS calculation expression (like Button's action).
             case FieldType::Calculated: ok = m_engine->addCalculatedField(m_doc->path(), m_page, m_rect, m_name, m_options.isEmpty() ? "" : m_options.first(), m_doc->path()); break;

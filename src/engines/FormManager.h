@@ -43,6 +43,12 @@ public:
     bool addDropdown(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &fieldName, const QStringList &options, const QString &outputPath) override;
     bool addListBox(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &fieldName, const QStringList &options, bool multiSelect, const QString &outputPath) override;
 
+    /// PARITY-SCORECARD-2026-09-30 §4 #6: real digital-signature field
+    /// (/FT /Sig, unsigned, /SigFieldLock /Action /All). See IFormManager for
+    /// the signing-path wiring contract.
+    bool addSignatureField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
+                           const QString &fieldName, const QString &outputPath) override;
+
     bool createButton(const QString &pdfFilePath, int pageIndex, const QRectF &rect, const QString &caption, const QString &action, const QString &outputPath) override;
     bool addCalculatedField(const QString &pdfFilePath, int pageIndex, const QRectF &rect,
                             const QString &fieldName, const QString &expression,

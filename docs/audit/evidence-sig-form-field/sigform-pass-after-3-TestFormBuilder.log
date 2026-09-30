@@ -1,0 +1,55 @@
+********* Start testing of TestFormBuilder *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormBuilder::initTestCase()
+QDEBUG : TestFormBuilder::testPlaceTextField() Added text field "text_p1_1" on page 0
+QDEBUG : TestFormBuilder::testPlaceTextField() Extracting AcroForm objects from: "C:/Users/User/AppData/Local/Temp/TestFormBuilder-IGSILh/form_test.pdf"
+QDEBUG : TestFormBuilder::testPlaceTextField() Found field: "text_p1_1"
+PASS   : TestFormBuilder::testPlaceTextField()
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added text field "field_1" on page 0
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added checkbox "field_2" on page 0
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added radio button "field_3" on page 0
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added dropdown "field_4" with 2 options on page 0
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added ListBox "field_5" on page 0
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added date field "field_6" on page 0
+QDEBUG : TestFormBuilder::testPlaceAllFieldTypes() Added numeric field "field_7" on page 0
+PASS   : TestFormBuilder::testPlaceAllFieldTypes()
+QDEBUG : TestFormBuilder::testEditFieldProperties() Added text field "edit_test_field" on page 0
+PASS   : TestFormBuilder::testEditFieldProperties()
+QDEBUG : TestFormBuilder::testDeleteField() Added checkbox "chk_delete_test" on page 0
+QDEBUG : TestFormBuilder::testDeleteField() Removed field "chk_delete_test" and saved to "C:/Users/User/AppData/Local/Temp/TestFormBuilder-junDOT/form_test.pdf"
+QWARN  : TestFormBuilder::testDeleteField() DeleteFormFieldCommand::undo: no rect stored for field "chk_delete_test" — cannot restore. Re-add manually.
+QWARN  : TestFormBuilder::testDeleteField() removeFieldByName error: "field not found: chk_delete_test"
+QWARN  : TestFormBuilder::testDeleteField() DeleteFormFieldCommand::redo: removeFieldByName failed for "chk_delete_test"
+PASS   : TestFormBuilder::testDeleteField()
+QDEBUG : TestFormBuilder::testDeleteFieldPersists() Added checkbox "persist_delete_test" on page 0
+QDEBUG : TestFormBuilder::testDeleteFieldPersists() Removed field "persist_delete_test" and saved to "C:/Users/User/AppData/Local/Temp/TestFormBuilder-DhETsx/form_test.pdf"
+QDEBUG : TestFormBuilder::testDeleteFieldPersists() Added text field "persist_delete_test" on page 0
+PASS   : TestFormBuilder::testDeleteFieldPersists()
+QDEBUG : TestFormBuilder::testMoveFieldPersists() Added text field "move_test" on page 0
+QDEBUG : TestFormBuilder::testMoveFieldPersists() Updated rect for field "move_test" on page 0
+PASS   : TestFormBuilder::testMoveFieldPersists()
+QDEBUG : TestFormBuilder::testTabOrderPersists() Added text field "field_c" on page 0
+QDEBUG : TestFormBuilder::testTabOrderPersists() Added text field "field_a" on page 0
+QDEBUG : TestFormBuilder::testTabOrderPersists() Added text field "field_b" on page 0
+QDEBUG : TestFormBuilder::testTabOrderPersists() setTabOrder: wrote widget tab order for 3 field(s); /CO untouched
+PASS   : TestFormBuilder::testTabOrderPersists()
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Added text field "field_1" on page 0
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Added text field "field_2" on page 0
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Added text field "field_3" on page 0
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Removed field "field_3" and saved to "C:/Users/User/AppData/Local/Temp/TestFormBuilder-GlQRyK/form_test.pdf"
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Removed field "field_2" and saved to "C:/Users/User/AppData/Local/Temp/TestFormBuilder-GlQRyK/form_test.pdf"
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Removed field "field_1" and saved to "C:/Users/User/AppData/Local/Temp/TestFormBuilder-GlQRyK/form_test.pdf"
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Added text field "field_1" on page 0
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Added text field "field_2" on page 0
+QDEBUG : TestFormBuilder::testTabOrderClientSide() Added text field "field_3" on page 0
+PASS   : TestFormBuilder::testTabOrderClientSide()
+PASS   : TestFormBuilder::signatureToolMapsToRealSignatureFieldType()
+QDEBUG : TestFormBuilder::signaturePlacementWritesRealSigField() Added signature field "sig_p1_1" on page 0
+QDEBUG : TestFormBuilder::signaturePlacementWritesRealSigField() Added text field "txt_p1_2" on page 0
+PASS   : TestFormBuilder::signaturePlacementWritesRealSigField()
+QDEBUG : TestFormBuilder::signatureFieldRoundTripsAsSignature() Added signature field "sig_roundtrip" on page 0
+PASS   : TestFormBuilder::signatureFieldRoundTripsAsSignature()
+PASS   : TestFormBuilder::signaturePlacementBandIsDistinct()
+PASS   : TestFormBuilder::cleanupTestCase()
+Totals: 14 passed, 0 failed, 0 skipped, 0 blacklisted, 386ms
+********* Finished testing of TestFormBuilder *********
