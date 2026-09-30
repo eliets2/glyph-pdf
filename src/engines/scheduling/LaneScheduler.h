@@ -73,6 +73,21 @@ public:
     // Stop the GPU warm worker cleanly (call before destructor if needed).
     void shutdown();
 
+    // ── V-01 pin seam (AUDIT-VERIFICATION-2026-09-25) — inert in production ────
+    // A submit racing shutdown() could orphan a GPU task forever: the submit
+    // pushed into m_gpuQueue without re-checking m_gpuStopping under the same
+    // mutex the worker drains under. The pin needs the exact interleave forced
+    // deterministically, so submit() invokes these hooks (a) after it passes
+    // the stopping pre-check and before it blocks in the GPU semaphore
+    // acquire, and (b) after the acquire returns and before the enqueue
+    // decision. Both run on the CALLER's thread and must not take m_gpuMutex
+    // (shutdown() does). Never set outside TestLaneScheduler.
+    struct GpuSubmitGateForTesting {
+        std::function<void()> beforeAcquire; // after the stopping pre-check
+        std::function<void()> afterAcquire;  // after the semaphore is held
+    };
+    void setGpuSubmitGateForTesting(GpuSubmitGateForTesting gate);
+
 private:
     // GPU lane internals
     struct GpuTask {
@@ -80,7 +95,9 @@ private:
     };
 
     void gpuWorkerLoop();
-    void enqueueGpu(GpuTask task);
+    // (enqueueGpu was folded into submit's check+push critical section —
+    // V-01: the stopping re-check and the queue push must share ONE mutex
+    // acquisition, which a separate locked helper would break apart.)
 
     QThread* m_gpuThread = nullptr;
     QMutex m_gpuMutex;
@@ -96,6 +113,9 @@ private:
 
     // Cancellation
     QAtomicInt m_cancelToken{0};
+
+    // V-01 pin seam (see setGpuSubmitGateForTesting).
+    GpuSubmitGateForTesting m_gpuSubmitGateForTesting;
 };
 
 // ---------------------------------------------------------------------------
@@ -194,10 +214,46 @@ SchedulerResult<T> LaneScheduler::submit(SchedulerOptions opts,
                     return future;
                 }
             }
+            // V-01 pin seam: the caller has committed to the blocking
+            // acquire past the stopping pre-check — the exact window the
+            // audit names (stopping may now be set concurrently).
+            if (m_gpuSubmitGateForTesting.beforeAcquire)
+                m_gpuSubmitGateForTesting.beforeAcquire();
             m_gpuSemaphore.acquire();  // blocking path only when capacity is full but not stopped
         }
-        m_gpuInFlight.fetchAndAddOrdered(1);
-        enqueueGpu(GpuTask{ std::move(runWork) });
+        // V-01 pin seam: the semaphore is held; the enqueue decision follows.
+        if (m_gpuSubmitGateForTesting.afterAcquire)
+            m_gpuSubmitGateForTesting.afterAcquire();
+        // V-01 fix (AUDIT-VERIFICATION-2026-09-25): re-check m_gpuStopping
+        // under the SAME mutex the GPU worker drains under. The pre-check
+        // above cannot cover the windows where stopping flips after it ran —
+        // a tryAcquire succeeding during the drain (a completing task
+        // released its slot), or this submit waking from the blocking
+        // acquire after the drain already closed. Serialized by the mutex,
+        // exactly one of two outcomes holds: we see stopping and refuse
+        // honestly below (future finishes with Cancelled, semaphore slot
+        // released, in-flight never incremented), or the worker's drain
+        // check happens after our push and sees the task. A task can never
+        // again land in a queue no thread will read.
+        {
+            QMutexLocker lk(&m_gpuMutex);
+            if (m_gpuStopping) {
+                m_gpuSemaphore.release();
+                SchedulerError err;
+                err.code = SchedulerErrorCode::Cancelled;
+                err.message = "Scheduler is shutting down";
+                promise->addResult(ScheduledValue<T>::failure(err));
+                promise->finish();
+                return future;
+            }
+            // Push under the same lock acquisition as the check (inlined
+            // enqueueGpu — its own lock would reopen the gap), and bump the
+            // in-flight counter only for tasks that actually entered the
+            // queue, so every counter/semaphore transition stays balanced.
+            m_gpuInFlight.fetchAndAddOrdered(1);
+            m_gpuQueue.push(GpuTask{ std::move(runWork) });
+            m_gpuCond.wakeOne();
+        }
     } else {
         m_cpuInFlight.fetchAndAddOrdered(1);
         // Use QThreadPool::start on own pool (never global pool).

@@ -2,6 +2,7 @@
 #include <QElapsedTimer>
 #include <QAtomicInt>
 #include <QMutex>
+#include <QSemaphore>
 #include <QSet>
 #include <QtConcurrent>
 #include <QFuture>
@@ -9,6 +10,20 @@
 #include "engines/scheduling/PipelineStage.h"
 
 using namespace gp;
+
+namespace {
+// This Qt build's QFuture has no waitForFinished(timeout) overload — poll
+// isFinished so a hang (the failure mode several pins below hunt) becomes a
+// test failure with a message, never a stalled ctest run.
+template<typename T>
+bool waitForFuture(const QFuture<T>& f, int timeoutMs)
+{
+    QElapsedTimer t; t.start();
+    while (!f.isFinished() && t.elapsed() < timeoutMs)
+        QThread::msleep(5);
+    return f.isFinished();
+}
+}
 
 class TestLaneScheduler : public QObject {
     Q_OBJECT
@@ -298,6 +313,102 @@ private slots:
             }
         }
     }
+
+    // ── V-01 (AUDIT-VERIFICATION-2026-09-25): a submit racing shutdown() ───────
+    // used to orphan a GPU task forever. submit() pushed into m_gpuQueue
+    // without re-checking m_gpuStopping under the mutex the worker drains
+    // under, so a submit whose tryAcquire succeeded during the drain window —
+    // or that was parked in the blocking acquire and proceeded after the
+    // drain — could land in a queue no thread will ever read: the QPromise
+    // never finishes (callers hang), the in-flight counter never decrements,
+    // and the semaphore slot leaks. THE PIN: a submit forced (via the inert
+    // gate seam) to make its enqueue decision strictly AFTER shutdown() has
+    // fully returned must still end in exactly one of {completed,
+    // reported-refusal} — never orphaned.
+    void testSubmitRacingShutdownNeverOrphansGpuTask() {
+        LaneScheduler sched(/*gpuCapacity=*/1, /*cpuCapacity=*/2);
+
+        QAtomicInt releaseA{0};
+        // Task A occupies the ONLY GPU slot and holds it until the test
+        // releases it — this is what parks task B in the blocking acquire.
+        auto futureA = sched.submit<int>(
+            {Lane::GPU, TaskPriority::Normal, 0, "v01-a"},
+            [&releaseA]() -> int {
+                while (releaseA.loadAcquire() == 0) QThread::msleep(5);
+                return 42;
+            });
+
+        // Task B is submitted from ANOTHER thread so the test main thread
+        // can sequence the interleave. The seam: beforeAcquire announces
+        // (deterministically) that B is PAST the stopping pre-check — the
+        // shutdown() below can only start afterwards, so B is guaranteed to
+        // be parked in the blocking acquire while stopping flips true. The
+        // afterAcquire hook holds B's enqueue decision until shutdown() has
+        // FULLY returned — the worker has already exited at that point, the
+        // exact interleaving in which the old code orphaned the task.
+        QSemaphore bPastPrecheck;
+        QAtomicInt shutdownFinished{0};
+        sched.setGpuSubmitGateForTesting({
+            [&bPastPrecheck]() {
+                bPastPrecheck.release();
+                // Released immediately: the pre-check already ran, so the
+                // subsequent blocking acquire is the audit window regardless
+                // of when shutdown() flips the flag.
+            },
+            [&shutdownFinished]() {
+                QElapsedTimer t; t.start();
+                while (shutdownFinished.loadAcquire() == 0 && t.elapsed() < 30000)
+                    QThread::msleep(5);
+            }
+        });
+        SchedulerResult<int> futureB;  // written by the submitting thread
+        auto submitB = QtConcurrent::run([&sched, &futureB]() {
+            futureB = sched.submit<int>(
+                {Lane::GPU, TaskPriority::Normal, 1, "v01-b"},
+                []() -> int { return 7; });
+        });
+        bPastPrecheck.acquire();  // B is committed to the blocking-acquire path
+
+        // shutdown() runs concurrently with B parked in the acquire. It must
+        // drain A (still gated) — a watchdog turns a regression hang into a
+        // test failure instead of stalling ctest.
+        auto shutdownRun = QtConcurrent::run([&sched]() { sched.shutdown(); });
+        releaseA.storeRelease(1);         // A completes; worker drains and exits
+
+        QElapsedTimer t; t.start();
+        while (!shutdownRun.isFinished() && t.elapsed() < 30000) QThread::msleep(5);
+        QVERIFY2(shutdownRun.isFinished(), "shutdown() hung draining task A");
+        shutdownRun.waitForFinished();
+        shutdownFinished.storeRelease(1); // B's decision point is now AFTER the worker exited
+
+        // A must always complete normally.
+        QVERIFY(waitForFuture(futureA, 10000));
+        const auto svA = futureA.result();
+        QVERIFY2(svA.ok, "task A (already running) must complete");
+        QCOMPARE(svA.value, 42);
+
+        // The submit thread always returns (even a refusal path returns the
+        // future immediately) — only an ORPHANED task leaves its future
+        // unfinished past the watchdog below.
+        QVERIFY2(submitB.isFinished() || waitForFuture(submitB, 10000),
+                 "submit() itself hung in the shutdown race");
+        QVERIFY(futureB.isValid());
+
+        // THE PIN: B ends in exactly one of {completed, reported-refusal} —
+        // never orphaned (a future that never finishes = callers hang forever).
+        QVERIFY2(waitForFuture(futureB, 10000),
+                 "V-01: the submit racing shutdown() was ORPHANED — its future "
+                 "never finished (neither ran nor refused; the GPU slot and "
+                 "in-flight counter also leaked)");
+        const auto svB = futureB.result();
+        QVERIFY2(!svB.ok,
+                 "a task that never ran must not report success");
+        QCOMPARE(svB.error.code, SchedulerErrorCode::Cancelled);
+        QVERIFY2(!svB.error.message.isEmpty(),
+                 "the refusal must say why (honest error, not silence)");
+        QCOMPARE(sched.inFlightCount(Lane::GPU), 0);
+    }
+
 };
 
 QTEST_GUILESS_MAIN(TestLaneScheduler)

@@ -34,6 +34,11 @@ LaneScheduler::~LaneScheduler() {
     shutdown();
 }
 
+void LaneScheduler::setGpuSubmitGateForTesting(GpuSubmitGateForTesting gate)
+{
+    m_gpuSubmitGateForTesting = std::move(gate);
+}
+
 void LaneScheduler::shutdown() {
     cancelAll();
     {
@@ -67,12 +72,6 @@ void LaneScheduler::gpuWorkerLoop() {
         }
         task.run();
     }
-}
-
-void LaneScheduler::enqueueGpu(GpuTask task) {
-    QMutexLocker lock(&m_gpuMutex);
-    m_gpuQueue.push(std::move(task));
-    m_gpuCond.wakeOne();
 }
 
 SchedulerResult<int> LaneScheduler::submitInt(SchedulerOptions opts,
