@@ -2,6 +2,8 @@
 #pragma once
 #include <QList>
 #include <QRectF>
+#include <QString>
+#include <QStringList>
 #include <QWidget>
 
 #include "engines/ocr/OcrPipeline.h"       // MergedOcrWord, PageOcrResult
@@ -125,6 +127,27 @@ public:
     /// source-engine provenance is separate from review status).
     static bool isUncertain(const OcrReviewedWord& w);
 
+    // ── B10 (ported from archive/final/feat/ocr-verify-finereader 45f5d13b):
+    // per-language user dictionary ───────────────────────────────────────────
+    /// Path of the user dictionary file for a language code
+    /// (<AppDataLocation>/ocr-dict/<lang>.txt, one word per line).
+    static QString userDictionaryPath(const QString& langCode);
+    /// Load the user dictionary for a language (empty if none yet).
+    static QStringList loadUserDictionary(const QString& langCode);
+    /// Append a word to the user dictionary for a language (duplicate-free,
+    /// case-insensitive). Empty/whitespace words are rejected.
+    static bool addUserDictionaryWord(const QString& langCode, const QString& word);
+
+    /// Load the user dictionary for `langCode` as THE session dictionary that
+    /// gates the uncertain-word walk: a word the user vouched for stops being
+    /// flagged (its engine confidence stays Low for provenance). Called when
+    /// the OCR language selection changes; tests may call it directly.
+    void setUserDictionaryLanguage(const QString& langCode);
+    /// The language code whose dictionary is currently loaded.
+    const QString& userDictionaryLanguage() const { return m_dictLang; }
+    /// The loaded session dictionary (test/inspection seam).
+    const QStringList& sessionUserDictionary() const { return m_sessionDictionary; }
+
 signals:
     void ocrRequested();
     void reviewAccepted();
@@ -192,6 +215,19 @@ private:
     /// Next/prev-uncertain buttons follow the same lifecycle discipline as
     /// Accept/Reject: enabled only in ReviewReady when something is uncertain.
     void updateNavigationButtons();
+
+    // ── B10: dictionary-gated flagging ──────────────────────────────────────
+    /// The word's CURRENT text (reviewed text when present, else original).
+    static QString currentWordText(const OcrReviewedWord& w);
+    /// True when currentWordText is vouched for in the session dictionary
+    /// (case-insensitive) — such words leave the uncertain walk.
+    bool inUserDictionary(const OcrReviewedWord& w) const;
+    /// isUncertain AND not vouched for in the session dictionary. THE flag
+    /// the uncertain-word walk and its buttons classify through.
+    bool isFlaggedUncertain(const OcrReviewedWord& w) const;
+    /// The language code the OCR language selector currently shows
+    /// (the section before " · "); "EN" when unavailable.
+    QString currentDictionaryLanguage() const;
 
     /// Build confidence-colored HTML for the scan pane from current word results.
     /// Bands and colors come from THE one classifier (modes/OcrConfidence.h):
@@ -261,6 +297,11 @@ private:
     // U03: uncertain-word navigation (wrap-around, next/prev).
     QToolButton*    m_btnNextUncertain = nullptr;
     QToolButton*    m_btnPrevUncertain = nullptr;
+
+    // ── B10: per-language user dictionary (session state) ───────────────────
+    QString      m_dictLang = QStringLiteral("EN");
+    QStringList  m_sessionDictionary;   // loaded words for m_dictLang
+    QToolButton* m_btnAddToDict = nullptr;
 };
 
 } // namespace gp

@@ -14,6 +14,9 @@
 
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -23,6 +26,7 @@
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QShortcut>
+#include <QStandardPaths>
 #include <QStackedLayout>
 #include <QSplitter>
 #include <QToolButton>
@@ -57,6 +61,46 @@ static const char* kOcrEmptyStateHtml =
     "Open a scanned PDF and run OCR to review the recognized text and "
     "per-word confidence here.</span>";
 
+// ── B10: per-language user dictionary (ported from archive/final/feat/
+//    ocr-verify-finereader 45f5d13b) ─────────────────────────────────────────
+// One word per line under <AppDataLocation>/ocr-dict/<lang>.txt; consulted
+// before flagging so words the user vouched for stop being flagged across
+// sessions (ABBYY's Add-to-Dictionary batch-productivity lever).
+
+QString OCRMode::userDictionaryPath(const QString &langCode)
+{
+    const QString base = QStandardPaths::writableLocation(
+                             QStandardPaths::AppDataLocation);
+    return QStringLiteral("%1/ocr-dict/%2.txt").arg(base, langCode);
+}
+
+QStringList OCRMode::loadUserDictionary(const QString &langCode)
+{
+    QFile f(userDictionaryPath(langCode));
+    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    QStringList words;
+    while (!f.atEnd()) {
+        const QString line = QString::fromUtf8(f.readLine()).trimmed();
+        if (!line.isEmpty()) words.append(line);
+    }
+    return words;
+}
+
+bool OCRMode::addUserDictionaryWord(const QString &langCode, const QString &word)
+{
+    if (word.trimmed().isEmpty()) return false;
+    const QString path = userDictionaryPath(langCode);
+    QDir().mkpath(QFileInfo(path).absolutePath());
+
+    // Keep the list duplicate-free.
+    QStringList existing = loadUserDictionary(langCode);
+    if (existing.contains(word, Qt::CaseInsensitive)) return true;
+    QFile f(path);
+    if (!f.open(QIODevice::Append | QIODevice::Text)) return false;
+    f.write((word + QLatin1Char('\n')).toUtf8());
+    return true;
+}
+
 // ── helpers ─────────────────────────────────────────────────────────────────
 
 static QFrame* makeStrip(const char* role, int h) {
@@ -88,6 +132,15 @@ OCRMode::OCRMode(QWidget* parent) : QWidget(parent) {
     buildToolbar(col);
     buildInfoStrip(col);
     buildPanes(col);
+
+    // ── B10: the session dictionary follows the OCR language selection. The
+    // combo restores the persisted pick above; load that language's dictionary
+    // now and reload on change, so results delivered later are flagged per
+    // the language they will be recognized with.
+    setUserDictionaryLanguage(currentDictionaryLanguage());
+    connect(m_langCombo, &QComboBox::currentTextChanged, this, [this](const QString& text) {
+        setUserDictionaryLanguage(text.section(QStringLiteral(" · "), 0, 0));
+    });
 }
 
 // ── toolbar ─────────────────────────────────────────────────────────────────
@@ -520,6 +573,23 @@ void OCRMode::buildPanes(QVBoxLayout* col)
         markWordDeleted(m_selectedWordId);
     });
     wordRow->addWidget(m_btnDeleteWord);
+    // ── B10: Add-to-Dictionary — vouch for the selected word in the session
+    // language's user dictionary; it stops being flagged as uncertain
+    // (ABBYY's "Add to Dictionary" batch-productivity lever).
+    m_btnAddToDict = new QToolButton;
+    m_btnAddToDict->setObjectName("ocrBtnAddToDict");
+    m_btnAddToDict->setText(tr("+ Dict"));
+    m_btnAddToDict->setToolTip(tr("Add the selected word to the user dictionary for the "
+                                  "selected OCR language — it will no longer be flagged"));
+    m_btnAddToDict->setAccessibleName(tr("Add word to user dictionary"));
+    m_btnAddToDict->setEnabled(false);
+    connect(m_btnAddToDict, &QToolButton::clicked, this, [this]() {
+        if (m_selectedWordId < 0 || m_selectedWordId >= m_reviewWords.size()) return;
+        const OcrReviewedWord& rec = m_reviewWords[m_selectedWordId];
+        if (addUserDictionaryWord(m_dictLang, currentWordText(rec)))
+            setUserDictionaryLanguage(m_dictLang);   // reload + refresh flagging
+    });
+    wordRow->addWidget(m_btnAddToDict);
     zLay->addLayout(wordRow);
 
     // ── Confidence legend ───────────────────────────────────────────────
@@ -895,9 +965,11 @@ int OCRMode::nextUncertainWord(int fromId, bool forward) const
     // Wrap-around scan over the reviewed records, starting AFTER fromId
     // (forward) or BEFORE it (!forward). fromId itself is only returned when
     // it is the sole uncertain word (full wrap). -1 when none qualifies.
+    // B10: the flag is dictionary-gated — words the user vouched for in the
+    // session user dictionary are not navigated as uncertain.
     const int n = m_reviewWords.size();
     if (n == 0) return -1;
-    auto uncertain = [this](int i) { return isUncertain(m_reviewWords[i]); };
+    auto uncertain = [this](int i) { return isFlaggedUncertain(m_reviewWords[i]); };
 
     if (fromId < 0 || fromId >= n) {
         // No valid starting selection: first/last uncertain in list order.
@@ -964,12 +1036,49 @@ void OCRMode::updateNavigationButtons()
 {
     if (!m_btnNextUncertain || !m_btnPrevUncertain) return;
     bool any = false;
+    // B10: the flag is dictionary-gated (see isFlaggedUncertain).
     for (const auto& rec : m_reviewWords) {
-        if (isUncertain(rec)) { any = true; break; }
+        if (isFlaggedUncertain(rec)) { any = true; break; }
     }
     const bool reviewable = m_reviewState == ReviewState::ReviewReady;
     m_btnNextUncertain->setEnabled(reviewable && any);
     m_btnPrevUncertain->setEnabled(reviewable && any);
+}
+
+// ── B10: dictionary-gated flagging (ported from archive/final/feat/
+//    ocr-verify-finereader 45f5d13b) ─────────────────────────────────────────
+
+QString OCRMode::currentWordText(const OcrReviewedWord& w)
+{
+    return w.reviewedText.trimmed().isEmpty() ? w.originalText : w.reviewedText;
+}
+
+bool OCRMode::inUserDictionary(const OcrReviewedWord& w) const
+{
+    return m_sessionDictionary.contains(currentWordText(w), Qt::CaseInsensitive);
+}
+
+bool OCRMode::isFlaggedUncertain(const OcrReviewedWord& w) const
+{
+    // Uncertain = needs human eyes AND the user has not vouched for the word:
+    // LOW band, not removed, and absent from the session user dictionary.
+    // Dictionary suppression is review-status only — the engine's confidence
+    // estimate (and the overlay colors that render it) stay untouched.
+    return isUncertain(w) && !inUserDictionary(w);
+}
+
+QString OCRMode::currentDictionaryLanguage() const
+{
+    return m_langCombo ? m_langCombo->currentText().section(QStringLiteral(" · "), 0, 0)
+                       : QStringLiteral("EN");
+}
+
+void OCRMode::setUserDictionaryLanguage(const QString& langCode)
+{
+    m_dictLang = langCode;
+    m_sessionDictionary = loadUserDictionary(langCode);
+    // Suppression changes which words are flagged — refresh the walk state.
+    updateNavigationButtons();
 }
 
 // ── R08: word-based review (reviewed words are authoritative) ────────────────
@@ -1054,6 +1163,13 @@ void OCRMode::updateWordInspector()
                                   : QString());
     }
     if (m_btnDeleteWord) m_btnDeleteWord->setEnabled(valid && reviewable);
+    // B10: Add-to-Dictionary follows the same lifecycle + validity discipline;
+    // a removed word (no text) has nothing to vouch for.
+    if (m_btnAddToDict) {
+        const bool hasText = valid && !m_reviewWords[m_selectedWordId].reviewedText.trimmed().isEmpty()
+                                       && !m_reviewWords[m_selectedWordId].originalText.trimmed().isEmpty();
+        m_btnAddToDict->setEnabled(valid && reviewable && hasText);
+    }
     // U03: the magnifier shows the selected word's source crop; no selection
     // → cleared placeholder (the zoom header drops back to "ZOOM").
     if (m_magnifier && !valid) m_magnifier->clearSelection();
