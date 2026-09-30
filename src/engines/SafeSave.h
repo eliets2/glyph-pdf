@@ -28,6 +28,11 @@ namespace SafeSave {
 // file exclusively. Returns false with a user-presentable `err` on failure.
 // `suffix` selects the candidate extension (default ".pdf"; the encrypted
 // package writer reserves ".zip" — WP-R04).
+// M-4 (AUDIT-SECURITY-2026-09-25, CWE-377): the staging dir
+// (<temp>/glyphpdf-candidates) and every candidate file are owner-only
+// (0700/0600, POSIX-enforced and verified — a hardening that does not stick
+// fails closed). runExternalWriterCommit re-hardens the candidate after the
+// external tool (re)creates it under its own umask.
 bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix = QStringLiteral(".pdf"));
 
 // ── WP-R04: external-writer transaction (unique candidate → tool → validate →

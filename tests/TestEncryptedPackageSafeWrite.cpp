@@ -129,6 +129,69 @@ private slots:
     }
 
     // A tool that cannot start must leave the previous package byte-identical.
+    // ── M-4 (AUDIT-SECURITY-2026-09-25, CWE-377): candidates staged in the ────
+    // shared system-temp root must not be readable by other local users. The
+    // staging dir must be owner-only (0700), the reservation owner-only
+    // (0600), and — the window the audit names — the candidate an EXTERNAL
+    // tool recreates (our 0600 reservation is dropped so appending writers
+    // can start fresh) must be re-hardened to 0600 BEFORE validation/commit.
+    // POSIX-only bit assertions (Windows %TEMP% is per-user-ACL confined and
+    // QFile exposes no richer permission model there); the structural
+    // assertions below run everywhere.
+    void candidateStagingIsOwnerOnly() {
+        // Part 1 — the staging dir and the reservation.
+        QString candidate, err;
+        QVERIFY2(gp::SafeSave::makeUniqueCandidate(&candidate, &err),
+                 qPrintable(err));
+        QVERIFY2(QFileInfo(candidate).absolutePath() == candidatesDir(),
+                 qPrintable(QStringLiteral("layout unchanged: %1").arg(candidate)));
+        QVERIFY(QFileInfo(candidate).exists());
+        const QString unique1 = candidate;
+        QString candidate2, err2;
+        QVERIFY(gp::SafeSave::makeUniqueCandidate(&candidate2, &err2));
+        QVERIFY2(unique1 != candidate2, "candidates are unique");
+        QFile::remove(candidate2);
+#ifdef Q_OS_UNIX
+        {
+            const auto perms = QFileInfo(candidate).permissions();
+            QVERIFY2(!(perms & (QFile::ReadGroup | QFile::WriteGroup |
+                                QFile::ReadOther | QFile::WriteOther)),
+                     "reserved candidate must not be group/other readable");
+            const auto dirPerms = QFileInfo(candidatesDir()).permissions();
+            QVERIFY2(!(dirPerms & (QFile::ReadGroup | QFile::WriteGroup |
+                                   QFile::ExeGroup | QFile::ReadOther |
+                                   QFile::WriteOther | QFile::ExeOther)),
+                     "staging dir must not be group/other traversable");
+        }
+#endif
+        QFile::remove(candidate);
+
+        // Part 2 — the external-tool window, observed through the validator
+        // (it runs while the tool-produced candidate still exists).
+        const QString dest = m_work.filePath(QStringLiteral("m4-dest.pkg"));
+        plantSentinel(dest);
+        bool sawCandidate = false;
+        const gp::SafeSave::ExternalWriteValidateFn validate =
+            [&sawCandidate](const QString& path) -> QString {
+                sawCandidate = true;
+#ifdef Q_OS_UNIX
+                const auto p = QFileInfo(path).permissions();
+                if (p & (QFile::ReadGroup | QFile::WriteGroup |
+                         QFile::ReadOther | QFile::WriteOther))
+                    return QStringLiteral("M-4: the tool-produced candidate is "
+                                          "group/other readable");
+#endif
+                return {};
+            };
+        const ExternalWriteResult r = runExternalWriterCommit(
+            QCoreApplication::applicationFilePath(),
+            fakeWriterArgs(QStringLiteral("ok")), dest, QStringLiteral(".pkg"),
+            60000, {}, validate);
+        QVERIFY2(r.ok, qPrintable(r.error));
+        QVERIFY(sawCandidate);
+        QCOMPARE(sha256OfFile(dest), sha256OfBytes(fakeWriterBytes()));
+    }
+
     void launchFailurePreservesExistingPackage() {
         const QString dest = destPath();
         const QByteArray before = plantSentinel(dest);

@@ -13,6 +13,51 @@ namespace gp {
 namespace SafeSave {
 
 namespace {
+// ── M-4 (AUDIT-SECURITY-2026-09-25, CWE-377): owner-only candidate staging ───
+// The candidates directory lives in the SHARED system-temp root (deliberately
+// outside TempFileManager's per-instance session dir: candidates are
+// cross-process-visible on purpose, e.g. killed-run debris scans). On
+// multi-user POSIX systems mkpath's default (0755, umask-dependent) let any
+// local user read the in-flight candidate — the full document bytes — while
+// the owning operation ran. The dir is hardened to 0700 and every candidate
+// file to 0600. Windows needs no bit work: %TEMP% carries per-user ACLs and
+// QFile::setPermissions is a read-only-attribute no-op there, so it is
+// attempted but never relied on. POSIX verification is exact: a hardening
+// that does not stick fails closed (no candidate is staged at all).
+constexpr QFile::Permissions kOwnerOnlyFile = QFile::ReadOwner | QFile::WriteOwner;
+constexpr QFile::Permissions kOwnerOnlyDir  = QFile::ReadOwner | QFile::WriteOwner
+                                            | QFile::ExeOwner;
+constexpr QFile::Permissions kGroupOtherFile = QFile::ReadGroup | QFile::WriteGroup
+                                              | QFile::ReadOther | QFile::WriteOther;
+constexpr QFile::Permissions kGroupOtherDir  = kGroupOtherFile | QFile::ExeGroup
+                                              | QFile::ExeOther;
+
+bool hardenDirOwnerOnly(const QString& path)
+{
+    QDir d(path);
+    if (!d.exists() && !QDir().mkpath(path)) return false;
+#ifdef Q_OS_UNIX
+    if (!QFile::setPermissions(path, kOwnerOnlyDir)) return false;
+    const QFile::Permissions now = QFile::permissions(path);
+    return (now & kOwnerOnlyDir) == kOwnerOnlyDir && (now & kGroupOtherDir) == 0;
+#else
+    QFile::setPermissions(path, kOwnerOnlyDir);  // best-effort on Windows ACLs
+    return true;
+#endif
+}
+
+bool hardenFileOwnerOnly(const QString& path)
+{
+#ifdef Q_OS_UNIX
+    if (!QFile::setPermissions(path, kOwnerOnlyFile)) return false;
+    const QFile::Permissions now = QFile::permissions(path);
+    return (now & kOwnerOnlyFile) == kOwnerOnlyFile && (now & kGroupOtherFile) == 0;
+#else
+    QFile::setPermissions(path, kOwnerOnlyFile);  // best-effort on Windows ACLs
+    return true;
+#endif
+}
+
 // Deterministic test seam (see setCommitFaultForTesting). Mirrors the
 // FormManager SaveFault injection point: the failure fires AFTER the bounded
 // copy, before QSaveFile::commit(), so the cancelWriting path is exercised.
@@ -76,7 +121,16 @@ bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix)
     // the shared temp root, so tests can assert "nothing left behind" without
     // cross-process debris (killed runs, concurrent lanes) polluting the scan.
     QDir candidateDir(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"));
-    if (!candidateDir.exists()) QDir().mkpath(candidateDir.absolutePath());
+    // M-4 (CWE-377): owner-only BEFORE anything is staged — a world-
+    // traversable staging dir publishes every in-flight document to all
+    // local users on POSIX. Fail closed: no private staging, no candidate.
+    if (!hardenDirOwnerOnly(candidateDir.absolutePath())) {
+        if (err) *err = QStringLiteral("could not secure the candidate staging "
+                                       "directory %1 to owner-only access — "
+                                       "refusing to stage a document there")
+                            .arg(candidateDir.absolutePath());
+        return false;
+    }
     QTemporaryFile tmp(candidateDir.absoluteFilePath(QStringLiteral("glyphpdf-XXXXXX") + suffix));
     tmp.setAutoRemove(false);
     if (!tmp.open()) {
@@ -85,6 +139,17 @@ bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix)
     }
     *out = tmp.fileName();
     tmp.close();
+    // M-4: pin the reservation to 0600 explicitly (QTemporaryFile already
+    // creates owner-only on POSIX; the pin survives default changes and
+    // documents the invariant). Fail closed as well.
+    if (!hardenFileOwnerOnly(*out)) {
+        QFile::remove(*out);
+        if (err) *err = QStringLiteral("could not restrict the candidate %1 to "
+                                       "owner-only access — refusing to stage "
+                                       "a document there").arg(*out);
+        out->clear();
+        return false;
+    }
     return true;
 }
 
@@ -185,6 +250,18 @@ ExternalWriteResult runExternalWriterCommit(
     if (!candidateInfo.exists() || candidateInfo.size() <= 0) {
         r.stage = ExternalWriteResult::Stage::ValidateCandidate;
         r.error = QStringLiteral("the external tool did not produce a readable output file");
+        QFile::remove(candidate);
+        return r;
+    }
+
+    // M-4 (CWE-377): the tool recreated the candidate after we dropped our
+    // 0600 reservation, so on POSIX its own umask (typically 022) left the
+    // document bytes 0644 in the staging dir for the whole validate+commit
+    // window. Re-harden BEFORE anything reads it.
+    if (!hardenFileOwnerOnly(candidate)) {
+        r.stage = ExternalWriteResult::Stage::ValidateCandidate;
+        r.error = QStringLiteral("could not restrict the external tool's "
+                                 "candidate to owner-only access");
         QFile::remove(candidate);
         return r;
     }
