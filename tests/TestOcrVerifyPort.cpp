@@ -13,16 +13,21 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
+#include <QPlainTextEdit>
 #include <QToolButton>
 
 #include "modes/OCRMode.h"
 #include "modes/OcrConfidence.h"
 #include "modes/OcrReviewSession.h"
+#include "ui/OcrScanCanvas.h"
 
 using ::MergedOcrWord;
 using gp::OCRMode;
 using gp::OcrReviewedWord;
 using gp::OcrReviewSession;
+using gp::OcrScanCanvas;
 
 namespace {
 
@@ -378,6 +383,52 @@ private slots:
         // Reject clears it too.
         panel.onRejectResults();
         QVERIFY(!panel.isPageVerified());
+    }
+
+    // ── P5 (B14): Ctrl+Tab / Ctrl+Shift+Tab pane focus cycling ─────────────
+
+    // Cycling walks the pane set in a fixed order (page list, scan canvas,
+    // rich-text fallback, text preview, word inspector), skipping invisible
+    // / no-focus widgets; forward and backward are exact inverses.
+    void ctrlTabCyclesPaneFocus()
+    {
+        OCRMode panel;
+        panel.show();
+        panel.setReviewSession(makeSession(makeWords()));   // canvas is the visible scan pane
+
+        QListWidget* pageList = panel.findChild<QListWidget*>(QStringLiteral("ocrPageList"));
+        OcrScanCanvas* canvas = panel.findChild<OcrScanCanvas*>(QStringLiteral("ocrScanCanvas"));
+        QPlainTextEdit* textEdit = panel.findChild<QPlainTextEdit*>(QStringLiteral("ocrTextEdit"));
+        QLineEdit* wordEdit = panel.findChild<QLineEdit*>(QStringLiteral("ocrWordEdit"));
+        QVERIFY(pageList && canvas && textEdit && wordEdit);
+
+        // A word is selected: the word inspector is enabled and focusable.
+        panel.selectWord(0);
+
+        // order: pageList → canvas → (label skipped: NoFocus) → textEdit → wordEdit
+        textEdit->setFocus();
+        panel.cyclePaneFocus(+1);
+        QCOMPARE(panel.focusWidget(), static_cast<QWidget*>(wordEdit));
+
+        panel.cyclePaneFocus(+1);
+        QCOMPARE(panel.focusWidget(), static_cast<QWidget*>(pageList));   // wrap
+
+        panel.cyclePaneFocus(-1);
+        QCOMPARE(panel.focusWidget(), static_cast<QWidget*>(wordEdit));
+
+        panel.cyclePaneFocus(-1);
+        QCOMPARE(panel.focusWidget(), static_cast<QWidget*>(textEdit));
+
+        // The scan pane is skipped: OcrScanCanvas (plain QWidget) and the
+        // rich-text QLabel both default to NoFocus — the canvas is mouse-
+        // driven, the keyboard ring is page list → text → inspector.
+        panel.cyclePaneFocus(-1);
+        QCOMPARE(panel.focusWidget(), static_cast<QWidget*>(pageList));
+
+        // From the page list, backward wraps to the word inspector — the
+        // cycle is a ring, not a line.
+        panel.cyclePaneFocus(-1);
+        QCOMPARE(panel.focusWidget(), static_cast<QWidget*>(wordEdit));
     }
 
 protected:

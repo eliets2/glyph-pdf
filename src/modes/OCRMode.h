@@ -188,6 +188,14 @@ public:
     void setPageVerified(bool verified);
     bool isPageVerified() const { return m_pageVerified; }
 
+    // ── B14 (ported from archive/final/feat/ocr-verify-finereader e5e245da):
+    // keyboard pane focus cycling ────────────────────────────────────────────
+    /// Move keyboard focus to the next (+1) / previous (-1) pane in the fixed
+    /// order page list → scan pane → text preview → word inspector, skipping
+    /// invisible / no-focus widgets; wraps around (a ring, not a line). The
+    /// Ctrl+Tab / Ctrl+Shift+Tab shortcuts land here.
+    void cyclePaneFocus(int direction);
+
 signals:
     void ocrRequested();
     void reviewAccepted();

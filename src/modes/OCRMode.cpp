@@ -417,6 +417,14 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
             setPageVerified(!m_pageVerified);
     });
 
+    // ── B14: Ctrl+Tab / Ctrl+Shift+Tab — cycle focus next/previous pane.
+    // ABBYY's proofing flow is keyboard-first; the cycle lands in the public
+    // cyclePaneFocus seam so hosts and tests can drive it directly.
+    auto* ctrlTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Tab), this);
+    connect(ctrlTab, &QShortcut::activated, this, [this]() { cyclePaneFocus(+1); });
+    auto* ctrlShiftTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab), this);
+    connect(ctrlShiftTab, &QShortcut::activated, this, [this]() { cyclePaneFocus(-1); });
+
     // ── U03: uncertain-word navigation ──────────────────────────────────────
     // ABBYY-style verify loop: jump between the words that still need human
     // eyes (LOW confidence, not removed). The walk is a wrap-around iterator
@@ -1586,6 +1594,32 @@ void OCRMode::setPageVerified(bool verified)
     if (m_btnPageVerified && m_btnPageVerified->isChecked() != verified) {
         QSignalBlocker block(m_btnPageVerified);
         m_btnPageVerified->setChecked(verified);
+    }
+}
+
+// ── B14: keyboard pane focus cycling (ported from archive/final/feat/
+//    ocr-verify-finereader e5e245da) ──────────────────────────────────────────
+
+void OCRMode::cyclePaneFocus(int direction)
+{
+    // The fixed pane ring: page list → scan pane (the visible stack child is
+    // the one that can take focus) → text preview → word inspector. Widgets
+    // that are hidden or refuse focus are skipped; the cycle wraps.
+    const QList<QWidget*> order = { m_pageList, m_scanCanvas,
+                                    m_scanContentLabel, m_textEdit, m_wordEdit };
+    QWidget* current = focusWidget();
+    int idx = order.indexOf(current);
+    if (idx < 0) idx = (direction > 0) ? -1 : 0;
+    for (int step = 0; step < order.size(); ++step) {
+        idx = (idx + direction + order.size()) % order.size();
+        QWidget* w = order.at(idx);
+        // A disabled widget silently ignores setFocus (PGR-10 lifecycle
+        // discipline disables the inspector outside review / with no
+        // selection) — it must not stall the cycle.
+        if (w && w->isVisible() && w->isEnabled() && w->focusPolicy() != Qt::NoFocus) {
+            w->setFocus(Qt::ShortcutFocusReason);
+            return;
+        }
     }
 }
 
