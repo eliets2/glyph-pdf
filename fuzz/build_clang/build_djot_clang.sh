@@ -106,7 +106,7 @@ echo "[3] build + link the fuzzer"
 # acceptance-dispatch chain: 36647764910 private archive, 36648744086 OpenSSL
 # EVP, 36649751719 chromium FaxModule + libxml2 XMP). Fallback: manual group.
 if [ -f "$PODOFO_DIR/lib/pkgconfig/libpodofo.pc" ]; then
-  PODOFO_LIBS="$(PKG_CONFIG_PATH="$PODOFO_DIR/lib/pkgconfig:$PKG_CONFIG_PATH" pkg-config --static --libs libpodofo)"
+  PODOFO_LIBS="$(PKG_CONFIG_PATH="$PODOFO_DIR/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" pkg-config --static --libs libpodofo)"
 else
   PODOFO_LIBS="-L$PODOFO_DIR/lib"
   if [ -f "$PODOFO_DIR/lib/libpodofo_private.a" ]; then
