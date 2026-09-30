@@ -153,6 +153,15 @@ public:
                          const DocumentPermissions& perms);
     bool removeEncryption(const QString &ownerPassword);
     bool sanitizeDocument(const QString &outputPath);
+    // Selective sanitize (PARITY-SCORECARD-2026-09-30 §4 #4, July rows 72-73).
+    // sanitizeClassify() and the two-argument sanitizeDocument() share ONE
+    // traversal (sanitizeWalk): classify counts exactly what the removal pass
+    // removes, so the pre-commit summary and the proof-carrying result can
+    // never disagree. The one-argument form is exactly "all categories" — the
+    // legacy all-or-nothing behavior stays the default.
+    SanitizePlan sanitizeClassify();
+    bool sanitizeDocument(const QString &outputPath, SanitizeCategories selected,
+                          SanitizePlan *removedOut);
 
     // Image operations. N1: every edit addresses a PLACEMENT —
     // (pageIndex, xobjectName, occurrence), the occurrence being the 0-based

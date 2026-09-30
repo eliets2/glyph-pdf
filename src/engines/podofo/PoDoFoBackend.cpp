@@ -3684,14 +3684,154 @@ bool PoDoFoBackend::removeEncryption(const QString &ownerPassword) {
     }
 }
 
-// §9.13 P0 (reuse): the full hidden-data scrub shared by Sanitize Document
-// and the Compress flow's "strip metadata" option. Operates in place on the
-// document; saving is the caller's job.
-static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
+// §9.13 P0 (reuse) + PARITY-SCORECARD-2026-09-30 §4 #4 (July rows 72-73):
+// the full hidden-data scrub shared by Sanitize Document and the Compress
+// flow's "strip metadata" option — now ONE traversal with two modes:
+//
+//   classify  (mutate=false): counts, per category, exactly what the removal
+//             pass would remove. Touches nothing.
+//   remove    (mutate=true):  performs the same walk and removes every item
+//             it counts, for the categories in `selected`.
+//
+// Because the pre-commit summary and the removal run this same code, the
+// summary can never describe different work than the removal performs. The
+// trailer /ID refresh is not a category (it is not user content — it is the
+// identity randomization that always accompanies a sanitize save) and runs
+// only in the removal pass.
+
+namespace {
+
+// Name-tree scan: /Names arrays hold [key, value] pairs; /Kids trees recurse.
+// Depth- and label-capped against crafted trees.
+struct SanitizeNameTreeScan {
+    int count = 0;
+    QStringList labels;
+};
+
+SanitizeNameTreeScan sanitizeScanNameTree(PoDoFo::PdfMemDocument &doc,
+                                          PoDoFo::PdfObject *node, int depth)
+{
+    SanitizeNameTreeScan scan;
+    constexpr int kMaxNameTreeDepth = 8;
+    constexpr int kMaxLabels = 8;
+    auto countPairs = [&scan](const PoDoFo::PdfArray &arr) {
+        for (unsigned i = 0; i + 1 < arr.GetSize(); i += 2) {
+            ++scan.count;
+            if (scan.labels.size() < kMaxLabels) {
+                scan.labels << (arr[i].IsString()
+                    ? QString::fromUtf8(arr[i].GetString().GetString().data(),
+                                        qsizetype(arr[i].GetString().GetString().size()))
+                    : QStringLiteral("(unnamed)"));
+            }
+        }
+    };
+    if (!node || depth > kMaxNameTreeDepth) return scan;
+    if (node->IsReference())
+        node = &doc.GetObjects().MustGetObject(node->GetReference());
+    if (!node) return scan;
+    // The tree root may be a direct [key, value] array or a dict carrying it
+    // under /Names (with an optional /Kids fan-out).
+    if (node->IsArray()) {
+        countPairs(node->GetArray());
+        return scan;
+    }
+    if (!node->IsDictionary()) return scan;
+    auto &dict = node->GetDictionary();
+    if (auto *names = dict.FindKey(PoDoFo::PdfName("Names")); names != nullptr
+        && names->IsArray()) {
+        countPairs(names->GetArray());
+    }
+    if (auto *kids = dict.FindKey(PoDoFo::PdfName("Kids")); kids != nullptr
+        && kids->IsArray()) {
+        for (auto &kid : kids->GetArray()) {
+            SanitizeNameTreeScan sub = sanitizeScanNameTree(doc, &kid, depth + 1);
+            scan.count += sub.count;
+            for (const auto &label : sub.labels) {
+                if (scan.labels.size() >= kMaxLabels) break;
+                scan.labels << label;
+            }
+        }
+    }
+    return scan;
+}
+
+// Top-level bookmark chain scan (/Outlines /First -> /Next …), cycle-capped.
+struct SanitizeOutlineScan {
+    int count = 0;
+    QStringList titles;
+};
+
+SanitizeOutlineScan sanitizeScanOutline(PoDoFo::PdfMemDocument &doc,
+                                        PoDoFo::PdfObject *root)
+{
+    SanitizeOutlineScan scan;
+    constexpr int kMaxOutlineItems = 4096;
+    constexpr int kMaxLabels = 8;
+    if (!root) return scan;
+    if (root->IsReference())
+        root = &doc.GetObjects().MustGetObject(root->GetReference());
+    if (!root || !root->IsDictionary()) return scan;
+    PoDoFo::PdfObject *cur = root->GetDictionary().FindKey(PoDoFo::PdfName("First"));
+    while (cur != nullptr && scan.count < kMaxOutlineItems) {
+        if (cur->IsReference())
+            cur = &doc.GetObjects().MustGetObject(cur->GetReference());
+        if (!cur || !cur->IsDictionary()) break;
+        if (scan.titles.size() < kMaxLabels) {
+            auto *t = cur->GetDictionary().FindKey(PoDoFo::PdfName("Title"));
+            scan.titles << (t != nullptr && t->IsString()
+                ? QString::fromUtf8(t->GetString().GetString().data(),
+                                    qsizetype(t->GetString().GetString().size()))
+                : QStringLiteral("(untitled)"));
+        }
+        ++scan.count;
+        cur = cur->GetDictionary().FindKey(PoDoFo::PdfName("Next"));
+    }
+    return scan;
+}
+
+} // namespace
+
+static SanitizePlan sanitizeWalk(PoDoFo::PdfMemDocument &doc,
+                                 const SanitizeCategories &selected,
+                                 bool mutate)
 {
     using namespace PoDoFo;
 
-    auto& trailer = doc.GetTrailer();
+    SanitizePlan plan;
+    // `selected` drives BOTH halves: which categories the removal touches
+    // (mutate) and which the plan reports. Classification always runs with
+    // every category selected, so the same gate serves both modes.
+    auto wants = [&selected](SanitizeCategory c) {
+        return selected.testFlag(c);
+    };
+    auto record = [&plan, &selected](SanitizeCategory c, int count, const QStringList &items) {
+        if (count > 0 && selected.testFlag(c)) {
+            SanitizeCategoryPlan p;
+            p.category = c;
+            p.count = count;
+            p.items = items;
+            plan.categories.append(p);
+        }
+    };
+
+    // Per-category accumulators (recorded once at the end, walk order).
+    int metaCount = 0;    QStringList metaItems;
+    int attachCount = 0;  QStringList attachItems;
+    int annotCount = 0;   QStringList annotItems;
+    int formCount = 0;    QStringList formItems;
+    int jsCount = 0;      QStringList jsItems;
+    int layerCount = 0;   QStringList layerItems;
+    int bookmarkCount = 0; QStringList bookmarkItems;
+    int privCount = 0;    QStringList privItems;
+    int structCount = 0;  QStringList structItems;
+    auto cap = [](QStringList &items, const QString &label) {
+        if (items.size() < 8) items << label;
+    };
+
+    auto &trailer = doc.GetTrailer();
+    auto &catalog = doc.GetCatalog();
+
+    // ── Metadata ──
     // E-2 (soak 2026-09-20, AssertMutable AV): the document caches a PdfInfo
     // wrapper over the Info object for the whole lifetime of the load
     // (PdfDocument::SetTrailer -> m_Info). Removing the /Info key orphans the
@@ -3710,24 +3850,42 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         infoObj != nullptr && infoObj->IsDictionary()
         // aliasing guard: a crafted file may point /Info at the /Root (or
         // another structural) object — never scrub the catalog itself
-        && infoObj != &doc.GetCatalog().GetObject()) {
-        infoObj->GetDictionary().Clear();
+        && infoObj != &catalog.GetObject()) {
+        for (const auto &keyVal : infoObj->GetDictionary().GetIndirectIterator()) {
+            ++metaCount;
+            cap(metaItems, QString::fromUtf8(keyVal.first.GetString()));
+        }
+        if (mutate && wants(SanitizeCategory::Metadata))
+            infoObj->GetDictionary().Clear();
+    }
+    if (catalog.GetDictionary().HasKey(PdfName("Metadata"))) {
+        ++metaCount;
+        cap(metaItems, QStringLiteral("XMP /Metadata (catalog)"));
+        if (mutate && wants(SanitizeCategory::Metadata))
+            catalog.GetDictionary().RemoveKey(PdfName("Metadata"));
     }
 
-    auto& catalog = doc.GetCatalog();
-    if (catalog.GetDictionary().HasKey(PdfName("Metadata"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("Metadata"));
-    }
+    // ── Private application data (catalog level) ──
     if (catalog.GetDictionary().HasKey(PdfName("PieceInfo"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("PieceInfo"));
+        ++privCount;
+        cap(privItems, QStringLiteral("catalog /PieceInfo"));
+        if (mutate && wants(SanitizeCategory::PrivateData))
+            catalog.GetDictionary().RemoveKey(PdfName("PieceInfo"));
     }
     if (catalog.GetDictionary().HasKey(PdfName("MarkInfo"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("MarkInfo"));
+        ++privCount;
+        cap(privItems, QStringLiteral("catalog /MarkInfo"));
+        if (mutate && wants(SanitizeCategory::PrivateData))
+            catalog.GetDictionary().RemoveKey(PdfName("MarkInfo"));
     }
     if (catalog.GetDictionary().HasKey(PdfName("OutputIntents"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("OutputIntents"));
+        ++privCount;
+        cap(privItems, QStringLiteral("catalog /OutputIntents"));
+        if (mutate && wants(SanitizeCategory::PrivateData))
+            catalog.GetDictionary().RemoveKey(PdfName("OutputIntents"));
     }
 
+    // ── /Names tree: EmbeddedFiles -> Attachments, JavaScript -> actions ──
     if (catalog.GetDictionary().HasKey(PdfName("Names"))) {
         auto* namesObj = catalog.GetDictionary().FindKey(PdfName("Names"));
         if (namesObj && namesObj->IsReference()) {
@@ -3736,23 +3894,42 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         if (namesObj && namesObj->IsDictionary()) {
             auto& namesDict = namesObj->GetDictionary();
             if (namesDict.HasKey(PdfName("EmbeddedFiles"))) {
-                namesDict.RemoveKey(PdfName("EmbeddedFiles"));
+                SanitizeNameTreeScan scan = sanitizeScanNameTree(
+                    doc, namesDict.FindKey(PdfName("EmbeddedFiles")), 0);
+                attachCount += scan.count;
+                for (const auto &label : scan.labels) cap(attachItems, label);
+                if (mutate && wants(SanitizeCategory::Attachments))
+                    namesDict.RemoveKey(PdfName("EmbeddedFiles"));
             }
             if (namesDict.HasKey(PdfName("JavaScript"))) {
-                namesDict.RemoveKey(PdfName("JavaScript"));
+                SanitizeNameTreeScan scan = sanitizeScanNameTree(
+                    doc, namesDict.FindKey(PdfName("JavaScript")), 0);
+                jsCount += scan.count;
+                for (const auto &label : scan.labels)
+                    cap(jsItems, QStringLiteral("JavaScript: %1").arg(label));
+                if (mutate && wants(SanitizeCategory::JavaScriptActions))
+                    namesDict.RemoveKey(PdfName("JavaScript"));
             }
         }
     }
 
+    // ── Document-level actions ──
     if (catalog.GetDictionary().HasKey(PdfName("OpenAction"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("OpenAction"));
+        ++jsCount;
+        cap(jsItems, QStringLiteral("/OpenAction (auto-run on open)"));
+        if (mutate && wants(SanitizeCategory::JavaScriptActions))
+            catalog.GetDictionary().RemoveKey(PdfName("OpenAction"));
     }
     if (catalog.GetDictionary().HasKey(PdfName("AA"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("AA"));
+        ++jsCount;
+        cap(jsItems, QStringLiteral("catalog /AA"));
+        if (mutate && wants(SanitizeCategory::JavaScriptActions))
+            catalog.GetDictionary().RemoveKey(PdfName("AA"));
     }
 
     // D5: Extended sanitization passes
-    // 16. Structure Tree Root sanitization: recursively walk and remove Alt, ActualText, E from all elements
+    // 16. Structure Tree Root sanitization: recursively walk and remove Alt,
+    // ActualText, E from all elements (counted under StructureAltText).
     auto* structTreeRootObj = catalog.GetDictionary().FindKey("StructTreeRoot");
     if (structTreeRootObj) {
         // §9.13 F3: depth cap — a crafted StructTreeRoot whose /K references
@@ -3768,9 +3945,24 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
             if (!elem->IsDictionary()) return;
 
             auto& dict = elem->GetDictionary();
-            if (dict.HasKey("ActualText")) dict.RemoveKey("ActualText");
-            if (dict.HasKey("Alt")) dict.RemoveKey("Alt");
-            if (dict.HasKey("E")) dict.RemoveKey("E");
+            if (dict.HasKey("ActualText")) {
+                ++structCount;
+                cap(structItems, QStringLiteral("ActualText"));
+                if (mutate && wants(SanitizeCategory::StructureAltText))
+                    dict.RemoveKey("ActualText");
+            }
+            if (dict.HasKey("Alt")) {
+                ++structCount;
+                cap(structItems, QStringLiteral("Alt"));
+                if (mutate && wants(SanitizeCategory::StructureAltText))
+                    dict.RemoveKey("Alt");
+            }
+            if (dict.HasKey("E")) {
+                ++structCount;
+                cap(structItems, QStringLiteral("E"));
+                if (mutate && wants(SanitizeCategory::StructureAltText))
+                    dict.RemoveKey("E");
+            }
 
             auto* kKey = dict.FindKey("K");
             if (kKey) {
@@ -3797,6 +3989,8 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     // policy is the whole story. The layer CONTENT itself remains present
     // (disclosed in the redaction pack; redaction removes marked regions
     // only). Wrapper-safe: no PdfDocument cache wraps /OCProperties.
+    // §4 #4: HiddenLayers category — the count is the number of OCGs the OFF
+    // policy will silence.
     if (auto* ocpObj = catalog.GetDictionary().FindKey(PdfName("OCProperties"));
         ocpObj != nullptr) {
         if (ocpObj->IsReference())
@@ -3807,31 +4001,52 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
                 if (ocgs->IsReference())
                     ocgs = &doc.GetObjects().MustGetObject(ocgs->GetReference());
                 if (ocgs && ocgs->IsArray()) {
-                    for (const auto& ocg : ocgs->GetArray())
+                    for (auto& ocg : ocgs->GetArray()) {
                         offRefs.Add(ocg);
+                        ++layerCount;
+                        if (layerItems.size() < 8) {
+                            PoDoFo::PdfObject* ocgObj = &ocg;
+                            if (ocgObj->IsReference())
+                                ocgObj = &doc.GetObjects().MustGetObject(
+                                    ocgObj->GetReference());
+                            QString label;
+                            if (ocgObj && ocgObj->IsDictionary()) {
+                                auto* nameObj = ocgObj->GetDictionary().FindKey(
+                                    PdfName("Name"));
+                                if (nameObj && nameObj->IsString())
+                                    label = QString::fromUtf8(
+                                        nameObj->GetString().GetString().data(),
+                                        qsizetype(nameObj->GetString().GetString().size()));
+                            }
+                            layerItems << (label.isEmpty()
+                                ? QStringLiteral("(unnamed layer)") : label);
+                        }
+                    }
                 }
             }
-            PdfObject* dObj = ocpObj->GetDictionary().FindKey(PdfName("D"));
-            if (dObj != nullptr && dObj->IsReference())
-                dObj = &doc.GetObjects().MustGetObject(dObj->GetReference());
-            if (dObj == nullptr) {
-                auto& created = doc.GetObjects().CreateDictionaryObject();
-                ocpObj->GetDictionary().AddKey(PdfName("D"),
-                                               created.GetIndirectReference());
-                dObj = &created;
-            }
-            if (dObj->IsDictionary()) {
-                auto& dDict = dObj->GetDictionary();
-                dDict.RemoveKey(PdfName("ON"));
-                dDict.RemoveKey(PdfName("OFF"));
-                dDict.RemoveKey(PdfName("AS"));
-                dDict.AddKey(PdfName("ON"), PdfArray());
-                dDict.AddKey(PdfName("OFF"), offRefs);
+            if (mutate && wants(SanitizeCategory::HiddenLayers)) {
+                PdfObject* dObj = ocpObj->GetDictionary().FindKey(PdfName("D"));
+                if (dObj != nullptr && dObj->IsReference())
+                    dObj = &doc.GetObjects().MustGetObject(dObj->GetReference());
+                if (dObj == nullptr) {
+                    auto& created = doc.GetObjects().CreateDictionaryObject();
+                    ocpObj->GetDictionary().AddKey(PdfName("D"),
+                                                   created.GetIndirectReference());
+                    dObj = &created;
+                }
+                if (dObj->IsDictionary()) {
+                    auto& dDict = dObj->GetDictionary();
+                    dDict.RemoveKey(PdfName("ON"));
+                    dDict.RemoveKey(PdfName("OFF"));
+                    dDict.RemoveKey(PdfName("AS"));
+                    dDict.AddKey(PdfName("ON"), PdfArray());
+                    dDict.AddKey(PdfName("OFF"), offRefs);
+                }
             }
         }
     }
 
-    // 18. Remove Outlines (bookmarks)
+    // 18. Remove Outlines (bookmarks) — Bookmarks category.
     // E-2: same shared-object discipline as /Info above — PdfDocument caches
     // m_Outlines over the outlines root once GetOutlines() ran on this
     // document (e.g. a replaceOutline pass), so removing the /Outlines key
@@ -3841,42 +4056,77 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     // an empty /Outlines dict.
     if (auto* outlinesObj = catalog.GetDictionary().FindKey("Outlines");
         outlinesObj != nullptr && outlinesObj->IsDictionary()) {
-        outlinesObj->GetDictionary().Clear();
+        SanitizeOutlineScan scan = sanitizeScanOutline(doc, outlinesObj);
+        bookmarkCount = scan.count;
+        bookmarkItems = scan.titles;
+        if (mutate && wants(SanitizeCategory::Bookmarks))
+            outlinesObj->GetDictionary().Clear();
     }
 
-    // 20. Remove Collection portfolio
+    // 20. Remove Collection portfolio — PrivateData.
     if (catalog.GetDictionary().HasKey(PdfName("Collection"))) {
-        catalog.GetDictionary().RemoveKey(PdfName("Collection"));
+        ++privCount;
+        cap(privItems, QStringLiteral("portfolio /Collection"));
+        if (mutate && wants(SanitizeCategory::PrivateData))
+            catalog.GetDictionary().RemoveKey(PdfName("Collection"));
     }
 
     auto& pages = doc.GetPages();
     for (unsigned pi = 0; pi < pages.GetCount(); ++pi) {
         auto& pg = pages.GetPageAt(pi);
+        const int pageNo = static_cast<int>(pi) + 1;
         if (pg.GetDictionary().HasKey(PdfName("AA"))) {
-            pg.GetDictionary().RemoveKey(PdfName("AA"));
+            ++jsCount;
+            cap(jsItems, QStringLiteral("page %1 /AA").arg(pageNo));
+            if (mutate && wants(SanitizeCategory::JavaScriptActions))
+                pg.GetDictionary().RemoveKey(PdfName("AA"));
         }
         if (pg.GetDictionary().HasKey(PdfName("A"))) {
-            pg.GetDictionary().RemoveKey(PdfName("A"));
+            ++jsCount;
+            cap(jsItems, QStringLiteral("page %1 /A").arg(pageNo));
+            if (mutate && wants(SanitizeCategory::JavaScriptActions))
+                pg.GetDictionary().RemoveKey(PdfName("A"));
         }
         if (pg.GetDictionary().HasKey(PdfName("PieceInfo"))) {
-            pg.GetDictionary().RemoveKey(PdfName("PieceInfo"));
+            ++privCount;
+            cap(privItems, QStringLiteral("page %1 /PieceInfo").arg(pageNo));
+            if (mutate && wants(SanitizeCategory::PrivateData))
+                pg.GetDictionary().RemoveKey(PdfName("PieceInfo"));
         }
         if (pg.GetDictionary().HasKey(PdfName("Thumb"))) {
-            pg.GetDictionary().RemoveKey(PdfName("Thumb"));
+            ++privCount;
+            cap(privItems, QStringLiteral("page %1 /Thumb").arg(pageNo));
+            if (mutate && wants(SanitizeCategory::PrivateData))
+                pg.GetDictionary().RemoveKey(PdfName("Thumb"));
         }
         if (pg.GetDictionary().HasKey(PdfName("Metadata"))) {
-            pg.GetDictionary().RemoveKey(PdfName("Metadata"));
+            ++metaCount;
+            cap(metaItems, QStringLiteral("page %1 /Metadata").arg(pageNo));
+            if (mutate && wants(SanitizeCategory::Metadata))
+                pg.GetDictionary().RemoveKey(PdfName("Metadata"));
         }
 
-        // Sanitize page annotations
+        // Sanitize page annotations. Annotation /Contents + /RC bodies and
+        // RichMedia/Screen/Movie annotations are the Annotations category;
+        // annotation /AA and dangerous /A actions are JavaScriptActions.
         auto& annos = pg.GetAnnotations();
         std::vector<unsigned> toRemoveAnnos;
         for (unsigned ai = 0; ai < annos.GetCount(); ++ai) {
             auto& anno = annos.GetAnnotAt(ai);
             auto& dict = anno.GetDictionary();
             // 23. Remove annotation contents & rich text
-            if (dict.HasKey("Contents")) dict.RemoveKey("Contents");
-            if (dict.HasKey("RC")) dict.RemoveKey("RC");
+            if (dict.HasKey("Contents")) {
+                ++annotCount;
+                cap(annotItems, QStringLiteral("page %1 annotation /Contents").arg(pageNo));
+                if (mutate && wants(SanitizeCategory::Annotations))
+                    dict.RemoveKey("Contents");
+            }
+            if (dict.HasKey("RC")) {
+                ++annotCount;
+                cap(annotItems, QStringLiteral("page %1 annotation /RC").arg(pageNo));
+                if (mutate && wants(SanitizeCategory::Annotations))
+                    dict.RemoveKey("RC");
+            }
 
             // 24. Strip dangerous annotation actions. Link/Widget annotations
             // carry actions in /A and additional actions in /AA. A /Launch,
@@ -3885,7 +4135,12 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
             // vector, so remove /A entirely for those. /AA is always removed
             // (it has no benign use in a sanitized document). Internal /GoTo
             // navigation is preserved.
-            if (dict.HasKey("AA")) dict.RemoveKey("AA");
+            if (dict.HasKey("AA")) {
+                ++jsCount;
+                cap(jsItems, QStringLiteral("page %1 annotation /AA").arg(pageNo));
+                if (mutate && wants(SanitizeCategory::JavaScriptActions))
+                    dict.RemoveKey("AA");
+            }
             auto* actionObj = dict.FindKey("A");
             if (actionObj) {
                 PoDoFo::PdfObject* resolvedAction = actionObj;
@@ -3902,7 +4157,12 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
                         if (s == "GoTo") dangerous = false;
                     }
                 }
-                if (dangerous) dict.RemoveKey("A");
+                if (dangerous) {
+                    ++jsCount;
+                    cap(jsItems, QStringLiteral("page %1 annotation /A action").arg(pageNo));
+                    if (mutate && wants(SanitizeCategory::JavaScriptActions))
+                        dict.RemoveKey("A");
+                }
             }
 
             // 19. Remove RichMedia, Movie, Screen annotations
@@ -3910,7 +4170,13 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
             if (subtypeObj && subtypeObj->IsName()) {
                 std::string subtypeName = std::string(subtypeObj->GetName().GetString());
                 if (subtypeName == "RichMedia" || subtypeName == "Screen" || subtypeName == "Movie") {
-                    toRemoveAnnos.push_back(ai);
+                    ++annotCount;
+                    cap(annotItems, QString::fromStdString(subtypeName));
+                    // Note: the removal list is only honored when the
+                    // Annotations category is selected — an unchecked category
+                    // means the annotation stays exactly as it is.
+                    if (mutate && wants(SanitizeCategory::Annotations))
+                        toRemoveAnnos.push_back(ai);
                 }
             }
         }
@@ -3919,11 +4185,29 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
         }
     }
 
-    // 22. Clear AcroForm field values
+    // 22. Clear AcroForm field values — FormFields.
     for (auto field : doc.GetFieldsIterator()) {
         auto& fieldDict = field->GetDictionary();
-        if (fieldDict.HasKey("V")) fieldDict.RemoveKey("V");
-        if (fieldDict.HasKey("DV")) fieldDict.RemoveKey("DV");
+        bool touched = false;
+        if (fieldDict.HasKey("V")) {
+            ++formCount;
+            touched = true;
+            if (mutate && wants(SanitizeCategory::FormFields))
+                fieldDict.RemoveKey("V");
+        }
+        if (fieldDict.HasKey("DV")) {
+            ++formCount;
+            touched = true;
+            if (mutate && wants(SanitizeCategory::FormFields))
+                fieldDict.RemoveKey("DV");
+        }
+        if (touched && wants(SanitizeCategory::FormFields)) {
+            auto* t = fieldDict.FindKey("T");
+            cap(formItems, t && t->IsString()
+                ? QString::fromUtf8(t->GetString().GetString().data(),
+                                    qsizetype(t->GetString().GetString().size()))
+                : QStringLiteral("(unnamed field)"));
+        }
     }
 
     // 22.5 Remove legacy XFA form data (G1, audit REDACTION-RESEARCH-2026-09-21
@@ -3933,27 +4217,36 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
     // zero recoverable user data: drop the entries; the default-GC Save then
     // drops the orphaned XFA stream objects. Wrapper-safe: no PdfDocument cache
     // wraps the /XFA VALUE (m_AcroForm wraps the AcroForm dict itself — keys
-    // are removed FROM that dict, the dict object stays).
+    // are removed FROM that dict, the dict object stays). FormFields category.
     {
         auto* acroObj = catalog.GetDictionary().FindKey(PdfName("AcroForm"));
         if (acroObj != nullptr && acroObj->IsDictionary()
             && acroObj->GetDictionary().HasKey(PdfName("XFA"))) {
-            acroObj->GetDictionary().RemoveKey(PdfName("XFA"));
+            ++formCount;
+            cap(formItems, QStringLiteral("XFA form data"));
+            if (mutate && wants(SanitizeCategory::FormFields))
+                acroObj->GetDictionary().RemoveKey(PdfName("XFA"));
         }
         if (catalog.GetDictionary().HasKey(PdfName("XFA"))) {
-            catalog.GetDictionary().RemoveKey(PdfName("XFA"));
+            ++formCount;
+            cap(formItems, QStringLiteral("dynamic XFA (catalog)"));
+            if (mutate && wants(SanitizeCategory::FormFields))
+                catalog.GetDictionary().RemoveKey(PdfName("XFA"));
         }
     }
 
-    // 21. Trailer ID second element randomization
-    // Re-fetch the trailer reference: `trailer` above was taken before
-    // ~20 steps of document surgery. /ID entries are BINARY strings per
-    // the PDF spec, so use PdfString::FromRaw — the text-string ctor
-    // runs encoding validation over the random bytes, which is both
-    // wrong semantically and was implicated in an intermittent crash
-    // (AssertMutable AV on CI). Aligned quint32 buffer instead of a
-    // reinterpret_cast over a char vector.
-    {
+    if (mutate) {
+        // 21. Trailer ID second element randomization — NOT a category: this
+        // is not user content but the identity randomization that always
+        // accompanies a sanitize save (also why sanitize outputs cannot be
+        // compared byte-for-byte between runs).
+        // Re-fetch the trailer reference: `trailer` above was taken before
+        // ~20 steps of document surgery. /ID entries are BINARY strings per
+        // the PDF spec, so use PdfString::FromRaw — the text-string ctor
+        // runs encoding validation over the random bytes, which is both
+        // wrong semantically and was implicated in an intermittent crash
+        // (AssertMutable AV on CI). Aligned quint32 buffer instead of a
+        // reinterpret_cast over a char vector.
         auto& trailerNow = doc.GetTrailer();
         auto* idObj = trailerNow.GetDictionary().FindKey("ID");
         if (idObj && idObj->IsArray()) {
@@ -3966,11 +4259,56 @@ static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
             }
         }
     }
+
+    record(SanitizeCategory::Metadata, metaCount, metaItems);
+    record(SanitizeCategory::Attachments, attachCount, attachItems);
+    record(SanitizeCategory::Annotations, annotCount, annotItems);
+    record(SanitizeCategory::FormFields, formCount, formItems);
+    record(SanitizeCategory::JavaScriptActions, jsCount, jsItems);
+    record(SanitizeCategory::HiddenLayers, layerCount, layerItems);
+    record(SanitizeCategory::Bookmarks, bookmarkCount, bookmarkItems);
+    record(SanitizeCategory::PrivateData, privCount, privItems);
+    record(SanitizeCategory::StructureAltText, structCount, structItems);
+    return plan;
+}
+
+// §9.13 P0 (reuse) seam kept: the Compress flow's "strip metadata" path calls
+// the full scrub — exactly the all-categories removal (§9.13 row 88: strip =
+// full sanitize).
+static void sanitizeDocumentContents(PoDoFo::PdfMemDocument& doc)
+{
+    sanitizeWalk(doc, sanitizeAllCategories(), true);
 }
 
 bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
+    // §4 #4: the one-argument form IS the all-categories default — today's
+    // all-or-nothing behavior is exactly the "everything checked" selection.
+    return sanitizeDocument(outputPath, sanitizeAllCategories(), nullptr);
+}
+
+// ── Selective sanitize (PARITY-SCORECARD-2026-09-30 §4 #4, July rows 72-73) ──
+
+SanitizePlan PoDoFoBackend::sanitizeClassify() {
+    QMutexLocker locker(&d->mutex);
+    if (!d->document) return {};
+    // Classify NEVER mutates: the same walk the removal runs, read-only, with
+    // every found category counted.
+    return sanitizeWalk(*d->document, sanitizeAllCategories(), false);
+}
+
+bool PoDoFoBackend::sanitizeDocument(const QString &outputPath,
+                                     SanitizeCategories selected,
+                                     SanitizePlan *removedOut) {
     QMutexLocker locker(&d->mutex);
     if (!d->document || outputPath.isEmpty()) return false;
+
+    // Honest refusal: no category selected means nothing would be removed —
+    // there is no commit to make. Write no output, change nothing.
+    if (!selected) {
+        qWarning() << "Refusing to sanitize with no categories selected — "
+                      "nothing would be removed, so there is nothing to commit.";
+        return false;
+    }
 
     const QFileInfo outputInfo(outputPath);
     if (!d->currentFile.isEmpty()) {
@@ -3988,8 +4326,11 @@ bool PoDoFoBackend::sanitizeDocument(const QString &outputPath) {
     }
 
     try {
-        // §9.13 P0: single shared scrub implementation (see helper above).
-        sanitizeDocumentContents(*d->document);
+        // §4 #4: classify-and-remove share ONE walk — the removal re-derives
+        // the plan on the resident document and reports what actually went,
+        // so the approved summary and the outcome can be compared.
+        SanitizePlan removed = sanitizeWalk(*d->document, selected, true);
+        if (removedOut) *removedOut = removed;
 
         const QString outputDir = outputInfo.absoluteDir().absolutePath();
         QString tempPath;

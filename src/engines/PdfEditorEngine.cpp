@@ -1088,6 +1088,48 @@ bool PdfEditorEngine::sanitizeDocument(const QString &outputPath)
     return ok;
 }
 
+// ── Selective sanitize (PARITY-SCORECARD-2026-09-30 §4 #4, July rows 72-73) ──
+
+SanitizePlan PdfEditorEngine::sanitizeClassify()
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) {
+        d->noBackend("sanitizeClassify");
+        return {};
+    }
+    // Classify never mutates: the empty plan on a missing backend is honest —
+    // there is no document to classify, not "nothing to remove".
+    return d->backend->sanitizeClassify();
+}
+
+bool PdfEditorEngine::sanitizeDocument(const QString &outputPath,
+                                       SanitizeCategories selected,
+                                       SanitizePlan *removedOut)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    // Honest refusal at the engine boundary: an empty selection would remove
+    // nothing, so "committing" it would be a silent no-op. Refuse, name the
+    // reason, and write no output.
+    if (!selected) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No sanitize category is selected — nothing would be removed, "
+                              "so the document is left unchanged."),
+                  QStringLiteral("sanitizeDocument refused: empty selection"), ErrorInfo::Retry);
+        return false;
+    }
+    if (!d->backend) return d->noBackend("sanitizeDocument");
+    bool ok = d->backend->sanitizeDocument(outputPath, selected, removedOut);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Document sanitization failed."),
+                  QStringLiteral("sanitizeDocument path=%1 (%2 categories)")
+                      .arg(outputPath, QString::number(int(selected))),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
 bool PdfEditorEngine::getMetadata(PdfMetadata &outMetadata)
 {
     QMutexLocker locker(&d->mutex);

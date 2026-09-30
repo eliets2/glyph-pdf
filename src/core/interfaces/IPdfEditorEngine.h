@@ -3,6 +3,7 @@
 #include "core/ImageTypes.h"
 #include "core/AnnotationTypes.h"
 #include "core/ErrorInfo.h"
+#include "core/SanitizeTypes.h"
 #include <QString>
 #include <QStringList>
 #include <QRectF>
@@ -194,6 +195,21 @@ public:
     virtual void primeSourceBaseline(const QString &path) { Q_UNUSED(path); }
     virtual bool linearizeDocument(const QString &outputPath) = 0;
     virtual bool sanitizeDocument(const QString &outputPath) = 0;
+    // ── Selective Sanitize (PARITY-SCORECARD-2026-09-30 §4 #4, July rows
+    // 72-73) ── Both members share ONE traversal in the implementation: the
+    // classify walk and the removal pass, so the pre-commit summary can never
+    // describe different work than the removal performs.
+    // Classify-only: walk every category, report per-category counts + item
+    // summaries, mutate nothing. Categories with nothing found are absent.
+    virtual SanitizePlan sanitizeClassify() = 0;
+    // Remove ONLY the categories in `selected` and save to `outputPath`.
+    // `selected` empty refuses honestly (a no-op commit is not a commit) and
+    // writes nothing. When `removedOut` is non-null it reports what was
+    // ACTUALLY removed per category, so the summary and the outcome can be
+    // compared. All-categories selection is exactly the legacy behavior.
+    virtual bool sanitizeDocument(const QString &outputPath,
+                                  SanitizeCategories selected,
+                                  SanitizePlan *removedOut = nullptr) = 0;
     virtual bool getMetadata(PdfMetadata &outMetadata) = 0;
     virtual bool setMetadata(const PdfMetadata &metadata) = 0;
     virtual QString currentFile() const = 0;

@@ -82,6 +82,19 @@ public:
     bool removeEncryption(const QString &) override { return m_loaded; }
     bool encryptWithCertificate(const QString &, const QString &, const QStringList &) override { return m_loaded; }
     bool sanitizeDocument(const QString &path) override { ++m_sanitizeCalls; m_lastSanitizedPath = path; return m_sanitizeResult && m_loaded; }
+    // Selective sanitize seam (PARITY-SCORECARD-2026-09-30 §4 #4): the mock
+    // mirrors the honest engine contract — an empty selection is refused (a
+    // no-op commit is not a commit), and `removedOut` carries the configured
+    // proof plan so helper-layer tests can compare summary vs outcome.
+    SanitizePlan sanitizeClassify() override { ++m_classifyCalls; return m_classifyPlan; }
+    bool sanitizeDocument(const QString &path, SanitizeCategories selected,
+                          SanitizePlan *removedOut) override {
+        ++m_selectiveSanitizeCalls;
+        m_lastSanitizeSelection = selected;
+        if (removedOut) *removedOut = m_selectiveRemovedPlan;
+        if (!selected) return false;  // honest refusal
+        return m_sanitizeResult && m_loaded;
+    }
     bool getMetadata(PdfMetadata &out) override { out = m_meta; return true; }
     bool setMetadata(const PdfMetadata &meta) override { m_meta = meta; return true; }
     QString currentFile() const override { return m_file; }
@@ -259,6 +272,12 @@ public:
     QString m_lastIfCurrentExpected;
     QString m_lastIfCurrentRefusal;
     int m_sanitizeCalls = 0;
+    // Selective sanitize seam state (§4 #4)
+    SanitizePlan m_classifyPlan;
+    int m_classifyCalls = 0;
+    int m_selectiveSanitizeCalls = 0;
+    SanitizeCategories m_lastSanitizeSelection;
+    SanitizePlan m_selectiveRemovedPlan;
     int m_saveCalls = 0;
     int m_writeUpdateCalls = 0;
     QString m_lastSanitizedPath;

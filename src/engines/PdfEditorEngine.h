@@ -57,6 +57,13 @@ public:
     bool removeEncryption(const QString &ownerPassword) override;
     bool encryptWithCertificate(const QString &inputPath, const QString &outputPath, const QStringList &certPaths) override;
     bool sanitizeDocument(const QString &outputPath) override;
+    // Selective sanitize (PARITY-SCORECARD-2026-09-30 §4 #4): classify-only
+    // walk (no mutation) and category-limited removal with a proof-carrying
+    // removed-out plan. Shares ONE traversal with the legacy all-categories
+    // path, so the summary can never describe different work than the removal.
+    SanitizePlan sanitizeClassify() override;
+    bool sanitizeDocument(const QString &outputPath, SanitizeCategories selected,
+                          SanitizePlan *removedOut) override;
 
     // Metadata
     bool getMetadata(PdfMetadata &outMetadata) override;
