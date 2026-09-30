@@ -10,6 +10,7 @@
 #include "engines/SignatureManager.h"
 #include "shell/EditPolicy.h"
 #include "shell/controllers/SecurityController.h" // readSigningConfig/preflight/outcome wording (statics reused, file untouched)
+#include "ui/OcspConsentDialog.h" // M-3 (CWE-862): the consent gate this lane bypassed
 #include "ui/SignatureDialog.h"
 #include "ui/SigningProgressPanel.h"
 #include "ui/SigningRequestDialog.h"
@@ -184,6 +185,33 @@ void SendForSigningController::runSignStep(int signerIndex)
         return;
     }
 
+    // M-3 (AUDIT-SECURITY-2026-09-25, CWE-862): the OCSP network-consent gate
+    // on the send-for-signing lane. This lane used to dispatch runFillStep
+    // with cfg.level applied and ZERO OcspConsent references — a user (or an
+    // org policy signing/ocspNetworkPolicy="never") who opted out of OCSP
+    // egress still emitted the responder request here, while the
+    // network-audit page claimed the touchpoint disabled. Mirrors the main
+    // sign path exactly (SecurityController::runSigning): at level >= B_LT
+    // obtain per-document consent on the GUI thread (the dialog is modal —
+    // it cannot run inside the worker below), and a denied decision refuses
+    // BEFORE any dispatch with the honest whyNot. The decision also travels
+    // into FillStepInput::ocspEgressConsented so the runner's precheck — the
+    // choke point every dispatch lane shares — enforces it again fail-closed.
+    bool ocspEgressConsented = false;
+    if (cfg.level >= PAdESLevel::B_LT) {
+        const auto ocspDecision =
+            gp::OcspConsent::obtain(_mainWindow, docPath);
+        if (!gp::OcspConsent::egressAllowed(ocspDecision)) {
+            QMessageBox::warning(_mainWindow, tr("Signing Not Attempted"),
+                                 gp::OcspConsent::refusalReason(ocspDecision));
+            _mainWindow->statusBar()->showMessage(
+                tr("Signing step not attempted — OCSP network consent not "
+                   "granted."), 5000);
+            return;
+        }
+        ocspEgressConsented = true;
+    }
+
     SigningRequestRunner::FillStepInput input;
     input.docPath = docPath;
     input.model = loaded.model;
@@ -195,6 +223,9 @@ void SendForSigningController::runSignStep(int signerIndex)
     input.appearance = SignatureManager::takePendingAppearanceImage();
     input.requestedLevel = cfg.level;
     input.tsaUrl = cfg.tsaUrl;
+    // M-3: the GUI-thread consent outcome rides with the input — the runner's
+    // precheck re-enforces it fail-closed (no consent recorded = refuse).
+    input.ocspEgressConsented = ocspEgressConsented;
 
     // Mutation gate with the re-confirm loop: changed bytes refuse the step;
     // the user can re-confirm the request against the changed document.

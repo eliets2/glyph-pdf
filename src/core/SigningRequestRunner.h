@@ -64,6 +64,20 @@ public:
         // copy remains as a display/record value and never gates).
         QString userReconfirmedSha256;
 
+        // M-3 (AUDIT-SECURITY-2026-09-25, CWE-862): the OCSP network-consent
+        // decision for THIS step. The consent dialog (gp::OcspConsent::obtain)
+        // is modal UI — the controller obtains it on the GUI thread before
+        // dispatch and carries the outcome here as plain data (the runner is
+        // GUI-free and lives below the UI layer, so the ui-side enum never
+        // crosses this boundary). Fail-closed default: a dispatch lane that
+        // never asked refuses at level >= B_LT — the engine dispatch (the ONLY
+        // OCSP transport call site, SignatureManager::signDocumentImpl's
+        // fetchOcspResponse) never runs without recorded consent, and the
+        // refusal discloses exactly that. Matches the main sign path's
+        // semantics (SecurityController::runSigning refuses B-LT/B-LTA without
+        // consent — never a silent no-consent fetch, never a silent downgrade).
+        bool ocspEgressConsented = false;
+
         // V-03 pin seam (AUDIT-VERIFICATION-2026-09-25): a deterministic
         // failure injected at THIS step's final commit — after the lazy
         // field creation and the engine's candidate both succeeded, which is
@@ -91,13 +105,20 @@ public:
                              // on the document — the engine's one-unsigned-field
                              // precondition can never be met for this request;
                              // refused in precheck, before any mutation
-        AnchorMismatch    // emergence E-4: the bound field EXISTS but its stored
+        AnchorMismatch,   // emergence E-4: the bound field EXISTS but its stored
                           // /Rect does not match the entry's anchored display
                           // rect — the cross-version replay trap (a field
                           // placed by a pre-W2B-1 build's double-transforming
                           // CreateField, hash-clean for the mutation gate).
                           // Signing it would put the visible signature in the
                           // wrong place; refused in precheck, zero mutation
+        OcspConsentDenied // M-3 (CWE-862): requestedLevel >= B_LT without
+                          // recorded OCSP egress consent (FillStepInput::
+                          // ocspEgressConsented). The engine dispatch — the
+                          // only OCSP transport call site — never runs; the
+                          // disclosure names the consent state and the way
+                          // out (B-T/B-B need no OCSP). Fail-closed: consent
+                          // never asked means never granted.
     };
     struct Refusal {
         StepRefusal code = StepRefusal::None;

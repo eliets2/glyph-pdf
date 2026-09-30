@@ -923,6 +923,121 @@ private slots:
     // Cleanup discipline: the shared candidates dir must not grow across
     // this suite (delta-based — cross-process debris never fails the pin).
     // -------------------------------------------------------------------
+
+    // -------------------------------------------------------------------
+    // M-3 (AUDIT-SECURITY-2026-09-25, CWE-862): the OCSP network-consent
+    // gate on the send-for-signing lane. This lane used to dispatch
+    // runFillStep with cfg.level applied and ZERO OcspConsent references —
+    // an org policy signing/ocspNetworkPolicy="never" (or a user who
+    // declined) still emitted the responder request here. Three pins:
+    //   1. fail-closed: a B_LT step with NO consent refuses in precheck —
+    //      the engine (the ONLY OCSP transport call site) is never invoked,
+    //      the document stays byte-identical, and the refusal discloses the
+    //      consent state + the way out. (RED before the fix: the step ran
+    //      the engine at B_LT with zero consent.)
+    //   2. consent granted: the SAME step dispatches the engine, commits,
+    //      and the signature validates — a consent gate, not a level ban.
+    //   3. scoping: B_B (no OCSP at that level) never needs consent.
+    // The consent DIALOG itself is modal UI: the controller (GUI thread)
+    // obtains it and carries the outcome in FillStepInput::ocspEgressConsented;
+    // these GUI-free pins exercise the shared enforcement choke point
+    // (precheck, re-run inside runFillStep) that makes every dispatch lane
+    // fail closed.
+    // -------------------------------------------------------------------
+    void ocspConsentDeniedRefusesBeforeEngineDispatch()
+    {
+        REQUIRE_FIXTURES();
+        PreparedRequest req = prepareTwoSignerRequest(
+            m_tmpDir.get(), QStringLiteral("consent-denied.pdf"));
+        QVERIFY(req.ok);
+        SignatureManager mgr;
+
+        SigningRequestRunner::FillStepInput in = fillInput(req, 0, req.model);
+        in.requestedLevel = PAdESLevel::B_LT;   // the OCSP-needing level
+        in.ocspEgressConsented = false;         // never asked = never granted
+
+        const QString before = sha256OfFile(req.docPath);
+        const auto refused = SigningRequestRunner::runFillStep(mgr, in);
+
+        // The choke point refused BEFORE the engine dispatch — the OCSP
+        // transport (inside signDocumentImpl) is never invoked.
+        QVERIFY2(!refused.attempted,
+                 "a consentless B_LT step must refuse BEFORE the engine dispatch");
+        QVERIFY2(!refused.committed, "nothing may be committed without consent");
+        QVERIFY2(refused.outcome == SignOutcome::NotRun,
+                 "the engine - and with it the only OCSP transport call site - "
+                 "must never run without consent");
+
+        // The document is untouched.
+        QCOMPARE(sha256OfFile(req.docPath), before);
+        const auto infos = mgr.validateSignatures(req.docPath);
+        for (const auto &i : infos)
+            QVERIFY2(i.trustStatus == QStringLiteral("Unsigned"),
+                     "no signature may exist after a consentless step");
+
+        // The outcome discloses it honestly: what was skipped, that nothing
+        // was signed, and the way out (B-T/B-B need no OCSP).
+        QVERIFY2(refused.error.contains(QLatin1String("OCSP")),
+                 "the refusal must name the OCSP network request");
+        QVERIFY2(refused.error.contains(QLatin1String("consent"),
+                                        Qt::CaseInsensitive),
+                 "the refusal must name the consent state");
+        QVERIFY2(refused.error.contains(QLatin1String("Nothing was signed")),
+                 "the refusal must disclose that no signature was attempted");
+        QVERIFY2(refused.error.contains(QLatin1String("B-T")),
+                 "the refusal must name the way out");
+    }
+
+    void ocspConsentGrantedDispatchesEngineAndCommits()
+    {
+        REQUIRE_FIXTURES();
+        PreparedRequest req = prepareTwoSignerRequest(
+            m_tmpDir.get(), QStringLiteral("consent-granted.pdf"));
+        QVERIFY(req.ok);
+        SignatureManager mgr;
+
+        SigningRequestRunner::FillStepInput in = fillInput(req, 0, req.model);
+        in.requestedLevel = PAdESLevel::B_LT;   // the OCSP-needing level
+        in.ocspEgressConsented = true;          // consent granted this dispatch
+
+        const auto r = SigningRequestRunner::runFillStep(mgr, in);
+        if (!r.committed)
+            QSKIP(qPrintable(QStringLiteral(
+                "real sign unavailable in this environment: %1").arg(r.error)));
+        // With consent the step dispatches the engine (whose B_LT branch
+        // performs the responder fetch attempt), commits, and the signature
+        // validates — the gate never over-blocks a consented step.
+        QVERIFY(r.attempted);
+        QCOMPARE(r.outcome, SignOutcome::Success);
+        QCOMPARE(r.signedFieldName, QStringLiteral("sig_A"));
+        QVERIFY(r.signatureSummary.contains(QLatin1String("integrity intact")));
+        const auto infos = mgr.validateSignatures(req.docPath);
+        int realSigs = 0;
+        for (const auto &i : infos)
+            if (i.trustStatus != QStringLiteral("Unsigned")) ++realSigs;
+        QCOMPARE(realSigs, 1);
+    }
+
+    void ocspConsentNeverNeededAtOfflineLevels()
+    {
+        REQUIRE_FIXTURES();
+        PreparedRequest req = prepareTwoSignerRequest(
+            m_tmpDir.get(), QStringLiteral("consent-bb.pdf"));
+        QVERIFY(req.ok);
+        SignatureManager mgr;
+        // fillInput defaults to B_B and leaves ocspEgressConsented at its
+        // fail-closed default: no OCSP exists at this level, so the step
+        // must run unblocked (the gate is scoped to OCSP-needing levels).
+        SigningRequestRunner::FillStepInput in = fillInput(req, 0, req.model);
+        const SigningRequestRunner::Refusal pre =
+            SigningRequestRunner::precheck(mgr, in);
+        QCOMPARE(pre.code, SigningRequestRunner::StepRefusal::None);
+        const auto r = SigningRequestRunner::runFillStep(mgr, in);
+        if (!r.committed)
+            QSKIP(qPrintable(QStringLiteral(
+                "real sign unavailable in this environment: %1").arg(r.error)));
+        QCOMPARE(r.outcome, SignOutcome::Success);
+    }
     void candidatesDirClean()
     {
         const int before = leftoverCandidates();

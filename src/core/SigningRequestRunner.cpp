@@ -71,6 +71,29 @@ SigningRequestRunner::Refusal SigningRequestRunner::precheck(SignatureManager &s
         r.message = QStringLiteral("Signer %1 has already signed.").arg(in.signerIndex + 1);
         return r;
     }
+    // M-3 (AUDIT-SECURITY-2026-09-25, CWE-862) — the OCSP network-consent
+    // gate, enforced at the ONE choke point every dispatch lane shares (this
+    // precheck re-runs inside runFillStep). At level >= B_LT the engine's
+    // signDocumentImpl contacts the certificate's AIA OCSP responder — a
+    // network request the main sign path already gates (SecurityController::
+    // runSigning refuses the dispatch without consent). No consent recorded
+    // in the input = never granted = refuse BEFORE the engine call, so the
+    // transport is never invoked and the refusal discloses exactly that.
+    // The consent DIALOG lives in the controller (modal UI, GUI thread); it
+    // carries its outcome in FillStepInput::ocspEgressConsented. Mirrors the
+    // main path's semantics: no silent fetch, no silent downgrade — the way
+    // out (B-T/B-B, or granting consent) is named.
+    if (in.requestedLevel >= PAdESLevel::B_LT && !in.ocspEgressConsented) {
+        r.code = StepRefusal::OcspConsentDenied;
+        r.message = QStringLiteral(
+            "Signing this step at PAdES B-LT/B-LTA builds long-term-validation "
+            "data by contacting the certificate's OCSP responder (a network "
+            "request), and no network consent was granted for it. Nothing was "
+            "signed and the document is unchanged. Run the step again and "
+            "allow the check when asked, or sign at level B-T/B-B, which need "
+            "no OCSP network access.");
+        return r;
+    }
     // Mutation gate (honesty rule 1): the request binds to the PREPARED bytes.
     // Fail-closed: a request that does NOT record the prepared-bytes hash can
     // never prove the document unmutated, so it refuses too (only a hand-edited
