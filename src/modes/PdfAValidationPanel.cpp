@@ -6,15 +6,19 @@
 #include "util/Badge.h"
 
 #include <QFileDialog>
+#include <QHash>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSet>
 #include <QStringList>
 #include <QTextStream>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <iterator>
+#include <vector>
 #include <QtConcurrent/QtConcurrent>
 #include <podofo/podofo.h>
 
@@ -400,6 +404,24 @@ struct StructElem {
     bool    hasBBox = false;
 };
 
+// PARITY-SCORECARD-2026-09-30 §4 #3: one marked-content reference under /K —
+// a bare integer (ISO 32000-2 §14.7.3.3) or an /MCR dict — collected in
+// document (reading) order so the analysis can extend INTO the content the
+// structure tags, not just between the tags.
+struct McidRef {
+    int page = -1;   // 0-based page the reference belongs to (inherited per §14.7.2)
+    int mcid = -1;
+};
+
+// What the content-stream walk resolved for one MCID: its top-most text
+// baseline (page space, y-up — same convention as a struct /BBox top edge)
+// and a best-effort printable-ASCII text snippet.
+struct MarkedSpanPos {
+    bool   hasY = false;
+    double topY = 0.0;
+    QString text;
+};
+
 // ReadingOrderResult is declared in PdfAValidationPanel.h (shared with tests).
 const PoDoFo::PdfObject* resolveObj(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* o) {
     if (!o) return nullptr;
@@ -425,8 +447,13 @@ int pageIndexOf(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* pg) {
 // INHERITED from its nearest ancestor when absent. Coding a missing /Pg as
 // page -1 produced false "out of order" flags on correctly-tagged PDFs whose
 // child elements rely on inheritance from the parent's /Pg.
+//
+// PARITY-SCORECARD-2026-09-30 §4 #3: `mcidRefs` (when non-null) additionally
+// collects the marked-content references — bare MCID integers and /MCR dicts —
+// in the same reading order; these were previously skipped entirely.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
-                        QList<StructElem>& out, int depth, int inheritedPage = -1);
+                        QList<StructElem>& out, int depth, int inheritedPage = -1,
+                        QList<McidRef>* mcidRefs = nullptr);
 
 // Extract /BBox top-edge from a struct element's /A layout attribute(s).
 void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, StructElem& e) {
@@ -456,24 +483,53 @@ void extractBBox(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfDictionary& d, St
 // Depth-first walk of the structure tree, collecting structure elements in
 // reading (document structure) order.
 void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* node,
-                        QList<StructElem>& out, int depth, int inheritedPage) {
+                        QList<StructElem>& out, int depth, int inheritedPage,
+                        QList<McidRef>* mcidRefs) {
     if (!node || depth > 60) return;
     node = resolveObj(doc, node);
     if (!node) return;
 
     if (node->IsArray()) {
         for (const auto& child : node->GetArray())
-            collectStructElems(doc, &child, out, depth + 1, inheritedPage);
+            collectStructElems(doc, &child, out, depth + 1, inheritedPage, mcidRefs);
         return;
     }
-    if (!node->IsDictionary()) return;  // e.g. a bare MCID integer — skip
+    if (node->IsNumber()) {
+        // PARITY-SCORECARD-2026-09-30 §4 #3: a bare integer under /K is a
+        // marked-content id into the element's page content stream
+        // (ISO 32000-2 §14.7.3.3) — collect it instead of skipping it, so the
+        // text-level order of the tagged content can be checked.
+        if (mcidRefs)
+            mcidRefs->append({ inheritedPage, static_cast<int>(node->GetNumber()) });
+        return;
+    }
+    if (!node->IsDictionary()) return;
 
     const PoDoFo::PdfDictionary& d = node->GetDictionary();
+    // The marked-content-reference DICT form (/MCR — /Type optional per
+    // ISO 32000-2 Tab. 363, so keyed on /MCID without /S) references marked
+    // content living in another stream (/Stm, the CX-07 shape): collect its
+    // /Pg + /MCID so provenance stays right even though the page-level walk
+    // will not find the span.
+    const PoDoFo::PdfObject* sObj = d.FindKey("S");
+    const PoDoFo::PdfObject* mcrMcid = sObj ? nullptr : d.FindKey("MCID");
+    if (mcrMcid && mcrMcid->IsNumber()) {
+        if (mcidRefs) {
+            const PoDoFo::PdfObject* pg = d.FindKey("Pg");
+            const int mcrPage = pg ? pageIndexOf(doc, pg) : inheritedPage;
+            mcidRefs->append({ mcrPage, static_cast<int>(mcrMcid->GetNumber()) });
+        }
+        return;
+    }
+    // /OBJR (object reference, e.g. a Widget annotation) carries no marked
+    // content of its own — nothing to collect.
+    const PoDoFo::PdfObject* typeObj = d.FindKey("Type");
+    if (typeObj && typeObj->IsName() && typeObj->GetName() == PoDoFo::PdfName("OBJR"))
+        return;
     // This element's effective page: explicit /Pg wins; otherwise inherit the
     // nearest ancestor's page (ISO 32000-2 §14.7.2).
     const PoDoFo::PdfObject* ownPg = d.FindKey("Pg");
     const int elemPage = ownPg ? pageIndexOf(doc, ownPg) : inheritedPage;
-    const PoDoFo::PdfObject* sObj = d.FindKey("S");
     if (sObj && sObj->IsName()) {
         StructElem e;
         e.type = QString::fromStdString(std::string(sObj->GetName().GetString()));
@@ -482,7 +538,233 @@ void collectStructElems(PoDoFo::PdfMemDocument& doc, const PoDoFo::PdfObject* no
         out.append(e);
     }
     if (const PoDoFo::PdfObject* k = d.FindKey("K"))
-        collectStructElems(doc, k, out, depth + 1, elemPage);
+        collectStructElems(doc, k, out, depth + 1, elemPage, mcidRefs);
+}
+
+// ── PARITY-SCORECARD-2026-09-30 §4 #3 ────────────────────────────────────────
+// Marked-content position extraction. Mirrors the page-content walk the
+// redaction engine uses (PoDoFoBackend.cpp: PdfContentStreamReader +
+// VariantStack operand order — stack[0] is the LAST pushed operand — BDC/EMC
+// /MCID tracking incl. the named /Properties form, and full Tm/Tlm/CTM
+// tracking per PDF 9.4.2), reused here read-only: each struct-referenced
+// MCID gets its top-most text baseline (page space, y-up) and a bounded
+// printable-ASCII snippet. Form XObjects are deliberately NOT followed
+// (PdfContentReaderFlags::DontFollowXObjectForms): their MCIDs live in the
+// FORM's StructParents namespace (they surface as /MCR dicts with /Stm, the
+// CX-07 shape) and mixing namespaces could mis-resolve page-level ids — such
+// spans simply keep their structural order below.
+//
+// Bounded like every checker walk: only MCIDs referenced by the structure
+// tree are visited, and the walk stops at kReadingOrderMaxMarkedContentSpans
+// resolved spans (disclosed by the caller), never scans unboundedly.
+struct WalkMat {
+    // PDF affine identity [1 0 0 1 0 0] — d is the identity's 1, not 0.
+    double a = 1.0, b = 0.0, c = 0.0, d = 1.0, e = 0.0, f = 0.0;
+};
+
+// result = m2 x m1 (apply m1 then m2), per PDF 8.3.4 — same convention as the
+// redaction engine's concat.
+WalkMat walkMatConcat(const WalkMat& m1, const WalkMat& m2) {
+    WalkMat r;
+    r.a = m1.a * m2.a + m1.b * m2.c;
+    r.b = m1.a * m2.b + m1.b * m2.d;
+    r.c = m1.c * m2.a + m1.d * m2.c;
+    r.d = m1.c * m2.b + m1.d * m2.d;
+    r.e = m1.e * m2.a + m1.f * m2.c + m2.e;
+    r.f = m1.e * m2.b + m1.f * m2.d + m2.f;
+    return r;
+}
+
+// Best-effort text snippet: content-stream strings are raw encoded bytes, so
+// only fully printable-ASCII runs are quoted (hex/encoded runs stay
+// "unlabeled" rather than guessing an encoding). Bounded length.
+QString snippetFromStrings(const PoDoFo::PdfVariantStack& stack, bool isArray) {
+    QByteArray acc;
+    auto takeString = [&](const PoDoFo::PdfObject& o) {
+        if (!o.IsString()) return;
+        const std::string_view s = o.GetString().GetString();
+        for (const char ch : s) {
+            const unsigned char u = static_cast<unsigned char>(ch);
+            if (u < 0x20 || u > 0x7E) return;   // not printable ASCII — no guess
+        }
+        acc.append(s.data(), static_cast<qsizetype>(s.size()));
+    };
+    if (isArray && stack.size() >= 1 && stack[0].IsArray()) {
+        for (const auto& item : stack[0].GetArray())
+            takeString(item);
+    } else if (stack.size() >= 1) {
+        takeString(stack[0]);
+    }
+    if (acc.isEmpty()) return {};
+    QString snip = QString::fromLatin1(acc.left(32));
+    if (acc.size() > 32) snip += QStringLiteral("…");
+    return snip;
+}
+
+// One page's content stream: fill `pos` for every wanted MCID found. Returns
+// the number of DISTINCT wanted spans resolved. `budget` is the remaining
+// global span budget; when it runs out the walk stops early (returns negative
+// to signal truncation).
+qint64 markedSpanKey(int pageIdx, int mcid) {
+    return static_cast<qint64>(pageIdx) * 1000000 + mcid;
+}
+
+// The MCIDs the structure tree references on ONE page — the only ids the
+// page's content walk has reason to track.
+QSet<int> wantedSetFor(int pageIdx, const QList<McidRef>& refs) {
+    QSet<int> s;
+    for (const McidRef& r : refs)
+        if (r.page == pageIdx) s.insert(r.mcid);
+    return s;
+}
+
+int collectMarkedSpanPositions(PoDoFo::PdfMemDocument& doc, int pageIdx,
+                               const QSet<int>& wantedMcids,
+                               QHash<qint64, MarkedSpanPos>& pos,
+                               int& budget, bool& truncated) {
+    PoDoFo::PdfPage& page = doc.GetPages().GetPageAt(pageIdx);
+
+    PoDoFo::PdfContentReaderArgs args;
+    // Form XObjects are deliberately NOT followed (their MCIDs live in the
+    // form's StructParents namespace — see the block comment above).
+    args.Flags = PoDoFo::PdfContentReaderFlags::SkipFollowFormXObjects;
+    PoDoFo::PdfContentStreamReader reader(page, args);
+    PoDoFo::PdfContent content;
+
+    WalkMat tm;      // text matrix (Tm)
+    WalkMat tlm;     // text line matrix (Tlm)
+    WalkMat ctm;     // canvas CTM (q/Q/cm)
+    std::vector<WalkMat> ctmStack;
+    double leading = 0.0;
+    int64_t currentMcid = -1;
+    int resolved = 0;
+
+    while (reader.TryReadNext(content)) {
+        if (content.GetType() != PoDoFo::PdfContentType::Operator) continue;
+        const std::string_view kw = content.GetKeyword();
+        const auto& stack = content.GetStack();
+
+        // ── canvas state ────────────────────────────────────────────────
+        if (kw == "q") {
+            ctmStack.push_back(ctm);
+            continue;
+        }
+        if (kw == "Q") {
+            if (!ctmStack.empty()) { ctm = ctmStack.back(); ctmStack.pop_back(); }
+            continue;
+        }
+        if (kw == "cm" && stack.size() >= 6) {
+            WalkMat m;
+            if (stack[5].IsNumberOrReal()) m.a = stack[5].GetReal();
+            if (stack[4].IsNumberOrReal()) m.b = stack[4].GetReal();
+            if (stack[3].IsNumberOrReal()) m.c = stack[3].GetReal();
+            if (stack[2].IsNumberOrReal()) m.d = stack[2].GetReal();
+            if (stack[1].IsNumberOrReal()) m.e = stack[1].GetReal();
+            if (stack[0].IsNumberOrReal()) m.f = stack[0].GetReal();
+            ctm = walkMatConcat(m, ctm);
+            continue;
+        }
+
+        // ── text position state (PDF 9.4.2) ─────────────────────────────
+        if (kw == "BT") { tm = WalkMat{}; tlm = WalkMat{}; continue; }
+        if (kw == "TL" && stack.size() >= 1 && stack[0].IsNumberOrReal()) {
+            leading = stack[0].GetReal();
+            continue;
+        }
+        if (kw == "Tm" && stack.size() >= 6) {
+            WalkMat m;
+            if (stack[5].IsNumberOrReal()) m.a = stack[5].GetReal();
+            if (stack[4].IsNumberOrReal()) m.b = stack[4].GetReal();
+            if (stack[3].IsNumberOrReal()) m.c = stack[3].GetReal();
+            if (stack[2].IsNumberOrReal()) m.d = stack[2].GetReal();
+            if (stack[1].IsNumberOrReal()) m.e = stack[1].GetReal();
+            if (stack[0].IsNumberOrReal()) m.f = stack[0].GetReal();
+            tm = m; tlm = m;
+            continue;
+        }
+        if ((kw == "Td" || kw == "TD") && stack.size() >= 2) {
+            double tx = 0.0, ty = 0.0;
+            if (stack[1].IsNumberOrReal()) tx = stack[1].GetReal();
+            if (stack[0].IsNumberOrReal()) ty = stack[0].GetReal();
+            WalkMat tr; tr.e = tx; tr.f = ty;
+            tlm = walkMatConcat(tr, tlm);
+            tm = tlm;
+            if (kw == "TD") leading = -ty;
+            continue;
+        }
+        if (kw == "T*") {
+            WalkMat tr; tr.f = -leading;
+            tlm = walkMatConcat(tr, tlm);
+            tm = tlm;
+            continue;
+        }
+
+        // ── marked content ──────────────────────────────────────────────
+        if (kw == "BDC" && stack.size() >= 2) {
+            int64_t found = -1;
+            auto inDict = [&](const PoDoFo::PdfObject& o) -> bool {
+                if (o.IsDictionary()) {
+                    const PoDoFo::PdfObject* m = o.GetDictionary().FindKey("MCID");
+                    if (m && m->IsNumber()) { found = m->GetNumber(); return true; }
+                }
+                return false;
+            };
+            // stack[0]: the property dict (inline form) or the property NAME
+            // (named form → resolve via the page's /Resources /Properties).
+            if (!inDict(stack[0]) && stack[0].IsName()) {
+                const PoDoFo::PdfObject* props = nullptr;
+                try {
+                    auto& res = page.GetResources();
+                    props = res.GetDictionary().FindKey("Properties");
+                } catch (const PoDoFo::PdfError&) { props = nullptr; }
+                if (props && props->IsDictionary()) {
+                    const PoDoFo::PdfObject* sub = props->GetDictionary().FindKey(
+                        PoDoFo::PdfName(stack[0].GetName().GetString()));
+                    if (sub) {
+                        if (sub->IsReference())
+                            sub = &doc.GetObjects().MustGetObject(sub->GetReference());
+                        if (sub) inDict(*sub);
+                    }
+                }
+            }
+            // Defensive: the redaction engine reads the SAME pair from
+            // stack[1] first — honour that form too (property pushed first).
+            if (found < 0 && stack.size() >= 2) inDict(stack[1]);
+            currentMcid = (found >= 0 && wantedMcids.contains(static_cast<int>(found)))
+                              ? found : -1;
+            continue;
+        }
+        if (kw == "EMC") { currentMcid = -1; continue; }
+
+        // ── text showing: record the line origin for the active MCID ────
+        const bool isTextOp = (kw == "Tj" || kw == "TJ" || kw == "'" || kw == "\"");
+        if (!isTextOp) continue;
+        if (currentMcid >= 0) {
+            const qint64 key = markedSpanKey(pageIdx, static_cast<int>(currentMcid));
+            MarkedSpanPos& p = pos[key];
+            if (!p.hasY) {
+                // Baseline line-origin (0,0) through Tm, then through the CTM.
+                const double px = tm.e, py = tm.f;
+                p.topY = ctm.b * px + ctm.d * py + ctm.f;
+                p.hasY = true;
+                ++resolved;
+                if (--budget < 0) { truncated = true; return -1; }
+            }
+            if (p.text.isEmpty()) {
+                // stack[0] holds the string for Tj / ' / " (last-pushed
+                // operand); TJ keeps its strings in the array operand.
+                p.text = snippetFromStrings(stack, kw == "TJ");
+            }
+        }
+        // ' and " perform a T* before showing — advance the line matrices so
+        // the NEXT line origin is right (operator side effects, PDF 9.4.1).
+        if (kw == "'" || kw == "\"") {
+            WalkMat tr; tr.f = -leading;
+            tlm = walkMatConcat(tr, tlm);
+            tm = tlm;
+        }
+    }
+    return resolved;
 }
 
 } // namespace
@@ -499,10 +781,12 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
         r.tagged = true;
 
         QList<StructElem> elems;
-        collectStructElems(doc, root, elems, 0);
+        QList<McidRef> mcidRefs;
+        collectStructElems(doc, root, elems, 0, -1, &mcidRefs);
         r.elementCount = elems.size();
-        if (elems.size() < 2) return r;  // nothing meaningful to reorder
 
+        // ── Element-level analysis (§9.14, unchanged) ───────────────────
+        if (elems.size() >= 2) {
         // Visual order: sort by (page, then top-of-page first). Elements without
         // a /BBox keep their structural order within the page via a tiny
         // struct-index nudge, so only BBox-bearing elements can be flagged.
@@ -540,6 +824,78 @@ ReadingOrderResult analyzeReadingOrder(const QString& path) {
                     .arg(visualPos[i] + 1)
                     .arg(e.page >= 0 ? QObject::tr(" (page %1)").arg(e.page + 1) : QString());
                 r.issuePages << e.page; // §9.14 P0: parallel page list for jump-to-page
+            }
+        }
+        }
+
+        // ── MCID-level analysis (PARITY-SCORECARD-2026-09-30 §4 #3) ─────
+        // The same displacement rule, applied to the MARKED-CONTENT the
+        // structure references: each struct-referenced MCID gets its text
+        // position from the page content stream (bounded walk), so text-level
+        // inversions — interleaved paragraphs, out-of-order lines inside a
+        // correctly-tagged structure — are visible with page+MCID provenance.
+        if (mcidRefs.size() >= 2) {
+            // Distinct pages first — one content-stream walk per page.
+            QSet<int> pages;
+            for (const McidRef& ref : mcidRefs)
+                if (ref.page >= 0) pages.insert(ref.page);
+
+            QHash<qint64, MarkedSpanPos> pos;
+            int budget = gp::kReadingOrderMaxMarkedContentSpans;
+            bool truncated = false;
+            for (int pageIdx : pages) {
+                try {
+                    if (collectMarkedSpanPositions(doc, pageIdx, wantedSetFor(pageIdx, mcidRefs),
+                                                   pos, budget, truncated) < 0)
+                        break;   // budget exhausted — walk stopped early
+                } catch (const PoDoFo::PdfError&) {
+                    // A broken page contributes no positions — its spans keep
+                    // structural order below; never fatal.
+                }
+            }
+            r.markedContentTruncated = truncated;
+            r.markedSpansAnalyzed = static_cast<int>(pos.size());
+
+            const int m = mcidRefs.size();
+            auto visualKeyOf = [&](int i) -> double {
+                const McidRef& ref = mcidRefs[i];
+                const MarkedSpanPos* p = pos.contains(markedSpanKey(ref.page, ref.mcid))
+                                             ? &pos[markedSpanKey(ref.page, ref.mcid)]
+                                             : nullptr;
+                // Same convention as the element level: spans without a
+                // resolved position keep their structural order via the
+                // struct-index nudge (only positioned spans can be flagged).
+                const double y = (p && p->hasY) ? p->topY
+                                                : (1.0e6 - static_cast<double>(i));
+                const int pg = (ref.page < 0) ? 100000 : ref.page;
+                return static_cast<double>(pg) * 1.0e7 - y;
+            };
+            QVector<int> order(m);
+            for (int i = 0; i < m; ++i) order[i] = i;
+            std::stable_sort(order.begin(), order.end(),
+                             [&](int a, int b) { return visualKeyOf(a) < visualKeyOf(b); });
+            QVector<int> mPos(m, 0);
+            for (int p2 = 0; p2 < m; ++p2) mPos[order[p2]] = p2;
+
+            for (int i = 0; i < m; ++i) {
+                if (std::abs(i - mPos[i]) > gp::kReadingOrderSlotTolerance) {
+                    const McidRef& ref = mcidRefs[i];
+                    const MarkedSpanPos* p = pos.contains(markedSpanKey(ref.page, ref.mcid))
+                                                 ? &pos[markedSpanKey(ref.page, ref.mcid)]
+                                                 : nullptr;
+                    const QString snippet =
+                        (p && !p->text.isEmpty())
+                            ? QObject::tr("\"%1\"").arg(p->text)
+                            : QObject::tr("unlabeled");
+                    r.issues << QObject::tr("MCID %1 (%2) at structure position %3 maps to visual position %4%5")
+                                    .arg(ref.mcid)
+                                    .arg(snippet)
+                                    .arg(i + 1)
+                                    .arg(mPos[i] + 1)
+                                    .arg(ref.page >= 0 ? QObject::tr(" (page %1)").arg(ref.page + 1)
+                                                       : QString());
+                    r.issuePages << ref.page;
+                }
             }
         }
     } catch (const PoDoFo::PdfError& ex) {
@@ -599,7 +955,17 @@ void PdfAValidationPanel::onReadingOrderFinished() {
         delete item;
     }
 
-    if (r.issues.isEmpty()) {
+    // Bounded-sample disclosure (PARITY-SCORECARD-2026-09-30 §4 #3): a
+    // marked-content walk that stopped at kReadingOrderMaxMarkedContentSpans
+    // is never silent, and a truncated analysis never reads as "OK".
+    if (r.markedContentTruncated) {
+        m_issuesLayout->addWidget(issueRow(this, QStringLiteral("RO"),
+            tr("Marked-content sample truncated at %1 spans — results may be incomplete.")
+                .arg(r.markedSpansAnalyzed),
+            /*err=*/false, /*pageNumber=*/-1));
+    }
+
+    if (r.issues.isEmpty() && !r.markedContentTruncated) {
         m_statusLabel->setText(tr("✓ %1 elements. Reading order: OK.").arg(r.elementCount));
         m_issuesHeading->hide();
         m_issuesList->hide();
@@ -611,7 +977,14 @@ void PdfAValidationPanel::onReadingOrderFinished() {
     // §9.14 P0: report each mismatch as a JUMP-able row in the issues list —
     // same interaction as the veraPDF violation list — instead of a static
     // message box.
-    m_statusLabel->setText(tr("✗ %1 elements. %2 reading-order issue(s).").arg(r.elementCount).arg(r.issues.size()));
+    if (r.issues.isEmpty()) {
+        // Truncated with no findings: honest partial result, never "OK".
+        m_statusLabel->setText(
+            tr("%1 elements. Marked-content sample truncated — results may be incomplete.")
+                .arg(r.elementCount));
+    } else {
+        m_statusLabel->setText(tr("✗ %1 elements. %2 reading-order issue(s).").arg(r.elementCount).arg(r.issues.size()));
+    }
     m_issuesHeading->setText(tr("READING ORDER · %1").arg(r.issues.size()));
     m_issuesHeading->show();
 

@@ -23,6 +23,15 @@ class PdfAValidationReport;
 /// pinned by tests/TestReadingOrderThreshold.cpp.
 inline constexpr int kReadingOrderSlotTolerance = 2;
 
+/// PARITY-SCORECARD-2026-09-30 §4 #3: bounded-sample cap for the MCID-level
+/// marked-content walk. The reading-order analysis extends INTO the structure
+/// tree's marked-content references (each gets a text position from the page
+/// content stream, in the same bounded spirit as AccessibilityChecker's
+/// kA11yMax*Findings): past this many distinct spans the walk stops and the
+/// result discloses truncation (markedContentTruncated) instead of silently
+/// under-reporting. Triage bound, not a conformance rule.
+inline constexpr int kReadingOrderMaxMarkedContentSpans = 5000;
+
 /// §9.14: tagged-PDF reading-order analysis (exposed for tests).
 struct ReadingOrderResult {
     bool tagged = false;
@@ -30,6 +39,11 @@ struct ReadingOrderResult {
     QStringList issues;
     /// 0-based page for each issue (-1 when unknown); parallel to `issues`.
     QList<int> issuePages;
+    /// True when the marked-content walk hit kReadingOrderMaxMarkedContentSpans
+    /// and stopped early — positions beyond the cap were not extracted.
+    bool markedContentTruncated = false;
+    /// How many distinct marked-content spans were actually resolved.
+    int markedSpansAnalyzed = 0;
 };
 ReadingOrderResult analyzeReadingOrder(const QString& path);
 

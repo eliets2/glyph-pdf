@@ -3108,6 +3108,53 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderThreshold.cpp")
     )
 endif()
 
+# PARITY-SCORECARD-2026-09-30 §4 #3: MCID-level reading-order extraction —
+# the checker walks INTO the structure tree's marked-content references
+# (bare MCID integers / MCR dicts) and takes each span's text position from
+# the page content stream, so text-level order inversions (interleaved
+# paragraphs) are reported with page+MCID provenance.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestReadingOrderMcid.cpp")
+    add_executable(TestReadingOrderMcid
+        tests/TestReadingOrderMcid.cpp
+    )
+    target_include_directories(TestReadingOrderMcid PRIVATE src tests)
+    target_link_libraries(TestReadingOrderMcid PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    if(WIN32 AND EXISTS "${PODOFO_VENDOR_DLL}")
+        add_custom_command(TARGET TestReadingOrderMcid POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${PODOFO_VENDOR_DLL}"
+                "$<TARGET_FILE_DIR:TestReadingOrderMcid>"
+            COMMENT "Deploying podofo 1.1.0 DLL for TestReadingOrderMcid"
+        )
+    endif()
+    if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+        add_custom_command(TARGET TestReadingOrderMcid POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll"
+                "$<TARGET_FILE_DIR:TestReadingOrderMcid>"
+            COMMENT "Deploying pdfium DLL for TestReadingOrderMcid"
+        )
+    endif()
+    add_custom_command(TARGET TestReadingOrderMcid POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestReadingOrderMcid>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestReadingOrderMcid>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestReadingOrderMcid"
+    )
+    add_test(NAME TestReadingOrderMcid COMMAND TestReadingOrderMcid)
+    set_tests_properties(TestReadingOrderMcid PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 60
+        LABELS "unit;accessibility;pdfa;reading-order;qt;headless"
+    )
+endif()
+
 # §9.16 P1: round-trip CONTRACT test — plain saveDocument preserves outline
 # bookmarks + URI/GoTo links; the sanitize path's stripping (Outlines, URI
 # actions) is pinned as intentional-and-visible, never silent.
