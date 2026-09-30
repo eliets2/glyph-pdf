@@ -22,6 +22,11 @@ struct OcrReviewedWord {
     QString reviewedText;    // current reviewed text (== originalText until edited;
                              // empty/whitespace means the word was removed)
     bool    deleted = false; // user removed the word from the review
+    // B7/B12 (ported from archive/final/feat/ocr-verify-finereader d38a6e08 +
+    // ffc1777d): explicit human-verification mark, independent of confidence
+    // and of correction status (provenance stays separate from review status).
+    // Resets on every fresh recognition (new records default to false).
+    bool    verified = false;
     QRectF  boundingBox;     // source box (pageImage pixel space) — immutable
     int     confidence  = 0;
     QString sourceEngine;    // provenance of the ORIGINAL recognition

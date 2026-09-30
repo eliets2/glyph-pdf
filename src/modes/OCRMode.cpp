@@ -388,6 +388,35 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     connect(m_btnReject, &QToolButton::clicked, this, &OCRMode::onRejectResults);
     row->addWidget(m_btnReject);
 
+    // ── B12: page-level "this page is done" triage toggle (Ctrl+T) ──────────
+    m_btnPageVerified = new QToolButton;
+    m_btnPageVerified->setObjectName("ocrBtnPageVerified");
+    m_btnPageVerified->setText(tr("✓ Verified"));
+    m_btnPageVerified->setProperty("variant", "ghost");
+    m_btnPageVerified->setCheckable(true);
+    m_btnPageVerified->setEnabled(false);
+    m_btnPageVerified->setToolTip(tr("Mark this page as human-verified (Ctrl+T)"));
+    m_btnPageVerified->setAccessibleName(tr("Mark page as verified"));
+    m_btnPageVerified->setAccessibleDescription(
+        tr("Flag the current page as reviewed, independent of per-word review progress"));
+    connect(m_btnPageVerified, &QToolButton::clicked, this, [this](bool checked) {
+        if (m_reviewState != ReviewState::ReviewReady) {
+            // Inert outside review — keep the toggle honest with the state.
+            QSignalBlocker block(m_btnPageVerified);
+            m_btnPageVerified->setChecked(m_pageVerified);
+            return;
+        }
+        setPageVerified(checked);
+    });
+    row->addWidget(m_btnPageVerified);
+
+    // B12: ABBYY's own binding — Ctrl+T marks the page verified.
+    auto* pageVerifiedShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_T), this);
+    connect(pageVerifiedShortcut, &QShortcut::activated, this, [this]() {
+        if (m_reviewState == ReviewState::ReviewReady)
+            setPageVerified(!m_pageVerified);
+    });
+
     // ── U03: uncertain-word navigation ──────────────────────────────────────
     // ABBYY-style verify loop: jump between the words that still need human
     // eyes (LOW confidence, not removed). The walk is a wrap-around iterator
@@ -457,11 +486,15 @@ void OCRMode::buildInfoStrip(QVBoxLayout* col)
     m_lblPage->setObjectName("ocrPageLabel");   // U03: setReviewSession fills the real page identity
     m_lblAvgConf = infoLab(tr("AVG CONFIDENCE —"));
     m_lblLowWords= infoLab(tr("LOW-CONFIDENCE WORDS —"));
+    // B7: human-verification progress (markWordVerified / mark-page-verified).
+    m_lblVerified = infoLab(tr("VERIFIED —"));
+    m_lblVerified->setObjectName("ocrVerifiedLabel");
     m_lblEngine  = infoLab(tr("ENGINE: Tesseract 5"));
 
     row->addWidget(m_lblPage);
     row->addWidget(m_lblAvgConf);
     row->addWidget(m_lblLowWords);
+    row->addWidget(m_lblVerified);
     row->addWidget(m_lblEngine);
     row->addStretch(1);
 
@@ -669,6 +702,30 @@ void OCRMode::buildPanes(QVBoxLayout* col)
             setUserDictionaryLanguage(m_dictLang);   // reload + refresh flagging
     });
     wordRow->addWidget(m_btnAddToDict);
+    // ── B7: explicit per-word human-verification mark (independent of the
+    // confidence estimate and of correction status).
+    m_btnMarkVerified = new QToolButton;
+    m_btnMarkVerified->setObjectName("ocrBtnMarkVerified");
+    m_btnMarkVerified->setText(tr("✓"));
+    m_btnMarkVerified->setProperty("variant", "ghost");
+    m_btnMarkVerified->setCheckable(true);
+    m_btnMarkVerified->setEnabled(false);
+    m_btnMarkVerified->setToolTip(tr("Mark the selected word as human-verified"));
+    m_btnMarkVerified->setAccessibleName(tr("Mark word as verified"));
+    connect(m_btnMarkVerified, &QToolButton::clicked, this, [this](bool checked) {
+        if (m_selectedWordId < 0) return;
+        if (checked) {
+            markWordVerified(m_selectedWordId);
+        } else {
+            // Un-marking is a plain review-status edit on the record.
+            if (m_reviewState != ReviewState::ReviewReady) return;
+            if (m_selectedWordId < m_reviewWords.size()) {
+                m_reviewWords[m_selectedWordId].verified = false;
+                updateInfoStrip();
+            }
+        }
+    });
+    wordRow->addWidget(m_btnMarkVerified);
     zLay->addLayout(wordRow);
 
     // ── B9: ranked suggestions for the selected word. Activating one applies
@@ -781,6 +838,15 @@ void OCRMode::transitionTo(ReviewState state, const QString& message)
     // only when some word is still uncertain.
     updateNavigationButtons();
 
+    // B7/B12: the verification controls ride the same discipline — page
+    // triage only while results are actually under review.
+    if (m_btnPageVerified)
+        m_btnPageVerified->setEnabled(state == ReviewState::ReviewReady);
+    if (m_btnMarkVerified)
+        m_btnMarkVerified->setEnabled(state == ReviewState::ReviewReady
+                                      && m_selectedWordId >= 0
+                                      && m_selectedWordId < m_reviewWords.size());
+
     // PGR-10 triage (review-state re-entrancy): the word inspector rides the
     // same funnel — a state change that leaves ReviewReady must disable the
     // correction editor and delete button immediately, not at the next
@@ -852,6 +918,8 @@ void OCRMode::onRejectResults()
     m_selectedWordId = -1;
     // B4: session-scoped Skip-All dispositions die with the results.
     m_skipAllTokens.clear();
+    // B12: reject also clears the page-level triage state.
+    setPageVerified(false);
     if (m_scanCanvas) {
         m_scanCanvas->setPageImage(QImage());
         m_scanCanvas->setWords({});
@@ -951,6 +1019,8 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
     // B4: session-scoped Skip-All dispositions die with the results — a fresh
     // recognition re-flags everything.
     m_skipAllTokens.clear();
+    // B12: a fresh delivery restarts the page-level triage state.
+    setPageVerified(false);
 
     // R08: build the reviewed word records — stable IDs are the delivery
     // order, reviewed text starts as the original text, source boxes are the
@@ -1009,6 +1079,8 @@ void OCRMode::setReviewSession(const OcrReviewSession& session)
     // B4: session-scoped Skip-All dispositions die with the results — a fresh
     // recognition re-flags everything.
     m_skipAllTokens.clear();
+    // B12: a fresh delivery restarts the page-level triage state.
+    setPageVerified(false);
 
     if (m_scanCanvas) {
         m_scanCanvas->setPageImage(session.pageImage);
@@ -1322,6 +1394,15 @@ void OCRMode::updateWordInspector()
         m_suggestionCombo->setEnabled(valid && reviewable
                                       && !m_currentSuggestions.isEmpty());
     }
+    // B7: the verify-mark follows the selection and mirrors the record state.
+    if (m_btnMarkVerified) {
+        const bool removable = valid && reviewable
+                               && !m_reviewWords[m_selectedWordId].deleted
+                               && !m_reviewWords[m_selectedWordId].reviewedText.trimmed().isEmpty();
+        m_btnMarkVerified->setEnabled(removable);
+        QSignalBlocker block(m_btnMarkVerified);
+        m_btnMarkVerified->setChecked(removable && m_reviewWords[m_selectedWordId].verified);
+    }
     // U03: the magnifier shows the selected word's source crop; no selection
     // → cleared placeholder (the zoom header drops back to "ZOOM").
     if (m_magnifier && !valid) m_magnifier->clearSelection();
@@ -1436,6 +1517,7 @@ void OCRMode::updateInfoStrip()
     int counted = 0;
     double totalConf = 0.0;
     int lowCount     = 0;
+    int verifiedCount = 0;
     for (const auto &rec : m_reviewWords) {
         if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) continue;
         ++counted;
@@ -1444,11 +1526,15 @@ void OCRMode::updateInfoStrip()
         // band, same threshold, same colors as the legend and the navigation.
         if (OcrConfidence::bandFor(rec.confidence) == OcrConfidence::Band::Low)
             ++lowCount;
+        // B7: explicit human-verification marks (removed words drop out of
+        // the denominator entirely).
+        if (rec.verified) ++verifiedCount;
     }
 
     if (counted == 0) {
         m_lblAvgConf->setText(tr("AVG CONFIDENCE —"));
         m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
+        m_lblVerified->setText(tr("VERIFIED —"));
         return;
     }
 
@@ -1458,6 +1544,49 @@ void OCRMode::updateInfoStrip()
         tr("AVG CONFIDENCE %1%").arg(static_cast<int>(std::round(avgConf))));
     m_lblLowWords->setText(
         tr("LOW-CONFIDENCE WORDS %1").arg(lowCount));
+    m_lblVerified->setText(
+        tr("VERIFIED %1%").arg(verifiedPercent()));
+}
+
+// ── B7+B12: verification state (ported from archive/final/feat/
+//    ocr-verify-finereader d38a6e08 + ffc1777d) ──────────────────────────────
+
+bool OCRMode::markWordVerified(int stableId)
+{
+    if (stableId < 0 || stableId >= m_reviewWords.size()) return false;
+    // Same review-action discipline as applyWordCorrection/markWordDeleted.
+    if (m_reviewState != ReviewState::ReviewReady) return false;
+    OcrReviewedWord& rec = m_reviewWords[stableId];
+    if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) return false;
+    rec.verified = true;
+    updateInfoStrip();
+    if (m_btnMarkVerified && m_selectedWordId == stableId)
+        m_btnMarkVerified->setChecked(true);
+    return true;
+}
+
+int OCRMode::verifiedPercent() const
+{
+    // Removed words are out of the page text and out of the denominator.
+    int total = 0;
+    int verified = 0;
+    for (const auto& rec : m_reviewWords) {
+        if (rec.deleted || rec.reviewedText.trimmed().isEmpty()) continue;
+        ++total;
+        if (rec.verified) ++verified;
+    }
+    if (total == 0) return 0;
+    return static_cast<int>(std::lround(verified * 100.0 / total));
+}
+
+void OCRMode::setPageVerified(bool verified)
+{
+    m_pageVerified = verified;
+    // Keep the toolbar toggle in sync when set programmatically.
+    if (m_btnPageVerified && m_btnPageVerified->isChecked() != verified) {
+        QSignalBlocker block(m_btnPageVerified);
+        m_btnPageVerified->setChecked(verified);
+    }
 }
 
 // ── setSemanticDocument — Djot-aware review UI ────────────────────────────────
@@ -1624,6 +1753,8 @@ void OCRMode::setSemanticDocument(const docmodel::SemanticDocument &doc,
     m_selectedWordId = -1;
     // B4: no records → no session-scoped Skip-All tokens.
     m_skipAllTokens.clear();
+    // B12: the Djot path delivers no page triage state either.
+    setPageVerified(false);
     if (m_scanCanvas) {
         m_scanCanvas->setPageImage(QImage());
         m_scanCanvas->setWords({});

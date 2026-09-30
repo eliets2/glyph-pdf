@@ -174,6 +174,20 @@ public:
     /// ReviewReady or for empty tokens; otherwise the number replaced.
     int replaceAllOccurrences(const QString& token, const QString& replacement);
 
+    // ── B7+B12 (ported from archive/final/feat/ocr-verify-finereader
+    //    d38a6e08 + ffc1777d): verification state ─────────────────────────────
+    /// Mark a word human-verified (an explicit review disposition, independent
+    /// of confidence and correction status). A review action: false outside
+    /// ReviewReady, for unknown ids or for removed records.
+    bool markWordVerified(int stableId);
+    /// Fraction of non-removed records marked verified, in percent (0 when
+    /// nothing is loaded). Drives the VERIFIED % info-strip cell.
+    int verifiedPercent() const;
+    /// B12: explicit "this page is done" triage state (Ctrl+T / toolbar
+    /// toggle). Resets on fresh deliveries and on reject.
+    void setPageVerified(bool verified);
+    bool isPageVerified() const { return m_pageVerified; }
+
 signals:
     void ocrRequested();
     void reviewAccepted();
@@ -340,6 +354,12 @@ private:
     QStringList m_skipAllTokens;
     /// True when the word's current text was dismissed via skipAllOccurrences.
     bool isSkippedToken(const OcrReviewedWord& w) const;
+
+    // ── B7+B12: verification state ──────────────────────────────────────────
+    bool m_pageVerified = false;
+    QLabel*      m_lblVerified     = nullptr;   // info strip: VERIFIED %
+    QToolButton* m_btnPageVerified = nullptr;   // toolbar Ctrl+T toggle
+    QToolButton* m_btnMarkVerified = nullptr;   // inspector: verify selected word
 };
 
 } // namespace gp

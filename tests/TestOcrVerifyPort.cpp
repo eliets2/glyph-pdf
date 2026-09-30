@@ -12,6 +12,7 @@
 #include <QComboBox>
 #include <QFile>
 #include <QFileInfo>
+#include <QLabel>
 #include <QToolButton>
 
 #include "modes/OCRMode.h"
@@ -302,6 +303,81 @@ private slots:
 
         // Repeated replace-all is idempotent — no record matches anymore.
         QCOMPARE(panel.replaceAllOccurrences(QStringLiteral("do1or"), QStringLiteral("dolor")), 0);
+    }
+
+    // ── P4 (B7+B12): word/page verification state ──────────────────────────
+
+    // Per-word verified marks drive a VERIFIED % cell; removed words drop out
+    // of the denominator; marks are refused outside ReviewReady / for unknown
+    // or removed records.
+    void verifiedPercentTracksMarkedWords()
+    {
+        OCRMode panel;
+        // Guard: outside ReviewReady nothing can be marked.
+        QCOMPARE(panel.markWordVerified(0), false);
+
+        panel.setReviewSession(makeSession(makeWords()));   // alpha95 beta65 gamma40
+        QCOMPARE(panel.verifiedPercent(), 0);
+
+        QLabel* lbl = panel.findChild<QLabel*>(QStringLiteral("ocrVerifiedLabel"));
+        QVERIFY(lbl);   // the info strip carries the VERIFIED cell
+
+        // One of three → 33, and the strip says so.
+        QCOMPARE(panel.markWordVerified(0), true);
+        QCOMPARE(panel.verifiedPercent(), 33);
+        QVERIFY(lbl->text().contains(QStringLiteral("33")));
+
+        // Unknown stable ids are refused.
+        QCOMPARE(panel.markWordVerified(99), false);
+
+        // Marking alpha and beta too → all three verified.
+        QCOMPARE(panel.markWordVerified(1), true);
+        QCOMPARE(panel.markWordVerified(2), true);
+        QCOMPARE(panel.verifiedPercent(), 100);
+
+        // A removed word leaves the denominator entirely: delete the unmarked
+        // gamma — the percentage stays 100 instead of dropping to 67.
+        QVERIFY(panel.markWordDeleted(2));
+        QCOMPARE(panel.verifiedPercent(), 100);
+
+        // Removed records cannot be (re)marked.
+        QCOMPARE(panel.markWordVerified(2), false);
+    }
+
+    // Ctrl+T page-level triage: an explicit "this page is done" state that
+    // resets on fresh deliveries and follows the ReviewReady lifecycle.
+    void pageVerifiedToggleLifecycle()
+    {
+        OCRMode panel;
+        QVERIFY(!panel.isPageVerified());
+
+        QToolButton* btn = panel.findChild<QToolButton*>(QStringLiteral("ocrBtnPageVerified"));
+        QVERIFY(btn);
+
+        // Outside ReviewReady the toggle is inert (and unchecked).
+        btn->click();
+        QVERIFY(!panel.isPageVerified());
+
+        panel.setReviewSession(makeSession(makeWords()));
+        QVERIFY(!panel.isPageVerified());
+
+        // Programmatic set syncs the toolbar toggle.
+        panel.setPageVerified(true);
+        QVERIFY(panel.isPageVerified());
+        QVERIFY(btn->isChecked());
+
+        // Fresh deliveries reset the triage state.
+        panel.setReviewSession(makeSession(makeWords()));
+        QVERIFY(!panel.isPageVerified());
+        QVERIFY(!btn->isChecked());
+
+        // And the button drives it back in ReviewReady.
+        btn->click();
+        QVERIFY(panel.isPageVerified());
+
+        // Reject clears it too.
+        panel.onRejectResults();
+        QVERIFY(!panel.isPageVerified());
     }
 
 protected:
