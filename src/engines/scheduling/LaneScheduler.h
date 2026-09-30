@@ -187,6 +187,18 @@ SchedulerResult<T> LaneScheduler::submit(SchedulerOptions opts,
             err.code = SchedulerErrorCode::WorkerCrashed;
             err.message = QString::fromStdString(e.what());
             promise->addResult(ScheduledValue<T>::failure(err));
+        } catch (...) {
+            // V-02 fix (AUDIT-VERIFICATION-2026-09-25): a throwable outside
+            // std::exception used to escape this boundary into the
+            // QThreadPool / GPU loop uncaught → std::terminate() killed the
+            // process (and, on the GPU lane, leaked the semaphore slot, since
+            // the release below never ran). The worker boundary converts ANY
+            // escaping throwable into an honest reported failure — the
+            // process survives and the accounting below is released.
+            SchedulerError err;
+            err.code = SchedulerErrorCode::WorkerCrashed;
+            err.message = QStringLiteral("worker crashed with a non-standard exception");
+            promise->addResult(ScheduledValue<T>::failure(err));
         }
         promise->finish();
         if (lane == Lane::GPU) {

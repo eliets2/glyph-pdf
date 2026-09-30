@@ -409,6 +409,64 @@ private slots:
         QCOMPARE(sched.inFlightCount(Lane::GPU), 0);
     }
 
+    // ── V-02 (AUDIT-VERIFICATION-2026-09-25): worker exceptions outside ────────
+    // std::exception used to escape runWork's catch(const std::exception&)
+    // boundary into the QThreadPool / GPU loop UNCAUGHT → std::terminate()
+    // killed the whole process (and, on the GPU lane, leaked the semaphore
+    // slot). THE PIN: a worker job throwing a custom non-std type must report
+    // a WorkerCrashed failure and leave the lane accounting released — the
+    // process and the scheduler both survive. (Before the catch(...) boundary
+    // existed, this test DIED mid-suite — that abnormal termination is the
+    // recorded fail-before.)
+    void testNonStdExceptionFromWorkerReportsFailureNotTerminate() {
+        struct NonStdThrowable { int tag; };  // deliberately NOT std::exception
+
+        // CPU lane: the pool thread must not take the process down.
+        {
+            LaneScheduler sched(2, 2);
+            auto f = sched.submit<int>(
+                {Lane::CPU, TaskPriority::Normal, 0, "v02-cpu"},
+                []() -> int { throw NonStdThrowable{7}; });
+            QVERIFY2(waitForFuture(f, 10000),
+                     "CPU worker crash must be reported, not terminate the process");
+            const auto sv = f.result();
+            QVERIFY2(!sv.ok, "a crashed job must not report success");
+            QCOMPARE(sv.error.code, SchedulerErrorCode::WorkerCrashed);
+            QVERIFY2(!sv.error.message.isEmpty(),
+                     "the crash report must carry an honest message");
+            QCOMPARE(sched.inFlightCount(Lane::CPU), 0);
+
+            // The pool must still be fully serviceable afterwards.
+            auto g = sched.submit<int>(
+                {Lane::CPU, TaskPriority::Normal, 1, "v02-cpu-after"},
+                []() -> int { return 5; });
+            QVERIFY2(waitForFuture(g, 10000), "CPU pool unusable after crash report");
+            QVERIFY(g.result().ok);
+        }
+        // GPU lane: the warm worker must survive AND release the slot — a
+        // leaked slot hangs every future submit (watchdog turns that into a
+        // test failure instead of a ctest stall).
+        {
+            LaneScheduler sched(/*gpuCapacity=*/1, /*cpuCapacity=*/2);
+            auto f = sched.submit<int>(
+                {Lane::GPU, TaskPriority::Normal, 0, "v02-gpu"},
+                []() -> int { throw NonStdThrowable{8}; });
+            QVERIFY2(waitForFuture(f, 10000),
+                     "GPU worker crash must be reported, not terminate the process");
+            const auto sv = f.result();
+            QVERIFY2(!sv.ok, "a crashed GPU job must not report success");
+            QCOMPARE(sv.error.code, SchedulerErrorCode::WorkerCrashed);
+            QCOMPARE(sched.inFlightCount(Lane::GPU), 0);
+
+            auto g = sched.submit<int>(
+                {Lane::GPU, TaskPriority::Normal, 1, "v02-gpu-after"},
+                []() -> int { return 5; });
+            QVERIFY2(waitForFuture(g, 10000),
+                     "GPU semaphore slot leaked after a non-std-exception "
+                     "failure — the next submit hung forever");
+            QVERIFY(g.result().ok);
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(TestLaneScheduler)
