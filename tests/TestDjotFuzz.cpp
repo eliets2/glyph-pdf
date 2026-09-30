@@ -23,7 +23,10 @@
 
 #include <QtTest>
 #include <QCoreApplication>
+#include <QElapsedTimer>
+#include <functional>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -67,6 +70,71 @@ static int countTopLevelBlocks(const docmodel::SemanticDocument& doc)
     }
     return count;
 }
+
+// ---------------------------------------------------------------------------
+// R7 pins for the CX-13 djot finding (heap-buffer-overflow via unbounded
+// codec recursion over a 2000-level blockquote nesting bomb — see
+// docs/audit/evidence-fuzz-djot-finding-2026-09-30/).
+//
+// The codec must refuse documents whose AST nests deeper than its stated
+// budget with this exact, honest error; refusal is a decode failure at the
+// codec boundary (throw), never silent truncation and never a crash.
+// ---------------------------------------------------------------------------
+
+// Canonical refusal substring (must match LuaDjotCodec.cpp kMaxAstDepth).
+static const char* kDepthRefusal = "nesting deeper than the supported budget (256)";
+
+// Canonical fingerprint of a decoded document: sections (title) recursively,
+// blocks by type, inline trees by (type, text). Used by the shallow-nesting
+// golden pin to prove decode byte-identity across the budget change.
+static void serializeInlines(const std::vector<std::shared_ptr<docmodel::Inline>>& inl,
+                             std::ostringstream& out)
+{
+    for (const auto& i : inl) {
+        if (!i) { out << "~;"; continue; }
+        out << static_cast<int>(i->getType()) << ':' << i->getText() << ';';
+        serializeInlines(i->getChildren(), out);
+    }
+}
+
+static void serializeSection(const docmodel::Section& sec, std::ostringstream& out)
+{
+    out << "S(" << sec.getTitle() << ";";
+    for (const auto& blk : sec.getBlocks()) {
+        if (!blk) { out << "b~;"; continue; }
+        out << 'b' << static_cast<int>(blk->getType()) << '(';
+        serializeInlines(blk->getInlines(), out);
+        out << ')';
+    }
+    for (const auto& sub : sec.getSubsections()) {
+        if (sub) serializeSection(*sub, out);
+    }
+    out << ')';
+}
+
+static std::string serializeDocument(const docmodel::SemanticDocument& doc)
+{
+    std::ostringstream out;
+    out << "doc{";
+    for (const auto& sec : doc.getSections()) {
+        if (sec) serializeSection(*sec, out);
+    }
+    out << '}';
+    return out.str();
+}
+
+static void assertDepthRefusal(const std::function<std::unique_ptr<docmodel::SemanticDocument>()>& decode,
+                               const char* context)
+{
+    try {
+        auto doc = decode();
+        QFAIL(qPrintable(QString("%1: decode must refuse over-deep nesting, not decode it").arg(context)));
+    } catch (const std::exception& e) {
+        QVERIFY2(std::string(e.what()).find(kDepthRefusal) != std::string::npos,
+                 qPrintable(QString("%1: unexpected refusal message: %2").arg(context).arg(e.what())));
+    }
+}
+
 
 // Collect all leaf text strings (TextInline nodes) from the document.
 static std::vector<std::string> collectLeafTexts(const docmodel::SemanticDocument& doc)
@@ -314,6 +382,142 @@ private slots:
             QFAIL(qPrintable(QString("djotToDocument (deeply nested) threw: %1").arg(e.what())));
         } catch (...) {
             QFAIL("djotToDocument (deeply nested) threw an unknown exception");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // R7 pin (a) — CX-13 nesting bomb must be REFUSED by the public decode
+    // API with the canonical depth-budget error, in bounded time, without a
+    // crash. The input reproduces the preserved CX-13 crash artifact
+    // (crash-5d1a4a36f7777001ea587b3c0ce864d311484c40) byte-for-byte: 2000
+    // "> " blockquote markers + "x" = 4001 bytes (SHA1 of this construction
+    // equals the artifact's libFuzzer name). On the unpatched codec this pin
+    // fails (or crashes — both are the recorded fail-before); with the budget
+    // disabled it fails because no refusal is thrown (the recorded negative
+    // control).
+    // -----------------------------------------------------------------------
+    void testDepthBudgetRefusalOnNestingBomb()
+    {
+        pdfws::LuaDjotCodec codec(djotLibPath());
+
+        // Vector 1: the exact CX-13 crash input — blockquote containment
+        // drives the collectInlineText/walkBlock C recursion.
+        std::string bomb;
+        bomb.reserve(4001);
+        for (int i = 0; i < 2000; ++i) bomb += "> ";
+        bomb += 'x';
+        QVERIFY2(bomb.size() == 4001, "CX-13 shape must be 4001 bytes");
+        QElapsedTimer timer;
+        timer.start();
+        assertDepthRefusal([&] { return codec.djotToDocument(bomb); },
+                           "blockquote bomb (CX-13 shape)");
+        QVERIFY2(timer.elapsed() < 30000,
+                 qPrintable(QString("depth refusal took %1 ms (unbounded work?)")
+                                .arg(timer.elapsed())));
+
+        // Vector 2: deep inline nesting drives the walkInline C recursion.
+        const std::string emphBomb(600, '_');
+        assertDepthRefusal([&] { return codec.djotToDocument(emphBomb + "x" + emphBomb); },
+                           "emphasis bomb");
+
+        // No-false-refusal guard: a bare run of '>' (the finding report's
+        // abridged "4001 bytes of >" shape) parses as one flat paragraph of
+        // literal text — shallow, legal, and it must still decode.
+        const std::string flatShape(4001, '>');
+        std::unique_ptr<docmodel::SemanticDocument> flatDoc;
+        try {
+            flatDoc = codec.djotToDocument(flatShape);
+        } catch (const std::exception& e) {
+            QFAIL(qPrintable(QString("bare '>' run is shallow text and must decode, threw: %1")
+                                 .arg(e.what())));
+        }
+        QVERIFY2(flatDoc != nullptr, "bare '>' run must decode non-null");
+    }
+
+    // -----------------------------------------------------------------------
+    // R7 pin (b) — normal nesting still decodes byte-identically. A 40-level
+    // mixed blockquote/list/emphasis document decodes to exactly the same
+    // canonical fingerprint it had before the depth-budget change (golden
+    // captured on base 5b4989fc, fail-before run).
+    // -----------------------------------------------------------------------
+    void testShallowMixedNestingGolden()
+    {
+        pdfws::LuaDjotCodec codec(djotLibPath());
+
+        std::string djotText;
+        for (int i = 0; i < 40; ++i) djotText += "> ";
+        djotText += "deep *strong* text\n";
+        for (int i = 0; i < 40; ++i) djotText += "> ";
+        djotText += "- list _emph_ item\n";
+
+        std::unique_ptr<docmodel::SemanticDocument> doc;
+        try {
+            doc = codec.djotToDocument(djotText);
+        } catch (const std::exception& e) {
+            QFAIL(qPrintable(QString("shallow 40-level nesting must decode, threw: %1")
+                                 .arg(e.what())));
+        }
+        QVERIFY2(doc != nullptr, "shallow 40-level nesting must decode non-null");
+
+        // Golden fingerprint captured on base 5b4989fc (pre-change decode):
+        // the 40-level blockquote chain flattens to one untitled section with
+        // a single paragraph whose text is the concatenated inline content.
+        const char* golden = "doc{S(;b0(0:deep strong text- list emph item;))}";
+
+        QCOMPARE(serializeDocument(*doc), std::string(golden));
+    }
+
+    // -----------------------------------------------------------------------
+    // R7 pin (c) — the emit walk is budgeted too: a synthetic 300-deep
+    // SemanticDocument (section chain / emphasis chain) must be refused with
+    // the same canonical error instead of recursing unbounded.
+    // -----------------------------------------------------------------------
+    void testEncodeRefusesOverDeepNesting()
+    {
+        pdfws::LuaDjotCodec codec(djotLibPath());
+
+        // 300-deep subsection chain (leaf innermost).
+        auto leafSec = std::make_shared<docmodel::Section>(
+            "leaf", std::vector<std::shared_ptr<docmodel::Block>>{},
+            std::vector<std::shared_ptr<docmodel::Section>>{}, anyProv());
+        std::shared_ptr<docmodel::Section> secChain = leafSec;
+        for (int i = 0; i < 300; ++i) {
+            secChain = std::make_shared<docmodel::Section>(
+                std::string{"lvl"} + std::to_string(i),
+                std::vector<std::shared_ptr<docmodel::Block>>{},
+                std::vector<std::shared_ptr<docmodel::Section>>{secChain},
+                anyProv());
+        }
+        docmodel::SemanticDocument secDoc({secChain}, anyProv());
+        try {
+            codec.documentToDjot(secDoc);
+            QFAIL("documentToDjot(300-deep sections) must refuse over-deep nesting");
+        } catch (const std::exception& e) {
+            QVERIFY2(std::string(e.what()).find(kDepthRefusal) != std::string::npos,
+                     qPrintable(QString("unexpected refusal message: %1").arg(e.what())));
+        }
+
+        // 300-deep emphasis chain.
+        std::shared_ptr<docmodel::Inline> emph =
+            std::make_shared<docmodel::TextInline>("x", anyProv());
+        for (int i = 0; i < 300; ++i) {
+            emph = std::make_shared<docmodel::ContainerInline>(
+                docmodel::Inline::Type::Emph,
+                std::vector<std::shared_ptr<docmodel::Inline>>{emph}, anyProv());
+        }
+        auto para = std::make_shared<docmodel::TextBlock>(
+            docmodel::Block::Type::Paragraph,
+            std::vector<std::shared_ptr<docmodel::Inline>>{emph}, anyProv());
+        auto inSec = std::make_shared<docmodel::Section>(
+            "deep-emph", std::vector<std::shared_ptr<docmodel::Block>>{para},
+            std::vector<std::shared_ptr<docmodel::Section>>{}, anyProv());
+        docmodel::SemanticDocument emphDoc({inSec}, anyProv());
+        try {
+            codec.documentToDjot(emphDoc);
+            QFAIL("documentToDjot(300-deep emphasis) must refuse over-deep nesting");
+        } catch (const std::exception& e) {
+            QVERIFY2(std::string(e.what()).find(kDepthRefusal) != std::string::npos,
+                     qPrintable(QString("unexpected refusal message: %1").arg(e.what())));
         }
     }
 

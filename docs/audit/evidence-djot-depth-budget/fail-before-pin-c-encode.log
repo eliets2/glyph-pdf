@@ -1,0 +1,8 @@
+********* Start testing of TestDjotFuzz *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestDjotFuzz::initTestCase()
+FAIL!  : TestDjotFuzz::testEncodeRefusesOverDeepNesting() documentToDjot(300-deep sections) must refuse over-deep nesting
+D:/pdf/pdf-djotfix/tests/TestDjotFuzz.cpp(494) : failure location
+PASS   : TestDjotFuzz::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 2ms
+********* Finished testing of TestDjotFuzz *********

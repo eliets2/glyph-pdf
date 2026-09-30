@@ -125,6 +125,70 @@ void* boundedAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
 
 namespace {
 
+// ---------------------------------------------------------------------------
+// CX-13 depth budget — shared by the decode AST walk and the encode emitter.
+//
+// The decode walk used to recurse in C with NO depth bound, so a nesting bomb
+// (the 2026-09-30 libFuzzer find: 2000 "> " blockquote markers + "x", 4001
+// bytes — docs/audit/evidence-fuzz-djot-finding-2026-09-30/) walked lua_State's
+// stack far past its allocation — finishrawget/lapi.c writes past the heap
+// region (ASan heap-buffer-overflow). Two guards close
+// it, both wrapper-level in this codec:
+//   1. kMaxAstDepth — every recursive entry checks the depth and REFUSES the
+//      document with an honest, specific error (fail-closed decode failure;
+//      never silent truncation). 256 sits far above any real-world djot
+//      document (real block/list/heading nesting is single digits to low
+//      tens; djot heading levels cap at 6) yet bounds C recursion to a few
+//      hundred frames and Lua-stack creep to ~kMaxAstDepth slots — trivially
+//      inside both the host C stack and LUAI_MAXSTACK.
+//   2. A per-level lua_checkstack reservation. The Lua C API does NOT grow
+//      the stack implicitly (lua_rawgeti/lua_rawget push via api_incr_top,
+//      whose bound check compiles out in release), and a one-shot up-front
+//      reservation can evaporate — the GC shrinks stacks larger than ~3x
+//      their in-use window (luaD_shrinkstack, called from lgc.c). Reserving
+//      kWalkSlotsPerLevel at every recursion level re-establishes headroom as
+//      the walk descends.
+// The encode emitter recurses over SemanticDocument trees the same way and
+// gets the same bound: a synthetic 300-deep tree is refused, never an
+// unbounded C recursion.
+// ---------------------------------------------------------------------------
+
+// Maximum supported djot nesting depth (see rationale above).
+constexpr int kMaxAstDepth = 256;
+
+// Lua stack slots one walk level may consume: the held child node plus the
+// transient key/value pushes of nodeTag/nodeText/childCount/pushChild.
+constexpr int kWalkSlotsPerLevel = 8;
+
+// Canonical refusal. Callers (and the TestDjotFuzz R7 pins) match the
+// "nesting deeper than the supported budget (N)" substring.
+static std::runtime_error depthBudgetError()
+{
+    std::ostringstream msg;
+    msg << "djot: nesting deeper than the supported budget ("
+        << kMaxAstDepth << ")";
+    return std::runtime_error(msg.str());
+}
+
+// Guard for one decode-walk level: refuse over-deep trees and make sure the
+// Lua stack actually has room for this level's pushes before any are made.
+static void enterWalkLevel(lua_State* L, int depth)
+{
+    if (depth > kMaxAstDepth)
+        throw depthBudgetError();
+    if (!lua_checkstack(L, kWalkSlotsPerLevel))
+        throw std::runtime_error(
+            "djot: out of Lua stack while walking the AST (depth "
+            + std::to_string(depth) + ")");
+}
+
+// Guard for one encode-emitter recursion level.
+static void checkEmitDepth(int depth)
+{
+    if (depth > kMaxAstDepth)
+        throw depthBudgetError();
+}
+
 // Escape Djot special characters inside plain text spans.
 // In Djot, the following characters begin markup when they appear inline:
 // \ * _ ` [ ] { } ^ ~ < >
@@ -148,11 +212,19 @@ static std::string escapeDjotText(const std::string& s)
     return out;
 }
 
-static void emitInlines(const std::vector<std::shared_ptr<docmodel::Inline>>& inlines,
-                        std::ostringstream& out);
+// ---------------------------------------------------------------------------
+// Encode-side depth budget: see the kMaxAstDepth block at the top of this
+// anonymous namespace. The emitter recurses over SemanticDocument trees
+// (sections via subsections, inlines via container children) with the same
+// bound as the decode walk.
+// ---------------------------------------------------------------------------
 
-static void emitInline(const docmodel::Inline& inl, std::ostringstream& out)
+static void emitInlines(const std::vector<std::shared_ptr<docmodel::Inline>>& inlines,
+                        std::ostringstream& out, int depth);
+
+static void emitInline(const docmodel::Inline& inl, std::ostringstream& out, int depth)
 {
+    checkEmitDepth(depth);
     using T = docmodel::Inline::Type;
     switch (inl.getType()) {
     case T::Text:
@@ -160,7 +232,7 @@ static void emitInline(const docmodel::Inline& inl, std::ostringstream& out)
         break;
     case T::Emph:
         out << '_';
-        emitInlines(inl.getChildren(), out);
+        emitInlines(inl.getChildren(), out, depth + 1);
         out << '_';
         break;
     case T::Strong:
@@ -168,7 +240,7 @@ static void emitInline(const docmodel::Inline& inl, std::ostringstream& out)
         // here parses back as a *nested* strong (strong>strong), which breaks
         // the inline round-trip — see TestDjotRoundtrip::testStructuralRoundtrip.
         out << '*';
-        emitInlines(inl.getChildren(), out);
+        emitInlines(inl.getChildren(), out, depth + 1);
         out << '*';
         break;
     case T::Code:
@@ -184,10 +256,11 @@ static void emitInline(const docmodel::Inline& inl, std::ostringstream& out)
 }
 
 static void emitInlines(const std::vector<std::shared_ptr<docmodel::Inline>>& inlines,
-                        std::ostringstream& out)
+                        std::ostringstream& out, int depth)
 {
+    checkEmitDepth(depth);
     for (const auto& inl : inlines) {
-        if (inl) emitInline(*inl, out);
+        if (inl) emitInline(*inl, out, depth);
     }
 }
 
@@ -197,14 +270,14 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
     using BT = docmodel::Block::Type;
     switch (block.getType()) {
     case BT::Paragraph:
-        emitInlines(block.getInlines(), out);
+        emitInlines(block.getInlines(), out, 0);
         out << "\n\n";
         break;
     case BT::Heading: {
         // Heading blocks inside a section inherit level from call site.
         const int lvl = headingLevel > 0 ? headingLevel : 1;
         out << std::string(static_cast<size_t>(lvl), '#') << ' ';
-        emitInlines(block.getInlines(), out);
+        emitInlines(block.getInlines(), out, 0);
         out << "\n\n";
         break;
     }
@@ -213,17 +286,17 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
             if (!item) continue;
             out << "- ";
             if (item->getType() == BT::ListItem) {
-                emitInlines(item->getInlines(), out);
+                emitInlines(item->getInlines(), out, 0);
             } else {
                 // Fallback: treat child block as paragraph content
-                emitInlines(item->getInlines(), out);
+                emitInlines(item->getInlines(), out, 0);
             }
             out << '\n';
         }
         out << '\n';
         break;
     case BT::ListItem:
-        emitInlines(block.getInlines(), out);
+        emitInlines(block.getInlines(), out, 0);
         out << '\n';
         break;
     case BT::CodeBlock: {
@@ -231,7 +304,7 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
         // Code block content: child blocks are treated as lines
         for (const auto& child : block.getBlocks()) {
             if (!child) continue;
-            emitInlines(child->getInlines(), out);
+            emitInlines(child->getInlines(), out, 0);
             out << '\n';
         }
         out << "```\n\n";
@@ -250,13 +323,13 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
             if (cells.empty()) {
                 // Row with no parsed cells — emit the row's own inlines as a single cell
                 out << ' ';
-                emitInlines(rows[ri]->getInlines(), out);
+                emitInlines(rows[ri]->getInlines(), out, 0);
                 out << " |";
             } else {
                 for (const auto& cell : cells) {
                     if (!cell) { out << "  |"; continue; }
                     out << ' ';
-                    emitInlines(cell->getInlines(), out);
+                    emitInlines(cell->getInlines(), out, 0);
                     out << " |";
                 }
             }
@@ -277,7 +350,7 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
     case BT::Figure: {
         // Figure: emit as a fenced div with figure class, inlines as caption.
         out << "::: figure\n";
-        emitInlines(block.getInlines(), out);
+        emitInlines(block.getInlines(), out, 0);
         out << "\n:::\n\n";
         break;
     }
@@ -287,6 +360,9 @@ static void emitBlock(const docmodel::Block& block, int headingLevel,
 static void emitSection(const docmodel::Section& section, int depth,
                         std::ostringstream& out)
 {
+    // depth doubles as the heading level and the section-recursion budget:
+    // subsections nest one level deeper than their parent.
+    checkEmitDepth(depth);
     // Emit section title as a heading (depth ≥ 1).
     if (!section.getTitle().empty()) {
         out << std::string(static_cast<size_t>(depth), '#') << ' '
@@ -314,6 +390,9 @@ static void emitSection(const docmodel::Section& section, int depth,
 // Node access helpers: a node table has fields t (tag, string), s (text,
 // string), c (children, array). We read them by raw key so the ast.lua
 // metatable aliases don't matter.
+//
+// The walk-level guards (kMaxAstDepth + per-level lua_checkstack) are defined
+// at the top of this anonymous namespace, shared with the encode emitter.
 // ---------------------------------------------------------------------------
 
 // Push node.<field> (a raw table field) onto the stack. Returns the Lua type.
@@ -382,14 +461,16 @@ static docmodel::Provenance djotProv()
 }
 
 // Collect the concatenated plain text of an inline subtree (for verbatim/code).
-static std::string collectInlineText(lua_State* L, int nodeIdx)
+// depth = this node's depth in the AST (doc-level children are depth 0).
+static std::string collectInlineText(lua_State* L, int nodeIdx, int depth)
 {
+    enterWalkLevel(L, depth);
     std::string out = nodeText(L, nodeIdx);
     if (!out.empty()) return out;
     const int n = childCount(L, nodeIdx);
     for (int i = 1; i <= n; ++i) {
         if (pushChild(L, nodeIdx, i)) {
-            out += collectInlineText(L, -1);
+            out += collectInlineText(L, -1, depth + 1);
             lua_pop(L, 1);
         }
     }
@@ -397,8 +478,9 @@ static std::string collectInlineText(lua_State* L, int nodeIdx)
 }
 
 // Walk an inline node (top of relative index nodeIdx) → docmodel::Inline.
-static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx)
+static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx, int depth)
 {
+    enterWalkLevel(L, depth);
     const std::string tag = nodeTag(L, nodeIdx);
 
     if (tag == "str") {
@@ -413,7 +495,7 @@ static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx)
         // reads getChildren()[i]->getText() for Code spans).
         std::vector<std::shared_ptr<docmodel::Inline>> kids;
         kids.push_back(std::make_shared<docmodel::TextInline>(
-            collectInlineText(L, nodeIdx), djotProv()));
+            collectInlineText(L, nodeIdx, depth), djotProv()));
         return std::make_shared<docmodel::ContainerInline>(
             docmodel::Inline::Type::Code, std::move(kids), djotProv());
     }
@@ -422,7 +504,8 @@ static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx)
         const int n = childCount(L, nodeIdx);
         for (int i = 1; i <= n; ++i) {
             if (pushChild(L, nodeIdx, i)) {
-                if (auto inl = walkInline(L, -1)) kids.push_back(std::move(inl));
+                if (auto inl = walkInline(L, -1, depth + 1))
+                    kids.push_back(std::move(inl));
                 lua_pop(L, 1);
             }
         }
@@ -434,7 +517,7 @@ static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx)
 
     // Unknown / unsupported inline: fall back to its plain text so content is
     // never silently dropped.
-    const std::string fallback = collectInlineText(L, nodeIdx);
+    const std::string fallback = collectInlineText(L, nodeIdx, depth);
     if (!fallback.empty()) {
         return std::make_shared<docmodel::TextInline>(fallback, djotProv());
     }
@@ -443,13 +526,15 @@ static std::shared_ptr<docmodel::Inline> walkInline(lua_State* L, int nodeIdx)
 
 // Walk the inline children of a block-ish node into an inline vector.
 static std::vector<std::shared_ptr<docmodel::Inline>>
-walkInlineChildren(lua_State* L, int nodeIdx)
+walkInlineChildren(lua_State* L, int nodeIdx, int depth)
 {
+    enterWalkLevel(L, depth);
     std::vector<std::shared_ptr<docmodel::Inline>> inlines;
     const int n = childCount(L, nodeIdx);
     for (int i = 1; i <= n; ++i) {
         if (pushChild(L, nodeIdx, i)) {
-            if (auto inl = walkInline(L, -1)) inlines.push_back(std::move(inl));
+            if (auto inl = walkInline(L, -1, depth + 1))
+                inlines.push_back(std::move(inl));
             lua_pop(L, 1);
         }
     }
@@ -457,11 +542,12 @@ walkInlineChildren(lua_State* L, int nodeIdx)
 }
 
 // Forward decl for list-item recursion.
-static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx);
+static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx, int depth);
 
 // Walk a "list" node → ContainerBlock(List) of ListItem TextBlocks.
-static std::shared_ptr<docmodel::Block> walkList(lua_State* L, int nodeIdx)
+static std::shared_ptr<docmodel::Block> walkList(lua_State* L, int nodeIdx, int depth)
 {
+    enterWalkLevel(L, depth);
     std::vector<std::shared_ptr<docmodel::Block>> items;
     const int n = childCount(L, nodeIdx);
     for (int i = 1; i <= n; ++i) {
@@ -475,7 +561,7 @@ static std::shared_ptr<docmodel::Block> walkList(lua_State* L, int nodeIdx)
                 if (pushChild(L, -1, j)) {
                     const std::string ctag = nodeTag(L, -1);
                     if (ctag == "para" || ctag == "heading") {
-                        auto sub = walkInlineChildren(L, -1);
+                        auto sub = walkInlineChildren(L, -1, depth + 2);
                         for (auto& s : sub) inlines.push_back(std::move(s));
                     }
                     lua_pop(L, 1);
@@ -491,20 +577,23 @@ static std::shared_ptr<docmodel::Block> walkList(lua_State* L, int nodeIdx)
 }
 
 // Walk a block node (top of stack at nodeIdx) → docmodel::Block (or nullptr).
-static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx)
+static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx, int depth)
 {
+    enterWalkLevel(L, depth);
     const std::string tag = nodeTag(L, nodeIdx);
 
     if (tag == "para") {
         return std::make_shared<docmodel::TextBlock>(
-            docmodel::Block::Type::Paragraph, walkInlineChildren(L, nodeIdx), djotProv());
+            docmodel::Block::Type::Paragraph, walkInlineChildren(L, nodeIdx, depth + 1),
+            djotProv());
     }
     if (tag == "heading") {
         return std::make_shared<docmodel::TextBlock>(
-            docmodel::Block::Type::Heading, walkInlineChildren(L, nodeIdx), djotProv());
+            docmodel::Block::Type::Heading, walkInlineChildren(L, nodeIdx, depth + 1),
+            djotProv());
     }
     if (tag == "list") {
-        return walkList(L, nodeIdx);
+        return walkList(L, nodeIdx, depth);
     }
     if (tag == "code_block" || tag == "raw_block") {
         // Code block content is stored in node.s (one string). Mirror the
@@ -527,8 +616,10 @@ static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx)
         // Container of blocks: flatten its block children into a paragraph-less
         // pass-through is lossy, so represent as a List-less ContainerBlock is
         // not in the model. Fall back to a paragraph holding the text.
+        // (collectInlineText recurses per containment level under the same
+        // depth budget — this is the CX-13 crash vector.)
         std::vector<std::shared_ptr<docmodel::Inline>> inl;
-        const std::string t = collectInlineText(L, nodeIdx);
+        const std::string t = collectInlineText(L, nodeIdx, depth);
         if (!t.empty()) inl.push_back(std::make_shared<docmodel::TextInline>(t, djotProv()));
         return std::make_shared<docmodel::TextBlock>(
             docmodel::Block::Type::Paragraph, std::move(inl), djotProv());
@@ -541,8 +632,9 @@ static std::shared_ptr<docmodel::Block> walkBlock(lua_State* L, int nodeIdx)
 
 // Walk a "section" node → docmodel::Section. The section's first child is the
 // heading (its title); remaining children are blocks or nested sections.
-static std::shared_ptr<docmodel::Section> walkSection(lua_State* L, int nodeIdx)
+static std::shared_ptr<docmodel::Section> walkSection(lua_State* L, int nodeIdx, int depth)
 {
+    enterWalkLevel(L, depth);
     std::string title;
     std::vector<std::shared_ptr<docmodel::Block>> blocks;
     std::vector<std::shared_ptr<docmodel::Section>> subs;
@@ -553,11 +645,11 @@ static std::shared_ptr<docmodel::Section> walkSection(lua_State* L, int nodeIdx)
         const std::string ctag = nodeTag(L, -1);
         if (i == 1 && ctag == "heading") {
             // Section heading becomes the section title.
-            title = collectInlineText(L, -1);
+            title = collectInlineText(L, -1, depth + 1);
         } else if (ctag == "section") {
-            subs.push_back(walkSection(L, -1));
+            subs.push_back(walkSection(L, -1, depth + 1));
         } else {
-            if (auto blk = walkBlock(L, -1)) blocks.push_back(std::move(blk));
+            if (auto blk = walkBlock(L, -1, depth + 1)) blocks.push_back(std::move(blk));
         }
         lua_pop(L, 1);
     }
@@ -595,6 +687,13 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
     if (!L)
         throw std::runtime_error("LuaDjotCodec: could not create Lua state");
 
+    // CX-13: the AST walk can refuse (throw) mid-recursion; close the state
+    // on every exit path instead of leaking it.
+    struct StateGuard {
+        lua_State* L;
+        ~StateGuard() { if (L) lua_close(L); }
+    } stateGuard{L};
+
     // M-1: install an instruction-count hook with a per-call budget so a
     // pathological input cannot hang the VM. g_activeBudget is cleared on every
     // exit path (including thrown exceptions) by this RAII guard.
@@ -613,7 +712,6 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
     // and submodule requires work correctly.
     lua_getglobal(L, "require");
     if (!lua_isfunction(L, -1)) {
-        lua_close(L);
         throw std::runtime_error("LuaDjotCodec: require not available");
     }
     lua_pushstring(L, "djot");
@@ -623,7 +721,6 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
         // std::string from NULL is UB and aborts under hardened libstdc++.
         const char* e = lua_tostring(L, -1);
         std::string err = e ? e : "unknown lua error";
-        lua_close(L);
         throw std::runtime_error("LuaDjotCodec: failed to require djot: " + err);
     }
     // Stack top is the djot module table; assign to global for convenience
@@ -634,7 +731,6 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
     lua_getfield(L, -1, "parse");
     lua_remove(L, -2);  // remove module table, keep parse function
     if (!lua_isfunction(L, -1)) {
-        lua_close(L);
         throw std::runtime_error("LuaDjotCodec: djot.parse is not a function");
     }
 
@@ -642,7 +738,12 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
     if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
         const char* e = lua_tostring(L, -1);
         std::string err = e ? e : "unknown lua error";
-        lua_close(L);
+        // A LUAI_MAXSTACK / C-call ceiling inside djot.parse means the source
+        // nests deeper than any supported document (the vendored parser recurses
+        // in Lua per containment level). Map it to the same honest depth-budget
+        // refusal instead of letting a raw "stack overflow" escape.
+        if (err.find("stack overflow") != std::string::npos)
+            throw depthBudgetError();
         throw std::runtime_error("LuaDjotCodec: djot.parse failed: " + err);
     }
 
@@ -660,9 +761,9 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
         if (!pushChild(L, docIdx, i)) continue;
         const std::string ctag = nodeTag(L, -1);
         if (ctag == "section") {
-            sections.push_back(walkSection(L, -1));
+            sections.push_back(walkSection(L, -1, 0));
         } else {
-            if (auto blk = walkBlock(L, -1)) leadingBlocks.push_back(std::move(blk));
+            if (auto blk = walkBlock(L, -1, 0)) leadingBlocks.push_back(std::move(blk));
         }
         lua_pop(L, 1);
     }
@@ -678,7 +779,6 @@ std::unique_ptr<docmodel::SemanticDocument> LuaDjotCodec::djotToDocument(const s
     auto doc = std::make_unique<docmodel::SemanticDocument>(
         std::move(sections), djotProv());
 
-    lua_close(L);
     return doc;
 }
 

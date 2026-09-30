@@ -1,0 +1,28 @@
+Test project D:/pdf/pdf-djotfix/build-rel
+    Start  33: TestOcrDjotMapper
+1/4 Test  #33: TestOcrDjotMapper ................   Passed    0.03 sec
+    Start  92: TestDjotRoundtrip
+2/4 Test  #92: TestDjotRoundtrip ................   Passed    0.04 sec
+    Start  93: TestDjotFuzz
+3/4 Test  #93: TestDjotFuzz .....................   Passed    0.17 sec
+    Start 156: TestAnnotationDjot
+4/4 Test #156: TestAnnotationDjot ...............   Passed    0.12 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Label Time Summary:
+annot         =   0.12 sec*proc (1 test)
+codec         =   0.20 sec*proc (2 tests)
+djot          =   0.36 sec*proc (4 tests)
+fuzz          =   0.17 sec*proc (1 test)
+headless      =   0.16 sec*proc (2 tests)
+mapper        =   0.03 sec*proc (1 test)
+ocr           =   0.03 sec*proc (1 test)
+provenance    =   0.04 sec*proc (1 test)
+qt            =   0.12 sec*proc (1 test)
+richtext      =   0.12 sec*proc (1 test)
+roundtrip     =   0.33 sec*proc (3 tests)
+structural    =   0.03 sec*proc (1 test)
+unit          =   0.33 sec*proc (3 tests)
+
+Total Test time (real) =   0.37 sec
