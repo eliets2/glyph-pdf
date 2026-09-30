@@ -41,6 +41,16 @@ feat/fixall-ci3.
 - Tagging lane: CX-01/07/04 — 56P/0F/1 recorded skip ×3+.
 - Redaction lane: 9b2b2727 PORTED (`b09256ee`, not superseded), PGR-46 fixed (`99dd7b67`) — 196P/0F across 11 suites.
 
+## Feature-fleet wave 1 (2026-09-30, post-endgame)
+
+- **Â§1.1 CSV sinks â CLOSED as already-landed.** The fleet's csv lane found
+  b1854eae (folded during consolidation) already routes all three sinks through
+  csvFormulaSafeCell incl. the plain-number exemption; independent re-verification
+  (NC + pass-after x3) folded as docs/audit/evidence-csv-sinks/ (2ca2df84).
+  The stale Â§1.1 row in PROGRAM-CONSOLIDATION Â§1 is superseded by this note.
+- Runbook addition: POST_BUILD rules deploy podofo but NOT pdfium.dll beside the
+  test exes â fresh test trees need a manual pdfium.dll copy or suites die 0xc0000135.
+
 ## OPEN ITEMS (owner)
 
 1. **djot depth budget — CLOSED `505295f4`** (was IN FLIGHT) — the CX-13 gate's first catch: genuine
