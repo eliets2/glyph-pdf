@@ -1,0 +1,17 @@
+********* Start testing of TestQuadPointsMarkup *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestQuadPointsMarkup::initTestCase()
+FAIL!  : TestQuadPointsMarkup::writerEmitsQuadPointsPerLine() 'qp != nullptr' returned FALSE. (writer must serialize /QuadPoints for a text-anchored highlight (got rect-only))
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(187) : failure location
+PASS   : TestQuadPointsMarkup::rectOnlyMarkupWritesNoQuadPoints()
+FAIL!  : TestQuadPointsMarkup::quadPointsRoundTripPreservesLines() 'back.first().quads.size() == 2' returned FALSE. (round-trip must preserve BOTH line quads)
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(243) : failure location
+PASS   : TestQuadPointsMarkup::foreignAcrobatQuadPointsFixtureLoads()
+FAIL!  : TestQuadPointsMarkup::doubleRoundTripIsStable() 'second.first().quads.size() == 2' returned FALSE. (second generation must still carry BOTH line quads)
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(294) : failure location
+PASS   : TestQuadPointsMarkup::paintDrawsQuadsNotUnionBlank()
+PASS   : TestQuadPointsMarkup::wrappedMatchReportsPerLineRects()
+PASS   : TestQuadPointsMarkup::sidecarRoundTripPreservesQuads()
+PASS   : TestQuadPointsMarkup::cleanupTestCase()
+Totals: 7 passed, 3 failed, 0 skipped, 0 blacklisted, 69ms
+********* Finished testing of TestQuadPointsMarkup *********

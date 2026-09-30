@@ -238,7 +238,10 @@ void TestQuadPointsMarkup::quadPointsRoundTripPreservesLines()
     const QList<AnnotationItem> back = backend.extractAnnotations(out);
     QCOMPARE(back.size(), 1);
     QCOMPARE(back.first().mode, ToolMode::Highlight);
-    QCOMPARE(back.first().quads.size(), 2);
+    // QVERIFY (returns on failure), not QCOMPARE (records and CONTINUES) —
+    // the indexing below must stay in-bounds on a RED run.
+    QVERIFY2(back.first().quads.size() == 2,
+             "round-trip must preserve BOTH line quads");
     QVERIFY(sameRect(back.first().quads[0], twoLineSelection()[0]));
     QVERIFY(sameRect(back.first().quads[1], twoLineSelection()[1]));
 }
@@ -253,9 +256,12 @@ void TestQuadPointsMarkup::foreignAcrobatQuadPointsFixtureLoads()
     const QList<AnnotationItem> back = backend.extractAnnotations(path);
     QCOMPARE(back.size(), 1);
     QCOMPARE(back.first().mode, ToolMode::Highlight);
+    // QVERIFY (returns on failure), not QCOMPARE — the indexing below must
+    // stay in-bounds on a RED run.
+    QVERIFY2(back.first().quads.size() == 2,
+             "the two fixture quads must load as line quads, not a union rect");
     // The two fixture quads map back to display lines y∈[100,114] and
     // y∈[140,154] — NOT a single union rect [100,154].
-    QCOMPARE(back.first().quads.size(), 2);
     QVERIFY(sameRect(back.first().quads[0], QRectF(50, 100, 200, 14)));
     QVERIFY(sameRect(back.first().quads[1], QRectF(50, 140, 200, 14)));
 }
@@ -283,6 +289,10 @@ void TestQuadPointsMarkup::doubleRoundTripIsStable()
     const QList<AnnotationItem> second = backend2.extractAnnotations(out2);
     QCOMPARE(second.size(), 1);
 
+    // QVERIFY (returns on failure), not QCOMPARE — the indexing below must
+    // stay in-bounds on a RED run (writer reverted ⇒ quads empty).
+    QVERIFY2(second.first().quads.size() == 2,
+             "second generation must still carry BOTH line quads");
     QCOMPARE(second.first().quads.size(), first.first().quads.size());
     for (int i = 0; i < first.first().quads.size(); ++i)
         QVERIFY(sameRect(second.first().quads[i], first.first().quads[i]));
