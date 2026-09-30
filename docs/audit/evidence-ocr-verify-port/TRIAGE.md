@@ -87,3 +87,51 @@ Consequently most B-items are already covered by a *better* mechanism.
 
 - **B8, B13** — no commit, no test, no doc reference anywhere on the archived branch.
   Planned slots never implemented.
+
+## Port evidence (R7 — measured 2026-09-30)
+
+Branch `feat/ocr-verify-port`, base 02d1a898 (origin/main; main had NOT moved at
+finish — rebase-check performed, merge-base == origin/main == base → FF-ready).
+
+| Unit | Commit | Archive source | Pin RED on main | ×3 serial pass |
+|---|---|---|---|---|
+| P1 B10 dictionary | 4088682b | 45f5d13b | compile error: `'userDictionaryPath' is not a member of 'gp::OCRMode'` (+9 more: API absent) | 3/3 `100% tests passed` |
+| P2 B9 suggestions | c7292374 | b6753485 | compile error: `'suggestCorrections' is not a member of 'gp::OCRMode'` (+4: API absent) | 3/3 `100% tests passed` |
+| P3 B4 Skip/Replace All | bb513050 | b4dfe4ea | compile error: `'class gp::OCRMode' has no member named 'skipAllOccurrences'` (+3: API absent) | 3/3 `100% tests passed` |
+| P4 B7+B12 verified state | ca220d4a | d38a6e08 + ffc1777d | compile error: `'class gp::OCRMode' has no member named 'markWordVerified'` (+5: API absent) | 3/3 `100% tests passed` |
+| P5 B14 focus cycling | 98455870 | e5e245da | compile error: `'class gp::OCRMode' has no member named 'cyclePaneFocus'` (+3: API absent) | 3/3 `100% tests passed` |
+
+Pin tests: `tests/TestOcrVerifyPort.cpp` (12 test functions), registered as the
+`TestOcrVerifyPort` ctest target. Each pin was built and run against unported
+main code in the same worktree (base 02d1a898 = main) BEFORE its unit commit:
+the fail-before is a compile failure of the pin itself — the strongest possible
+evidence the capability is absent on main. Each unit then landed as one new
+commit (test + implementation together), and `ctest -R TestOcrVerifyPort` passed
+3 consecutive serial runs afterwards. No test on main was weakened or removed;
+`TestOcrVerifyNavigation` (U03 pins) and `TestOcrReviewLifecycle` (R07/R08 pins)
+were re-run green after every unit.
+
+Full gate (serial, build-port Release, all targets): the suite has 190 tests;
+`R14ProbeBatchSkip` (#184) is disabled by design → 189 active, the same gate size
+the endgame recorded at the base. Five full serial runs at the branch tip:
+
+| Run | Result | Failing set |
+|---|---|---|
+| 1 | 187/189 | TestWelcomeRoutes, TestSweepW3UxFlows — both **documented known flakes** (BRANCH-LANDSCAPE-2026-09-25: "known flake (solo green)" / "known parallel flake"); both green on immediate solo rerun |
+| 2 | 187/189 | same two, same disposition |
+| 3 | 186/189 | the two above + a third documented flake — varying membership run-to-run is the flake signature |
+| 4 | **189/189 — 100%** | clean |
+| 5 | 188/189 | TestLaneScheduler only — the "documented transient" of CLEANUP-LEDGER-2026-09-09; green on solo rerun |
+
+`TestOcrVerifyPort` (the port pins) passed in **every** full run and in every
+per-unit ×3 block. The flaky set never contains an OCR-verify test; all three
+flakes pre-date this lane, are documented on main, and rerun green solo
+(--rerun-failed: 3/3 Passed).
+
+## FF-ready
+
+`git merge-base HEAD origin/main` == origin/main == 02d1a898 == this branch's
+base: the branch is a strict 6-commit fast-forward of main, no divergence.
+Rebase-check at finish: main had not moved (verified via `git fetch origin`).
+
+
