@@ -41,6 +41,18 @@ public:
     // called by production code.
     bool appendDssRevisionForTesting(const QString &signedFilePath);
 
+    // AD-01 (AUDIT-ADVERSARIAL-2026-09-25) test seam (same test-only status
+    // as appendDssRevisionForTesting): runs the PRODUCTION DSS append with
+    // attacker-supplied /OCSPs and /Certs DER blobs — the exact revision
+    // shape an ISA-allowlisted DSS forgery produces (catalog + /DSS and its
+    // subtree only), written through Private::buildDssDictionary so the
+    // pins exercise the same bytes PoDoFo's SaveUpdate emits. Lets the suite
+    // pin that validation authenticates the OCSP responder before consuming
+    // any revocation status. Never called by production code.
+    bool appendDssOcspRevisionForTesting(const QString &signedFilePath,
+                                         const QList<QByteArray> &ocspsDer,
+                                         const QList<QByteArray> &certsDer);
+
     // ------------------------------------------------------------------
     // §9.7 P0 — visible signature appearance (ETSI EN 319 142-6 §5.2)
     // ------------------------------------------------------------------

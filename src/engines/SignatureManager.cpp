@@ -930,6 +930,80 @@ public:
     }
 
     // -----------------------------------------------------------------------
+    // AD-01 (AUDIT-ADVERSARIAL-2026-09-25): authenticate an OCSP basic
+    // response that was supplied through the DSS BEFORE any revocation
+    // status is read from it.
+    //
+    // The DSS is attacker-appendable through the ISA-allowlisted revision
+    // (isLegitimateIncrementalAppend blesses catalog + /DSS and its subtree),
+    // so /DSS /OCSPs entries are untrusted data: a certID match and a fresh
+    // window are unkeyed public data and trivially forgeable. This helper
+    // enforces the same D3 invariant the sign side applies before EMBEDDING
+    // a fetched response (OCSP_basic_verify against the trust store, sign
+    // site: "they MUST NOT be blindly trusted"): the acceptance criterion is
+    // symmetry — any response the app would refuse to embed at sign time is
+    // refused as evidence at verify time.
+    //
+    // The DSS /Certs entries go into the UNTRUSTED pool only (they may carry
+    // the responder's chain, never a trust anchor); trust anchors come from
+    // the same trust store the CMS chain verification used. OCSP_basic_verify
+    // additionally enforces responder authorization (the responder must be
+    // the certID issuer or hold the OCSPSigning EKU). Fail-closed: any error
+    // maps to "unverified", never to a consumed status.
+    // -----------------------------------------------------------------------
+    bool verifyDssOcspResponder(const PdfMemDocument &doc,
+                                OCSP_BASICRESP *basic, QString &detail)
+    {
+        detail.clear();
+
+        // Resolve the DSS dictionary the same way extractOcspFromDss does.
+        const PdfObject *dssObj = doc.GetCatalog().GetDictionary().FindKey(PdfName("DSS"));
+        if (dssObj && dssObj->IsReference())
+            dssObj = &doc.GetObjects().MustGetObject(dssObj->GetReference());
+
+        std::vector<X509*> dssCerts;
+        if (dssObj && dssObj->IsDictionary())
+            dssCerts = decodeDssCerts(doc, dssObj->GetDictionary());
+
+        X509StorePtr storeGuard;
+        QString storeNameUnused;
+        X509_STORE *store = getTrustStore(storeNameUnused, storeGuard);
+        if (!store) {
+            detail = QStringLiteral("no trust store available");
+            return false;
+        }
+
+        // Untrusted pool: DSS /Certs may complete the responder's chain but
+        // must never anchor it.
+        STACK_OF(X509) *certs = sk_X509_new_null();
+        if (!certs) {
+            detail = QStringLiteral("allocation failure");
+            for (X509 *x : dssCerts) X509_free(x);
+            return false;
+        }
+        for (X509 *c : dssCerts) {
+            if (c) sk_X509_push(certs, c);
+        }
+
+        const int vr = OCSP_basic_verify(basic, certs, store, 0);
+        const bool ok = (vr == 1);
+        if (!ok) {
+            unsigned long e = ERR_peek_last_error();
+            char buf[256] = "OCSP_basic_verify failed";
+            if (e) {
+                ERR_error_string_n(e, buf, sizeof(buf));
+                ERR_clear_error();
+            }
+            detail = QString::fromLatin1(buf) +
+                     QStringLiteral(" (rc=%1, pool=%2 certs)")
+                         .arg(vr).arg(int(dssCerts.size()));
+        }
+        sk_X509_pop_free(certs, X509_free);
+        for (X509 *x : dssCerts) X509_free(x);
+        return ok;
+    }
+
+    // -----------------------------------------------------------------------
     // Extract /Contents raw and hex from signed PDF for VRI key computation
     // -----------------------------------------------------------------------
     std::pair<QByteArray, QByteArray> extractSignatureContentsRaw(const QString &filePath)
@@ -1011,6 +1085,17 @@ bool SignatureManager::appendDssRevisionForTesting(const QString &signedFilePath
     // as signDocument's B-LT step, with no cert/OCSP payload to keep the
     // seam focused on the revision structure.
     return d->buildDssDictionary(signedFilePath, {}, {}, {}, {});
+}
+
+// AD-01 test seam — see the header note. Test-only.
+bool SignatureManager::appendDssOcspRevisionForTesting(const QString &signedFilePath,
+                                                       const QList<QByteArray> &ocspsDer,
+                                                       const QList<QByteArray> &certsDer)
+{
+    // Same production append path as the app's own B-LT update, with the
+    // caller's /OCSPs and /Certs payloads. No VRI (no sigContentsRaw): the
+    // consume path under test reads /DSS /OCSPs directly.
+    return d->buildDssDictionary(signedFilePath, certsDer, ocspsDer, {}, {});
 }
 // ---------------------------------------------------------------------------
 SignOutcome SignatureManager::signDocument(const QString &inputPath,
@@ -3072,6 +3157,36 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                                 if (basic) {
                                     qDebug() << "validateSignatures: successfully got OCSP_BASICRESP, count =" << OCSP_resp_count(basic);
 
+                                    // AD-01: authenticate the responder BEFORE reading
+                                    // any revocation status from this response. The DSS
+                                    // is attacker-appendable through the ISA-allowlisted
+                                    // revision; a certID-matched GOOD or REVOKED status
+                                    // with a fresh window is unkeyed public data. The
+                                    // gate re-applies the sign-side D3 invariant
+                                    // (OCSP_basic_verify vs the trust store, DSS /Certs
+                                    // as untrusted pool only) — unauthenticated entries
+                                    // are refused in BOTH directions (a forged REVOKED
+                                    // must not trash a valid signature either).
+                                    QString ocspVerifyDetail;
+                                    const bool responderTrusted =
+                                        d->verifyDssOcspResponder(doc, basic, ocspVerifyDetail);
+                                    if (!responderTrusted) {
+                                        qWarning() << "SECURITY: DSS /OCSPs response failed"
+                                                   << "responder-signature verification"
+                                                   << "(" << ocspVerifyDetail << ") — refusing"
+                                                   << "to consume any revocation status from it"
+                                                   << "(AD-01)";
+                                        info.ocspStatus = "UnverifiedResponder";
+                                        if (info.trustStatus == "ValidWithDSS" ||
+                                            info.trustStatus == "Valid") {
+                                            qWarning() << "SECURITY: downgrading trustStatus from"
+                                                       << info.trustStatus << "to UntrustedChain"
+                                                       << "for field" << info.fieldName
+                                                       << "(AD-01 unverified DSS responder)";
+                                            info.trustStatus = "UntrustedChain";
+                                            info.isValid = false;
+                                        }
+                                    } else {
                                     // NF-6: OCSP nonce check. We cannot verify the nonce
                                     // here because the original OCSP request object is not
                                     // stored at validation time. Add OCSP_check_nonce() here
@@ -3084,9 +3199,9 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                                         int reason = -1;
                                         ASN1_GENERALIZEDTIME *revTime = nullptr, *thisUpdate = nullptr, *nextUpdate = nullptr;
                                         int certStatus = OCSP_single_get0_status(sr, &reason, &revTime, &thisUpdate, &nextUpdate);
-                                        
+
                                         qDebug() << "validateSignatures: certStatus for entry" << i << "is" << certStatus;
-                                        
+
                                         if (certStatus == V_OCSP_CERTSTATUS_REVOKED) {
                                             qWarning() << "SECURITY: Embedded OCSP reports"
                                                        << "signing certificate as REVOKED";
@@ -3095,13 +3210,22 @@ QList<SignatureInfo> SignatureManager::validateSignatures(const QString &filePat
                                             break;
                                         }
 
-                                        if (!OCSP_check_validity(thisUpdate, nextUpdate, 0, 0)) {
+                                        // AD-01 lane: the previous (0, 0) args reject every
+                                        // real response on OpenSSL 3.5 — maxsec >= 0 now
+                                        // enforces "thisUpdate not older than 0 seconds",
+                                        // so any GOOD status degraded to "Expired" and the
+                                        // DSS GOOD path was structurally dead (probe-proven:
+                                        // OCSP probe, 2026-09-30). 300 s covers responder
+                                        // clock skew; maxsec = -1 disables the max-age
+                                        // policy (expired nextUpdate windows still fail).
+                                        if (!OCSP_check_validity(thisUpdate, nextUpdate, 300, -1)) {
                                             qWarning() << "SECURITY: Embedded OCSP response failed freshness check (thisUpdate/nextUpdate invalid or expired)";
                                             info.trustStatus = "UntrustedChain";
                                             info.ocspStatus = "Expired";
                                             info.isValid = false;
                                             break;
                                         }
+                                    }
                                     }
                                     OCSP_BASICRESP_free(basic);
                                 } else {

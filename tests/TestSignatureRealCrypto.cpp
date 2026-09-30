@@ -40,6 +40,9 @@
 #include <openssl/x509_vfy.h>
 #include <openssl/pem.h>
 #include <openssl/err.h>
+#include <openssl/ocsp.h>
+#include <openssl/evp.h>
+#include <openssl/rsa.h>
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,6 +94,113 @@ static int signedModDateCount(const QString &path)
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return -1;
     return int(f.readAll().count("<</ModDate("));
+}
+
+// ---------------------------------------------------------------------------
+// AD-01 (AUDIT-ADVERSARIAL-2026-09-25) helpers: OCSP response construction
+// for the forged-DSS pins. The attacker material (throwaway key + self-signed
+// "responder" cert + certID-matched GOOD response) is built in-process with
+// the same OpenSSL APIs the app itself uses.
+// ---------------------------------------------------------------------------
+static X509* loadPemCert(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return nullptr;
+    QByteArray pem = f.readAll();
+    BIO *bio = BIO_new_mem_buf(pem.constData(), pem.size());
+    if (!bio) return nullptr;
+    X509 *cert = PEM_read_bio_X509(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    return cert;
+}
+
+static EVP_PKEY* loadPemKey(const QString &path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return nullptr;
+    QByteArray pem = f.readAll();
+    BIO *bio = BIO_new_mem_buf(pem.constData(), pem.size());
+    if (!bio) return nullptr;
+    EVP_PKEY *key = PEM_read_bio_PrivateKey(bio, nullptr, nullptr, nullptr);
+    BIO_free(bio);
+    return key;
+}
+
+static QByteArray derOfX509(X509 *cert)
+{
+    if (!cert) return {};
+    int len = i2d_X509(cert, nullptr);
+    if (len <= 0) return {};
+    QByteArray der(len, '\0');
+    unsigned char *p = reinterpret_cast<unsigned char*>(der.data());
+    i2d_X509(cert, &p);
+    return der;
+}
+
+// The attacker's throwaway key material: a fresh RSA key with a self-signed
+// certificate. Everything about it is public-data-derivable except the key.
+static X509* makeRogueSelfSignedCert(EVP_PKEY **outKey)
+{
+    if (outKey) *outKey = nullptr;
+    EVP_PKEY *pkey = EVP_RSA_gen(2048);
+    if (!pkey) return nullptr;
+    X509 *cert = X509_new();
+    if (!cert) { EVP_PKEY_free(pkey); return nullptr; }
+    ASN1_INTEGER_set(X509_get_serialNumber(cert), 0x00C0FFEE);
+    X509_gmtime_adj(X509_getm_notBefore(cert), -3600);
+    X509_gmtime_adj(X509_getm_notAfter(cert), 3650L * 86400);
+    X509_NAME *name = X509_get_subject_name(cert);
+    X509_NAME_add_entry_by_txt(name, "CN", MBSTRING_ASC,
+                               (const unsigned char*)"AD-01 Rogue Responder", -1, -1, 0);
+    X509_set_issuer_name(cert, name);
+    X509_set_pubkey(cert, pkey);
+    if (X509_sign(cert, pkey, EVP_sha256()) == 0) {
+        X509_free(cert);
+        EVP_PKEY_free(pkey);
+        return nullptr;
+    }
+    if (outKey) *outKey = pkey; else EVP_PKEY_free(pkey);
+    return cert;
+}
+
+// Build a complete, well-formed OCSP_RESPONSE DER: one single response whose
+// certID is computed over (signerCert, issuerCert), carrying certStatus, with
+// a fresh thisUpdate/nextUpdate window, signed by (respCert, respKey).
+// For the forged pin respCert is the rogue throwaway cert; for the genuine
+// control it is the issuing CA (the authorized responder).
+static QByteArray buildOcspResponseDer(X509 *signerCert, X509 *issuerCert,
+                                       int certStatus,
+                                       X509 *respCert, EVP_PKEY *respKey)
+{
+    if (!signerCert || !issuerCert || !respCert || !respKey) return {};
+    OCSP_CERTID *cid = OCSP_cert_to_id(EVP_sha1(), signerCert, issuerCert);
+    if (!cid) return {};
+    OCSP_BASICRESP *bs = OCSP_BASICRESP_new();
+    if (!bs) { OCSP_CERTID_free(cid); return {}; }
+    ASN1_TIME *thisUpd = ASN1_TIME_set(nullptr, time(nullptr) - 3600);
+    ASN1_TIME *nextUpd = ASN1_TIME_set(nullptr, time(nullptr) + 7L * 86400);
+    OCSP_SINGLERESP *sr = OCSP_basic_add1_status(bs, cid, certStatus, 0,
+                                                 nullptr, thisUpd, nextUpd);
+    OCSP_CERTID_free(cid);
+    if (!sr) { OCSP_BASICRESP_free(bs); return {}; }
+    if (OCSP_basic_sign(bs, respCert, respKey, EVP_sha256(), nullptr, 0) != 1) {
+        ERR_clear_error();
+        OCSP_BASICRESP_free(bs);
+        return {};
+    }
+    OCSP_RESPONSE *resp = OCSP_response_create(OCSP_RESPONSE_STATUS_SUCCESSFUL, bs);
+    if (!resp) { OCSP_BASICRESP_free(bs); return {}; }
+    // OCSP_response_create adopts bs (freed by OCSP_RESPONSE_free).
+    unsigned char *der = nullptr;
+    int len = i2d_OCSP_RESPONSE(resp, &der);
+    OCSP_RESPONSE_free(resp);
+    if (len <= 0 || !der) {
+        if (der) OPENSSL_free(der);
+        return {};
+    }
+    QByteArray out(reinterpret_cast<const char*>(der), len);
+    OPENSSL_free(der);
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -490,13 +600,34 @@ private slots:
         REQUIRE_FIXTURES();
 
         SignatureManager mgr;
-        // Sign at B_LT so the OCSP response is injected into the DSS /OCSPs array.
-        // At B_B level there is no DSS, so extractOcspFromDss returns empty and
-        // revocation is invisible — that would be a silent soft-pass, not a real test.
+        // Sign at B_LT so the DSS /Certs chain is present (the certID match in
+        // extractOcspFromDss needs the issuer cert in /DSS /Certs). The OCSP
+        // response itself is injected below via appendDssOcspRevisionForTesting:
+        // the historical route (sign-side loading of revoked_ocsp_response.der
+        // behind GLYPHPDF_TESTING) is dead code — SignatureManager.cpp compiles
+        // into the pdfws_engines library, which never receives the test target
+        // define, so the fixture was never loaded and this pin stayed red. The
+        // seam writes the same /DSS /OCSPs revision the B-LT embed produces.
         mgr.setSignatureLevel(PAdESLevel::B_LT);
         QString output = m_tmpDir.filePath("revoked_signed.pdf");
         // revoked_cert.p12 uses an RSA-2048 cert so signing should succeed
         QVERIFY(mgr.signDocument(kInputPdf, output, revokedP12, kP12Pass) == SignOutcome::Success);
+
+        // Inject the genuine, CA-signed REVOKED response as an incremental
+        // /DSS revision (same production append machinery as the app's own
+        // B-LT update). /Certs must carry the CA cert: the consume path
+        // re-appends a fresh /DSS, replacing the signing one.
+        QFile derFile(revokedDer);
+        QVERIFY(derFile.open(QIODevice::ReadOnly));
+        QByteArray revokedOcspDer = derFile.readAll();
+        derFile.close();
+        QVERIFY(!revokedOcspDer.isEmpty());
+        X509 *caCert = loadPemCert(kCaPath);
+        QVERIFY(caCert);
+        QByteArray caCertDer = derOfX509(caCert);
+        X509_free(caCert);
+        QVERIFY2(mgr.appendDssOcspRevisionForTesting(output, {revokedOcspDer}, {caCertDer}),
+                 "the DSS /OCSPs append via the production path must succeed");
 
         X509_STORE *store = buildTestStore();
         QVERIFY(store);
@@ -519,6 +650,159 @@ private slots:
 
         X509_STORE_free(store);
         mgr.setTrustStoreForTest(nullptr);
+    }
+
+    // -----------------------------------------------------------------------
+    // AD-01 (AUDIT-ADVERSARIAL-2026-09-25) pin part A: a DSS /OCSPs response
+    // signed by a THROWAWAY self-signed key must not sustain a good verdict.
+    //
+    // Attack shape (per the audit): a document signed at B_B carries no DSS.
+    // An attacker appends an ISA-allowlisted revision — catalog + /DSS and
+    // its /Certs + /OCSPs subtree only, the exact bytes the app's own B-LT
+    // update writes (here via appendDssOcspRevisionForTesting → the
+    // production buildDssDictionary). /Certs carries the rogue self-signed
+    // cert AND the real (public) CA cert: the CA cert only feeds the certID
+    // match — it is data, not trust. The /OCSPs entry is a well-formed,
+    // certID-matched, fresh GOOD response signed by the rogue key.
+    //
+    // The verdict must NOT stay Valid/ValidWithDSS: unverifiable responder
+    // data must fail the revocation check honestly (unknown), never be
+    // consumed as "good". Before the AD-01 fix this pin is RED — the forged
+    // GOOD is consumed and the verdict stays ValidWithDSS.
+    // -----------------------------------------------------------------------
+    void testForgedDssOcspResponderSignatureRejected()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString attacked = m_tmpDir.filePath("ad01_forged_dss.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, attacked, kP12Path, kP12Pass, "AD01-forged", "")
+                == SignOutcome::Success);
+
+        // Baseline (validated fixture): the B_B signature verifies clean and
+        // trusted before the append — anything else invalidates the pin.
+        {
+            X509_STORE *store = buildTestStore();
+            QVERIFY(store);
+            mgr.setTrustStoreForTest(store);
+            auto baseline = mgr.validateSignatures(attacked);
+            X509_STORE_free(store);
+            mgr.setTrustStoreForTest(nullptr);
+            QVERIFY2(!baseline.isEmpty(),
+                     "baseline: signed fixture must report a signature");
+            QVERIFY2(baseline.first().trustStatus == QLatin1String("Valid"),
+                     qPrintable(QString("baseline: fixture must validate clean before the "
+                                        "forged append, got: %1")
+                                    .arg(baseline.first().trustStatus)));
+            QVERIFY2(baseline.first().isValid,
+                     "baseline: fixture signature must be isValid=true before the append");
+        }
+
+        // Attacker material.
+        EVP_PKEY *rogueKey = nullptr;
+        X509 *rogueCert = makeRogueSelfSignedCert(&rogueKey);
+        QVERIFY2(rogueCert && rogueKey, "rogue responder key material must build");
+        X509 *signerCert = loadPemCert(kFixtureDir + "/signer.crt");
+        X509 *caCert = loadPemCert(kCaPath);
+        QVERIFY(signerCert && caCert);
+
+        QByteArray forgedOcsp = buildOcspResponseDer(signerCert, caCert,
+                                                     V_OCSP_CERTSTATUS_GOOD,
+                                                     rogueCert, rogueKey);
+        QVERIFY2(!forgedOcsp.isEmpty(), "forged OCSP response must build");
+
+        QByteArray rogueDer = derOfX509(rogueCert);
+        QByteArray caDer = derOfX509(caCert);
+        QVERIFY(!rogueDer.isEmpty() && !caDer.isEmpty());
+
+        // The ISA-allowlisted append: catalog + /DSS subtree only.
+        QVERIFY2(mgr.appendDssOcspRevisionForTesting(attacked, {forgedOcsp},
+                                                     {rogueDer, caDer}),
+                 "the forged DSS append via the production path must succeed");
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(attacked);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "attacked PDF must still report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.trustStatus != QLatin1String("Valid") &&
+                 info.trustStatus != QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("AD-01: a DSS OCSP response whose responder "
+                                    "signature does not verify must not sustain a good "
+                                    "verdict, got: %1").arg(info.trustStatus)));
+        QVERIFY2(!info.isValid,
+                 "AD-01: isValid must be false while the DSS revocation data is "
+                 "unauthenticated");
+        QCOMPARE(info.ocspStatus, QLatin1String("UnverifiedResponder"));
+
+        X509_free(rogueCert);
+        EVP_PKEY_free(rogueKey);
+        X509_free(signerCert);
+        X509_free(caCert);
+    }
+
+    // -----------------------------------------------------------------------
+    // AD-01 pin part B (over-block guard): a GENUINE responder-signed GOOD
+    // response — the issuing CA itself, the authorized responder — must keep
+    // validating clean through the same DSS path. The AD-01 fix must not
+    // turn every DSS OCSP entry into a refusal.
+    // -----------------------------------------------------------------------
+    void testGenuineResponderSignedDssOcspStaysGood()
+    {
+        REQUIRE_FIXTURES();
+        QVERIFY(m_tmpDir.isValid());
+
+        SignatureManager mgr;
+        mgr.setSignatureLevel(PAdESLevel::B_B);
+        QString extended = m_tmpDir.filePath("ad01_genuine_dss.pdf");
+        QVERIFY(mgr.signDocument(kInputPdf, extended, kP12Path, kP12Pass, "AD01-genuine", "")
+                == SignOutcome::Success);
+
+        X509 *signerCert = loadPemCert(kFixtureDir + "/signer.crt");
+        X509 *caCert = loadPemCert(kCaPath);
+        EVP_PKEY *caKey = loadPemKey(kFixtureDir + "/ca.key");
+        QVERIFY(signerCert && caCert && caKey);
+
+        QByteArray genuineOcsp = buildOcspResponseDer(signerCert, caCert,
+                                                      V_OCSP_CERTSTATUS_GOOD,
+                                                      caCert, caKey);
+        QVERIFY2(!genuineOcsp.isEmpty(), "genuine OCSP response must build");
+
+        QByteArray caDer = derOfX509(caCert);
+        QByteArray signerDer = derOfX509(signerCert);
+        QVERIFY(!caDer.isEmpty() && !signerDer.isEmpty());
+
+        QVERIFY2(mgr.appendDssOcspRevisionForTesting(extended, {genuineOcsp},
+                                                     {caDer, signerDer}),
+                 "the genuine DSS append via the production path must succeed");
+
+        X509_STORE *store = buildTestStore();
+        QVERIFY(store);
+        mgr.setTrustStoreForTest(store);
+        auto sigs = mgr.validateSignatures(extended);
+        X509_STORE_free(store);
+        mgr.setTrustStoreForTest(nullptr);
+
+        QVERIFY2(!sigs.isEmpty(), "extended PDF must still report the signature");
+        const auto &info = sigs.first();
+        QVERIFY2(info.trustStatus == QLatin1String("Valid") ||
+                 info.trustStatus == QLatin1String("ValidWithDSS"),
+                 qPrintable(QString("AD-01 control: a genuine CA-signed GOOD DSS "
+                                    "response must keep the verdict clean, got: %1")
+                                .arg(info.trustStatus)));
+        QVERIFY2(info.isValid,
+                 "AD-01 control: genuine responder-signed DSS data must keep "
+                 "isValid=true");
+
+        X509_free(signerCert);
+        X509_free(caCert);
+        EVP_PKEY_free(caKey);
     }
 
     // -----------------------------------------------------------------------
