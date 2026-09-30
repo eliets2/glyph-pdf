@@ -174,6 +174,15 @@ Capability batchPresetStepCapability(const BatchPresetStep& step,
                                      const CapabilityRegistry* registry);
 
 // ── Local store: one file per preset (plan §2.1) ─────────────────────────────
+// PGR-56 (2026-09-30): the store's failure path carries a TYPED conflict
+// classification so the manager's confirm flows never key on message text
+// (a reworded diagnostic used to silently degrade the replace/overwrite
+// ask to a plain refusal). The human text stays display-only.
+enum class StoreConflict {
+    None,          // the failure (if any) was not a conflict
+    AlreadyExists, // refused because the target already exists
+};
+
 class BatchPresetStore {
 public:
     // `rootDir` empty → defaultRootDir() (AppDataLocation/presets). Tests pass
@@ -215,17 +224,25 @@ public:
     // diagnostic unless `replaceExisting` is true (the manager's post-confirm
     // action; the confirm itself is GUI, the store stays GUI-free). A failed
     // import leaves the store unchanged. `importedId` receives the id on
-    // success.
+    // success. PGR-56: `conflict` (when non-null) receives the typed
+    // classification of the refusal — AlreadyExists exactly when the refusal
+    // was the existing-id conflict (the manager's confirm-flow trigger);
+    // None for every other failure and on success.
     bool   importFrom(const QString& path, bool replaceExisting,
-                      QString* err, QString* importedId = nullptr);
+                      QString* err, QString* importedId = nullptr,
+                      StoreConflict* conflict = nullptr);
 
     // Export: a BYTE-IDENTICAL copy of the store file (no re-serialization —
     // the file on disk IS the shareable artifact; its bytes are already
     // canonical per the codec). An existing target is refused unless
     // `overwriteConfirmed` is true (the caller's interactive ask — never a
     // silent overwrite). An unknown id fails with the diagnostic.
+    // PGR-56: `conflict` (when non-null) receives the typed classification of
+    // the refusal — AlreadyExists exactly when the refusal was the
+    // existing-target conflict; None for every other failure and on success.
     bool   exportTo(const QString& id, const QString& targetPath,
-                    bool overwriteConfirmed, QString* err);
+                    bool overwriteConfirmed, QString* err,
+                    StoreConflict* conflict = nullptr);
 
     QString rootDir() const { return m_rootDir; }
 

@@ -53,11 +53,29 @@ public:
 
     QString selectedIdForTest() const;
 
+    // PGR-56 (2026-09-30): the import/export conflict-confirm gate, keyed on
+    // the STORE's typed classification (StoreConflict) — the message text is
+    // display-only. The pin proves the trigger survives a re-labeled
+    // AlreadyExists diagnostic and never fires for a non-conflict failure
+    // whose text happens to contain the old trigger phrase.
+    bool conflictConfirmGateForTest(StoreConflict conflict,
+                                    const QString& err) const {
+        Q_UNUSED(err);
+        return conflictConfirmGate(conflict);
+    }
+
 signals:
     // Run…: emitted with the selected id before the dialog accepts.
     void runRequested(const QString& id);
 
 private:
+    // PGR-56: the ONE conflict-confirm trigger, consumed by both flows
+    // (import and export). Keyed on the store's typed classification —
+    // never on a string match against the diagnostic.
+    bool conflictConfirmGate(StoreConflict conflict) const {
+        return conflict == StoreConflict::AlreadyExists;
+    }
+
     void refresh();
     void showDetail(const BatchPreset& preset);
 

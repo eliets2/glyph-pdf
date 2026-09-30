@@ -1082,7 +1082,12 @@ bool BatchPresetStore::remove(const QString& id, QString* err) {
 // ── R26-P2 U6 (plan §4.7): import/export as validated atomic copies ──────────
 
 bool BatchPresetStore::importFrom(const QString& path, bool replaceExisting,
-                                  QString* err, QString* importedId) {
+                                  QString* err, QString* importedId,
+                                  StoreConflict* conflict) {
+    // PGR-56: the typed classification rides the failure path — the GUI
+    // confirm flow keys on this, never on the message text.
+    if (conflict)
+        *conflict = StoreConflict::None;
     // Validation BEFORE anything appears in the store: loadFile enforces the
     // V1–V9 rules plus the V8 import rule (id == file stem — a renamed copy
     // is refused, not silently re-keyed) and the V9 file-size cap.
@@ -1093,11 +1098,14 @@ bool BatchPresetStore::importFrom(const QString& path, bool replaceExisting,
     // Conflict policy: an existing id is never silently replaced — the caller
     // asks ("Replace existing preset 'X'?") and re-imports with
     // `replaceExisting` (the post-confirm action).
-    if (contains(p.id) && !replaceExisting)
+    if (contains(p.id) && !replaceExisting) {
+        if (conflict)
+            *conflict = StoreConflict::AlreadyExists;
         return fail(err, QStringLiteral(
                              "a preset with id \"%1\" already exists in the store — "
                              "import refused (replace it deliberately after confirming)")
                              .arg(p.id));
+    }
 
     // Same root boundary as save() (F2b-D1): the store owns its root.
     if (!QDir().mkpath(m_rootDir))
@@ -1116,7 +1124,12 @@ bool BatchPresetStore::importFrom(const QString& path, bool replaceExisting,
 }
 
 bool BatchPresetStore::exportTo(const QString& id, const QString& targetPath,
-                                bool overwriteConfirmed, QString* err) {
+                                bool overwriteConfirmed, QString* err,
+                                StoreConflict* conflict) {
+    // PGR-56: the typed classification rides the failure path — the GUI
+    // confirm flow keys on this, never on the message text.
+    if (conflict)
+        *conflict = StoreConflict::None;
     if (!isValidStoreId(id))
         return fail(err, QStringLiteral("invalid preset id \"%1\" (schema v1 store "
                                         "layout)").arg(id));
@@ -1124,10 +1137,13 @@ bool BatchPresetStore::exportTo(const QString& id, const QString& targetPath,
         QDir(m_rootDir).filePath(id + QStringLiteral(".glyphpreset.json"));
     if (!QFileInfo::exists(src))
         return fail(err, QStringLiteral("no preset \"%1\" in the store").arg(id));
-    if (QFileInfo::exists(targetPath) && !overwriteConfirmed)
+    if (QFileInfo::exists(targetPath) && !overwriteConfirmed) {
+        if (conflict)
+            *conflict = StoreConflict::AlreadyExists;
         return fail(err, QStringLiteral(
                              "%1 already exists — export refused (never a silent "
                              "overwrite; confirm first)").arg(targetPath));
+    }
     // PROGRAM-CONSOLIDATION §1.6: SafeSave commit idiom (the U6 import shape,
     // mirrored on the way out). The old remove-then-copy had a window in which
     // a crash left the target deleted: the copy lands on a unique candidate

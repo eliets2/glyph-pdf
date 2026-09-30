@@ -143,6 +143,9 @@ private slots:
     // ── Presets review owner item (PGR-55) ────────────────────────────────
     void reviewRedactEntriesTrimmedAtTheEditorSplitBoundary();
 
+    // ── Presets review owner item (PGR-56) ────────────────────────────────
+    void reviewConflictConfirmGateKeysOnTypedCodeNotMessageText();
+
     // ── U2: onConflict "rename" + unattended ingest degrade ──────────────────
     void renamePolicySchemaAndRoundTrip();
     void renameConflictCreatesStem2KeepsOriginal();
@@ -2234,6 +2237,63 @@ void TestBatchPresetsP2::reviewRedactEntriesTrimmedAtTheEditorSplitBoundary() {
         QVERIFY2(!editor.saveErrorForTest().isEmpty(),
                  qPrintable(editor.saveErrorForTest()));
     }
+}
+
+// ── Presets review owner item (PGR-56) ────────────────────────────────────────
+// The manager's import/export confirm flows used to key on
+// err.contains("already exists") — a string match against a human diagnostic.
+// Rewording the message silently degraded the replace/overwrite ask to a
+// plain refusal (fail-safe, but the flow died quietly). The store now carries
+// a TYPED conflict classification on its failure path and the confirm gate
+// keys on it; the message text is display-only.
+void TestBatchPresetsP2::reviewConflictConfirmGateKeysOnTypedCodeNotMessageText() {
+    // ── Store level: the typed classification rides the failure path.
+    const QString dirA = m_storeDir->path() + QStringLiteral("/a");
+    BatchPresetStore storeA(dirA);
+    BatchPreset p;
+    p.name = QStringLiteral("Shareable");
+    p.steps.append({ QStringLiteral("compress"), {}, { { "quality", 60 } } });
+    QString err;
+    QVERIFY2(storeA.save(&p, &err), qPrintable(err));
+
+    StoreConflict conflict = StoreConflict::None;
+    const QString exported = m_runDir->filePath(p.id + QStringLiteral(".glyphpreset.json"));
+    QVERIFY2(storeA.exportTo(p.id, exported, false, &err), qPrintable(err));
+
+    // An existing-id import refusal classifies as AlreadyExists.
+    QVERIFY(!storeA.importFrom(exported, false, &err, nullptr, &conflict));
+    QCOMPARE(int(conflict), int(StoreConflict::AlreadyExists));
+
+    // A missing-file import refusal is NOT a conflict.
+    conflict = StoreConflict::None;
+    QVERIFY(!storeA.importFrom(m_runDir->filePath(
+                                   QStringLiteral("missing.glyphpreset.json")),
+                               false, &err, nullptr, &conflict));
+    QCOMPARE(int(conflict), int(StoreConflict::None));
+
+    // An existing-target export refusal classifies as AlreadyExists; success
+    // resets to None.
+    conflict = StoreConflict::None;
+    QVERIFY(!storeA.exportTo(p.id, exported, false, &err, &conflict));
+    QCOMPARE(int(conflict), int(StoreConflict::AlreadyExists));
+    QVERIFY(storeA.exportTo(p.id, exported, true, &err, &conflict));
+    QCOMPARE(int(conflict), int(StoreConflict::None));
+
+    // ── Manager level: the confirm gate keys on the typed code, NEVER the
+    // message text. The re-labeled message proves the string match is gone;
+    // the old trigger phrase riding a NON-conflict classification must not
+    // open the flow.
+    PresetManagerDialog::setStoreRootForTest(dirA);
+    PresetManagerDialog dlg(nullptr);
+    QVERIFY2(dlg.conflictConfirmGateForTest(
+                 StoreConflict::AlreadyExists,
+                 QStringLiteral("the destination is occupied — wording changed at will")),
+             "a re-labeled AlreadyExists failure must still trigger the confirm flow");
+    QVERIFY2(!dlg.conflictConfirmGateForTest(
+                 StoreConflict::None,
+                 QStringLiteral("non-conflict class — yet the text says 'already exists'")),
+             "a non-conflict failure must never trigger the confirm flow, "
+             "whatever its text says");
 }
 
 // ── Presets review lane (PGR-50) ──────────────────────────────────────────────

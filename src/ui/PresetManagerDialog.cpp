@@ -130,10 +130,14 @@ PresetManagerDialog::PresetManagerDialog(const CapabilityRegistry* capabilities,
             tr("Batch presets (*.glyphpreset.json);;All Files (*)"));
         if (path.isEmpty()) return;
         QString err;
-        if (!m_store.importFrom(path, false, &err)) {
+        StoreConflict conflict = StoreConflict::None;
+        if (!m_store.importFrom(path, false, &err, nullptr, &conflict)) {
             // An existing id is never silently replaced — ask, then import
-            // with the confirm (the U6 conflict policy's GUI half).
-            if (err.contains(QStringLiteral("already exists"))
+            // with the confirm (the U6 conflict policy's GUI half). PGR-56:
+            // the gate keys on the store's TYPED classification; the
+            // diagnostic is display-only (a reworded message can no longer
+            // silently degrade the ask to a plain refusal).
+            if (conflictConfirmGate(conflict)
                 && QMessageBox::question(
                        this, tr("Replace Existing Preset?"), err
                            + QStringLiteral("\n\n")
@@ -156,8 +160,10 @@ PresetManagerDialog::PresetManagerDialog(const CapabilityRegistry* capabilities,
             tr("Batch presets (*.glyphpreset.json);;All Files (*)"));
         if (target.isEmpty()) return;
         QString err;
-        if (!m_store.exportTo(id, target, false, &err)) {
-            if (err.contains(QStringLiteral("already exists"))
+        StoreConflict conflict = StoreConflict::None;
+        if (!m_store.exportTo(id, target, false, &err, &conflict)) {
+            // PGR-56: keyed on the typed classification, not the text.
+            if (conflictConfirmGate(conflict)
                 && QMessageBox::question(
                        this, tr("Overwrite Existing File?"), err
                            + QStringLiteral("\n\n")
