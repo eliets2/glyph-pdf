@@ -1,0 +1,31 @@
+********* Start testing of TestQuadPointsMarkup *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestQuadPointsMarkup::initTestCase()
+FAIL!  : TestQuadPointsMarkup::writerEmitsQuadPointsPerLine() 'qp != nullptr' returned FALSE. (writer must serialize /QuadPoints for a text-anchored highlight (got rect-only))
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(187) : failure location
+PASS   : TestQuadPointsMarkup::rectOnlyMarkupWritesNoQuadPoints()
+FAIL!  : TestQuadPointsMarkup::quadPointsRoundTripPreservesLines() Compared values are not the same
+   Actual   (back.first().quads.size()): 0
+   Expected (2)                        : 2
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(241) : failure location
+FAIL!  : TestQuadPointsMarkup::foreignAcrobatQuadPointsFixtureLoads() Compared values are not the same
+   Actual   (back.first().quads.size()): 0
+   Expected (2)                        : 2
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(258) : failure location
+FAIL!  : TestQuadPointsMarkup::doubleRoundTripIsStable() Compared values are not the same
+   Actual   (second.size()): 2
+   Expected (1)            : 1
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(282) : failure location
+FAIL!  : TestQuadPointsMarkup::paintDrawsQuadsNotUnionBlank() 'blank.blue() > 240' returned FALSE. (union blank band painted: rgb(255,255,155))
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(313) : failure location
+FAIL!  : TestQuadPointsMarkup::wrappedMatchReportsPerLineRects() Compared values are not the same
+   Actual   (matches.first().lineRects.size()): 0
+   Expected (2)                               : 2
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(350) : failure location
+FAIL!  : TestQuadPointsMarkup::sidecarRoundTripPreservesQuads() Compared values are not the same
+   Actual   (back.first().quads.size()): 0
+   Expected (2)                        : 2
+D:/pdf/pdf-w2-quad/tests/TestQuadPointsMarkup.cpp(368) : failure location
+PASS   : TestQuadPointsMarkup::cleanupTestCase()
+Totals: 3 passed, 7 failed, 0 skipped, 0 blacklisted, 74ms
+********* Finished testing of TestQuadPointsMarkup *********

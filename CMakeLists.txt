@@ -4122,6 +4122,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestShapeInkPersistence.cpp")
     set_tests_properties(TestShapeInkPersistence PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;annotations;persistence;qt;headless")
 endif()
 
+# PARITY §9.3 P1 row 15 (scorecard 2026-09-30): QuadPoints text-anchored
+# markup — per-line /QuadPoints write+read (ISO 32000 §12.5.6.10), per-quad
+# overlay rendering, the TextMatchFinder line-rect placement seam and the
+# .ann sidecar round-trip.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestQuadPointsMarkup.cpp")
+    add_executable(TestQuadPointsMarkup tests/TestQuadPointsMarkup.cpp)
+    target_include_directories(TestQuadPointsMarkup PRIVATE src tests)
+    target_link_libraries(TestQuadPointsMarkup PRIVATE
+        pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core
+        Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
+    )
+    # L05 (NATIVE-LINUX-READINESS-2026-09-10): podofo DLL staging is Windows-only —
+    # Linux links the vendored .so directly (no runtime staging).
+    if(WIN32)
+    add_custom_command(TARGET TestQuadPointsMarkup POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PODOFO_VENDOR_DLL}"
+            "$<TARGET_FILE_DIR:TestQuadPointsMarkup>/libpodofo.dll"
+        COMMENT "Deploying podofo 1.1.0 DLL for TestQuadPointsMarkup"
+    )
+    endif()
+    add_test(NAME TestQuadPointsMarkup COMMAND TestQuadPointsMarkup)
+    set_tests_properties(TestQuadPointsMarkup PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;annotations;persistence;qt;headless")
+endif()
+
 # T1 measurement toolset: interactive UI honesty — the Measure panel's pinned
 # disclosures (persistence, session-only calibration, deferred scopes) and the
 # AnnotationLayer click-input state machine (G21 overlay rect, G22 label

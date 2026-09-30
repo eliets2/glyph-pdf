@@ -38,6 +38,15 @@ struct AnnotationItem {
                            // model; transcoded to /RC XHTML on save, original
                            // stashed in /PieceInfo. Empty => plain-text only.
     QRectF rect;
+    // PARITY §9.3 P1 row 15 (scorecard 2026-09-30): per-LINE rects for
+    // text-anchored Highlight/Underline/Strikeout/Squiggly — one quad per
+    // text line, in the SAME display space as `rect`, TOP line first (PDF
+    // reading order). Serialized as ISO 32000 §12.5.6.10 /QuadPoints so the
+    // markup hugs the actual glyphs instead of the drag union rect (which
+    // covers blank space and misses wrapped lines). EMPTY for legacy
+    // drag-rect markup — the free-rect mode is unchanged, this is an
+    // additional mode, not a replacement.
+    QList<QRectF> quads;
     // §9.7 P0 (audit 2026-07-01): raster ink for the signature picker's Type
     // and Upload modes (typed text rendered by SignatureContent::renderTyped,
     // or the decoded image from SignatureContent::loadUploaded). Null for all

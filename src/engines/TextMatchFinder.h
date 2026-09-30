@@ -34,6 +34,13 @@ struct TextMatch {
     QRectF rect;          // RAW PDF USER space (y-up: y() = the lower edge)
     QString text;         // matched substring (decoded)
     double fontSize = 0;  // points; 0 when the page carries no size info
+    // PARITY §9.3 P1 row 15: the match split into PER-LINE runs (display
+    // space, top line first) — the seam that feeds text-anchored /QuadPoints
+    // markup. A match whose glyphs wrap across lines is one union rect here
+    // but TWO line rects there, so a highlight hugs each line instead of
+    // spanning the blank band between them. Empty until populated by the
+    // finder (callers must treat empty as "no line info — rect only").
+    QList<QRectF> lineRects;
 };
 
 class TextMatchFinder {
