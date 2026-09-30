@@ -14,9 +14,20 @@
 // the secret lives in an app-managed file, not the OS vault; and the on-disk
 // file carries an explicit header marker.
 //
-// EC04 / SEP13:5 — at-rest formats (the first byte of every blob; entries
+// EC04 / SEP13:5 / M-5 — at-rest formats (the first byte of every blob; entries
 // live as base64 inside the labelled JSON store `secrets.enc.json`):
 //
+//   0x05  M-5 (AUDIT-SECURITY-2026-09-25, CWE-321): the non-Windows default
+//         path generation — AES-256-GCM under SHA-256(legacy seed MIXED WITH
+//         a per-install random secret), entry identity as AAD. The per-install
+//         secret (32 CPRNG bytes) is persisted beside the store as
+//         `<store>.install-key` with owner-only permissions; the store file
+//         and its directory are owner-only too (0600/0700, POSIX-enforced —
+//         a hardening that does not stick fails the write loudly). When no
+//         secure per-install secret can be established, the write REFUSES
+//         instead of degrading to the public-seed key. Replaces the 0x03
+//         fallback write (public-seed only — any local user could recompute
+//         the key); 0x03 remains readable for migration.
 //   0x04  Windows default path (v3 generation): the secret is wrapped
 //         DIRECTLY by DPAPI (CryptProtectData/CryptUnprotectData, advapi32)
 //         with the SERVICE NAME as the optional entropy. The blob is bound
@@ -52,12 +63,16 @@
 // written WITH an override key and non-Windows 0x01 stores remain readable as
 // before; Windows 0x02 stores read once and are transparently upgraded to the
 // entry-bound v3 generation on that read. New writes use the v3 generation
-// (0x03/0x04), which binds every blob to its entry identity. Non-Windows
+// (0x03/0x04/0x05), which binds every blob to its entry identity. Non-Windows
 // 0x01/0x03 keys derive from home-path/machine identifiers — those are
-// identifiers, not confidential entropy, so the non-Windows default path is
-// honest obfuscation only (no OS protection primitive exists there); the
-// Windows default path carries the real per-user encryption guarantee, now
-// additionally bound to the entry identity.
+// identifiers, not confidential entropy, so the non-Windows default path WAS
+// honest obfuscation only. Since M-5 that path writes 0x05: the key is mixed
+// with a per-install random secret persisted owner-only, the store lands 0600
+// in a 0700 directory, and a write without secure per-install key material
+// refuses loudly — the fallback is no longer "any local user with
+// /etc/machine-id can read your API keys". The Windows default path carries
+// the real per-user encryption guarantee, now additionally bound to the entry
+// identity.
 //
 // It NEVER silent-fails: storeSecret returns false (and writes nothing) if it
 // cannot durably persist; it never returns true without the ciphertext hitting
@@ -85,6 +100,13 @@ public:
     // Path of the backing file actually in use (resolved default if none was
     // supplied). Exposed for diagnostics and tests.
     QString filePath() const { return m_filePath; }
+
+    // M-5 pin seam (AUDIT-SECURITY-2026-09-25; TestSecretStore only): force
+    // the DEFAULT (no-override) path down the non-Windows fallback store even
+    // on a Windows build, so the fallback key derivation and its blob
+    // generation are executable — and pinnable — on every platform. Inert
+    // unless a test sets it; production default stores are untouched.
+    static void setFallbackKeyPathForTesting(bool forced);
 
 private:
     // Legacy 0x01 key derivation: SHA-256 of the override material, or — for

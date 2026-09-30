@@ -242,6 +242,94 @@ class TestSecretStore : public QObject {
 
 private slots:
 
+    // ── M-5 (AUDIT-SECURITY-2026-09-25, CWE-321): the non-Windows fallback ────
+    // store derived its AES key from PUBLIC identifiers (home path +
+    // machineUniqueId + constant) — any local user could recompute it, and
+    // the store file landed with default (0644) permissions. THE DERIVATION
+    // PIN: a fallback-path store must write the PER-INSTALL RANDOM SECRET
+    // generation (blob version 0x05), persist that secret beside the store,
+    // and still roundtrip — including for a FRESH store instance (same
+    // install secret → same key). The fallback path itself is forced with
+    // the test seam so the pin runs on every platform; the POSIX-only
+    // permission assertions live in storeFileIsOwnerOnly below.
+    void fallbackKeyPathUsesPerInstallSecret() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString storePath = dir.path() + QStringLiteral("/s.json");
+        const QString installKeyPath = storePath + QStringLiteral(".install-key");
+
+        // RAII: the seam must never leak into other slots — even when this
+        // slot FAILS (QTest aborts the slot on the first failed check, so a
+        // trailing reset call would never run; the guard always runs).
+        struct FallbackKeyPathGuard {
+            FallbackKeyPathGuard() { EncryptedFileSecretStore::setFallbackKeyPathForTesting(true); }
+            ~FallbackKeyPathGuard() { EncryptedFileSecretStore::setFallbackKeyPathForTesting(false); }
+            FallbackKeyPathGuard(const FallbackKeyPathGuard&) = delete;
+            FallbackKeyPathGuard& operator=(const FallbackKeyPathGuard&) = delete;
+        } fallbackGuard;
+        QByteArray blobVersion;
+        QString stored;
+        {
+            EncryptedFileSecretStore store(storePath);  // DEFAULT path — no override
+            stored = QStringLiteral("sk-fallback-secret-value-1");
+            QVERIFY2(store.storeSecret("Anthropic", stored),
+                     "fallback storeSecret must succeed");
+            QCOMPARE(store.readSecret("Anthropic"), stored);
+
+            // Read the raw blob: base64 → first byte is the at-rest version.
+            QFile f(storePath);
+            QVERIFY(f.open(QIODevice::ReadOnly));
+            const auto root = QJsonDocument::fromJson(f.readAll()).object();
+            f.close();
+            const auto b64 = root.value("secrets").toObject()
+                                 .value("Anthropic").toString();
+            QVERIFY(!b64.isEmpty());
+            const auto blob = QByteArray::fromBase64(b64.toLatin1());
+            QVERIFY(blob.size() > 1);
+            blobVersion = blob.left(1);
+        }
+        // THE PIN: the fallback generation carries the per-install-secret
+        // version byte. Pre-fix the fallback path wrote the legacy
+        // public-seed generation (0x03) — readable by any local user who
+        // knows /home/<user> and /etc/machine-id.
+        QCOMPARE(int(quint8(blobVersion.at(0))), 0x05);
+        // The per-install secret IS persisted beside the store (so a fresh
+        // instance — and the next launch — derives the same key).
+        QVERIFY2(QFileInfo::exists(installKeyPath),
+                 "per-install random secret must be persisted beside the store");
+        {
+            // Fresh instance, same store: the key derivation is STABLE.
+            EncryptedFileSecretStore fresh(storePath);
+            QCOMPARE(fresh.readSecret("Anthropic"), stored);
+        }
+    }
+
+    // ── M-5: the store FILE and its directory must be owner-only — the ────────
+    // audit's minimum fix (secrets.enc.json landed 0644 on POSIX, widening
+    // the audience beyond the design's same-user assumption). POSIX-strict;
+    // elsewhere the write path must still roundtrip.
+    void storeFileIsOwnerOnly() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString storePath = dir.path() + QStringLiteral("/s.json");
+        EncryptedFileSecretStore store(storePath, testKey());
+        QVERIFY(store.storeSecret("Anthropic", "sk-ant-secret-value-123456"));
+        QCOMPARE(store.readSecret("Anthropic"), QString("sk-ant-secret-value-123456"));
+#ifdef Q_OS_UNIX
+        {
+            const auto perms = QFileInfo(storePath).permissions();
+            QVERIFY2(!(perms & (QFile::ReadGroup | QFile::WriteGroup |
+                                QFile::ReadOther | QFile::WriteOther)),
+                     "secrets.enc.json must not be group/other readable");
+            const auto dirPerms = QFileInfo(dir.path()).permissions();
+            QVERIFY2(!(dirPerms & (QFile::ReadGroup | QFile::WriteGroup |
+                                   QFile::ExeGroup | QFile::ReadOther |
+                                   QFile::WriteOther | QFile::ExeOther)),
+                     "the store directory must not be group/other traversable");
+        }
+#endif
+    }
+
     // Round-trip: a stored secret comes back intact (it is NOT dropped).
     void testStoreAndReadRoundTrip() {
         QTemporaryDir dir;

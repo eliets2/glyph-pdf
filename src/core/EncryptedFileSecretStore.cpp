@@ -28,6 +28,16 @@ constexpr int    kKeyLen   = 32;   // AES-256
 constexpr int    kNonceLen = 12;   // GCM standard nonce
 constexpr int    kTagLen   = 16;   // GCM tag
 
+// M-5 pin seam (see EncryptedFileSecretStore::setFallbackKeyPathForTesting):
+// when set, the DEFAULT (no-override) path behaves as a non-Windows build —
+// DPAPI is bypassed and the fallback AES store is used even on Windows.
+bool g_fallbackKeyPathForTesting = false;
+
+// M-5 (AUDIT-SECURITY-2026-09-25, CWE-321): the fallback store's key mixes
+// in THIS much fresh random entropy per install, persisted beside the store
+// with owner-only permissions.
+constexpr int kInstallSecretLen = 32;
+
 // PGR-10 triage (key/plaintext zeroization): scrub a secret buffer before its
 // storage is released. OPENSSL_cleanse is guaranteed not to be optimized away
 // (a plain memset over a soon-dead buffer would be elided), so the derived
@@ -41,6 +51,163 @@ void scrubBuffer(void* p, size_t n)
 void scrubBuffer(QByteArray& buffer)
 {
     if (!buffer.isEmpty()) scrubBuffer(buffer.data(), size_t(buffer.size()));
+}
+
+// ── M-5 (AUDIT-SECURITY-2026-09-25, CWE-377/321): owner-only permission ──────
+// hardening for the store file, its directory, and the per-install secret.
+// POSIX-enforced and verified (a hardening that does not stick is a failure —
+// the caller decides whether to fail closed or warn); Windows needs no bit
+// work (per-user ACLs; QFile::setPermissions is a read-only-attribute
+// no-op there and is never relied on).
+constexpr QFile::Permissions kOwnerOnlyFile = QFile::ReadOwner | QFile::WriteOwner;
+constexpr QFile::Permissions kOwnerOnlyDir  = QFile::ReadOwner | QFile::WriteOwner
+                                            | QFile::ExeOwner;
+constexpr QFile::Permissions kGroupOtherFile = QFile::ReadGroup | QFile::WriteGroup
+                                              | QFile::ReadOther | QFile::WriteOther;
+constexpr QFile::Permissions kGroupOtherDir  = kGroupOtherFile | QFile::ExeGroup
+                                              | QFile::ExeOther;
+
+bool permsAreOwnerOnlyFile(const QString& path)
+{
+    const QFile::Permissions now = QFile::permissions(path);
+    return (now & kOwnerOnlyFile) == kOwnerOnlyFile && (now & kGroupOtherFile) == 0;
+}
+
+bool hardenDirOwnerOnly(const QString& path)
+{
+    QDir d(path);
+    if (!d.exists() && !QDir().mkpath(path)) return false;
+#ifdef Q_OS_UNIX
+    if (!QFile::setPermissions(path, kOwnerOnlyDir)) return false;
+    const QFile::Permissions now = QFile::permissions(path);
+    return (now & kOwnerOnlyDir) == kOwnerOnlyDir && (now & kGroupOtherDir) == 0;
+#else
+    QFile::setPermissions(path, kOwnerOnlyDir);  // best-effort on Windows ACLs
+    return true;
+#endif
+}
+
+// Tightens an EXISTING file to owner-only. POSIX: reports whether the bits
+// actually stuck; Windows: best-effort, always true.
+bool tightenFileOwnerOnly(const QString& path)
+{
+#ifdef Q_OS_UNIX
+    if (!QFile::setPermissions(path, kOwnerOnlyFile)) return false;
+    return permsAreOwnerOnlyFile(path);
+#else
+    QFile::setPermissions(path, kOwnerOnlyFile);
+    return true;
+#endif
+}
+
+// The legacy PUBLIC seed (identifiers only — never confidential). Shared by
+// resolveKey() (legacy generations) and the M-5 fallback derivation (which
+// mixes the per-install random secret on top of it).
+QByteArray legacyPublicSeed()
+{
+    QByteArray seed;
+    seed += QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toUtf8();
+    seed += QSysInfo::machineUniqueId();
+    seed += QByteArrayLiteral("glyphpdf-secret-store-v1");
+    return seed;
+}
+
+// The per-install random secret lives beside the store: one key per store
+// directory, created on first write, 0600.
+QString installSecretPathFor(const QString& storePath)
+{
+    return storePath + QStringLiteral(".install-key");
+}
+
+// LOAD-only (decrypt side): the secret must already exist; a missing or
+// corrupt install secret makes the 0x05 generation honestly undecryptable —
+// never a reason to mint a fresh key that cannot match old blobs.
+QByteArray loadInstallSecret(const QString& storePath, QString* error)
+{
+    const QString path = installSecretPathFor(storePath);
+    QFile in(path);
+    if (!in.exists()) {
+        if (error) *error = QStringLiteral("per-install key material %1 is missing "
+                                           "(the 0x05 entries it protects are "
+                                           "undecryptable)").arg(path);
+        return {};
+    }
+    if (!in.open(QIODevice::ReadOnly)) {
+        if (error) *error = QStringLiteral("cannot read %1: %2").arg(path, in.errorString());
+        return {};
+    }
+    const QByteArray data = in.readAll();
+    in.close();
+    if (data.size() != kInstallSecretLen) {
+        if (error) *error = QStringLiteral("%1 is corrupt (expected %2 bytes, got %3)")
+                                .arg(path).arg(kInstallSecretLen).arg(data.size());
+        return {};
+    }
+    // The key material itself must not be world-readable either.
+    if (!tightenFileOwnerOnly(path))
+        qWarning() << "EncryptedFileSecretStore: per-install key" << path
+                   << "could not be restricted to owner-only access";
+    return data;
+}
+
+// LOAD-OR-CREATE (encrypt side): first write mints 32 random bytes via the
+// OpenSSL CPRNG and persists them owner-only. Failure (cannot secure the
+// directory or the file) is REPORTED — the caller refuses the write instead
+// of degrading to the public-seed key.
+QByteArray loadOrCreateInstallSecret(const QString& storePath, QString* error)
+{
+    const QString path = installSecretPathFor(storePath);
+    QFile in(path);
+    if (in.exists()) {
+        QByteArray data;
+        if (in.open(QIODevice::ReadOnly)) {
+            data = in.readAll();
+            in.close();
+        }
+        if (data.size() == kInstallSecretLen) {
+            if (!tightenFileOwnerOnly(path))
+                qWarning() << "EncryptedFileSecretStore: per-install key" << path
+                           << "could not be restricted to owner-only access";
+            return data;
+        }
+        // Corrupt/truncated: the blobs it protected are already lost; mint a
+        // fresh secret (LOUDLY — this is a data-loss disclosure, not silence)
+        // so at least NEW writes work.
+        qWarning() << "EncryptedFileSecretStore: per-install key" << path
+                   << "is corrupt (size" << data.size() << "); minting a fresh "
+                   << "one — previously written 0x05 entries stay undecryptable";
+    }
+    if (!hardenDirOwnerOnly(QFileInfo(path).absolutePath())) {
+        if (error) *error = QStringLiteral("the store directory could not be "
+                                           "secured to owner-only access");
+        return {};
+    }
+    QByteArray rnd(kInstallSecretLen, Qt::Uninitialized);
+    if (RAND_bytes(reinterpret_cast<unsigned char*>(rnd.data()), kInstallSecretLen) != 1) {
+        if (error) *error = QStringLiteral("the OpenSSL CPRNG failed");
+        return {};
+    }
+    QSaveFile out(path);
+    if (!out.open(QIODevice::WriteOnly)) {
+        if (error) *error = QStringLiteral("cannot create %1: %2").arg(path, out.errorString());
+        return {};
+    }
+    out.setPermissions(kOwnerOnlyFile);  // carried through the atomic rename
+    if (out.write(rnd) != rnd.size() || !out.commit()) {
+        if (error) *error = QStringLiteral("cannot persist %1").arg(path);
+        return {};
+    }
+#ifdef Q_OS_UNIX
+    if (!permsAreOwnerOnlyFile(path)
+        && !tightenFileOwnerOnly(path)) {
+        QFile::remove(path);
+        if (error) *error = QStringLiteral("%1 could not be persisted "
+                                           "owner-only — refusing to derive "
+                                           "the fallback key from it").arg(path);
+        return {};
+    }
+#endif
+    return rnd;
 }
 
 // RAII: scrub on every scope exit — decrypt()/encrypt() have several early
@@ -102,6 +269,15 @@ constexpr quint8 kVersionDpapi = 0x02;  // legacy — never written; re-wrapped
                                         // to v3 on first read (PGR-20)
 constexpr quint8 kVersionAesAad   = 0x03;
 constexpr quint8 kVersionDpapiV3  = 0x04;
+// M-5 (AUDIT-SECURITY-2026-09-25, CWE-321): the non-Windows DEFAULT path
+// generation — AES-256-GCM under SHA-256(legacy seed || PER-INSTALL RANDOM
+// SECRET), entry identity as AAD. The legacy seed's components are public
+// identifiers (home path, machine-id, a constant); the per-install secret
+// (32 random bytes, persisted owner-only beside the store) is what lifts the
+// fallback key out of "any local user can recompute it". Stores whose
+// install secret cannot be durably persisted owner-only refuse to write
+// rather than degrade to the public seed.
+constexpr quint8 kVersionAesInstallSecret = 0x05;
 const wchar_t kDpapiV3Description[] = L"GlyphPDF.SecretStore.Secret.v3";
 
 // Explicit on-disk marker so the file is self-describing / labelled.
@@ -134,6 +310,11 @@ EncryptedFileSecretStore::EncryptedFileSecretStore(QString filePath, QByteArray 
 {
 }
 
+void EncryptedFileSecretStore::setFallbackKeyPathForTesting(bool forced)
+{
+    g_fallbackKeyPathForTesting = forced;
+}
+
 QByteArray EncryptedFileSecretStore::resolveKey() const
 {
     if (!m_keyOverride.isEmpty()) {
@@ -141,25 +322,26 @@ QByteArray EncryptedFileSecretStore::resolveKey() const
         return QCryptographicHash::hash(m_keyOverride, QCryptographicHash::Sha256);
     }
 
-    // Legacy derivation kept ONLY to read pre-EC04 (0x01) stores written
-    // without an override (non-Windows). EC04: on Windows the default path no
-    // longer writes through this derivation at all — a fresh DPAPI blob is not
-    // a deterministic key-derivation function, so hashing it per call made
-    // every write unreadable. SEP13:5: the no-override non-Windows path now
-    // writes 0x03 (same key derivation, plus the entry identity as AAD); the
-    // derivation itself is unchanged so legacy stores stay readable.
-    // The seed components below are account/machine IDENTIFIERS, not
-    // confidential entropy: on non-Windows the derivation is best-effort
-    // obfuscation only, documented as such in the header.
+    // Legacy derivation kept ONLY to READ pre-M-5 stores written without an
+    // override (non-Windows 0x01/0x03). M-5 (AUDIT-SECURITY-2026-09-25,
+    // CWE-321): the no-override non-Windows path now WRITES 0x05 — same seed
+    // MIXED WITH a per-install random secret (deriveFallbackKey) — so this
+    // public-seed derivation is no longer used for new writes anywhere.
+    // The seed components are account/machine IDENTIFIERS, not confidential
+    // entropy: that is why 0x01/0x03 are readable-for-migration only.
     // PGR-20: precisely BECAUSE the seed is public, decrypt() on the Windows
-    // default path (no override) rejects the AES versions this derivation
-    // would unlock — there, a blob under this key can only be a forgery.
-    QByteArray seed;
-    seed += QStandardPaths::writableLocation(QStandardPaths::HomeLocation).toUtf8();
-    seed += QSysInfo::machineUniqueId();
-    seed += QByteArrayLiteral("glyphpdf-secret-store-v1");
+    // default path (no override, fallback seam off) rejects the AES versions
+    // this derivation would unlock — there, such a blob can only be a forgery.
+    return QCryptographicHash::hash(legacyPublicSeed(), QCryptographicHash::Sha256);
+}
 
-    return QCryptographicHash::hash(seed, QCryptographicHash::Sha256);
+// M-5: the fallback generation's key — the legacy public seedMixed with the
+// per-install random secret. The seed alone is public; the secret is what
+// the store protects.
+QByteArray deriveFallbackKey(const QByteArray& installSecret)
+{
+    return QCryptographicHash::hash(legacyPublicSeed() + installSecret,
+                                    QCryptographicHash::Sha256);
 }
 
 QByteArray EncryptedFileSecretStore::encrypt(const QString& service,
@@ -176,7 +358,7 @@ QByteArray EncryptedFileSecretStore::encrypt(const QString& service,
     // instance, any later session) and by nobody else. No derived AES key, no
     // persisted master key. SEP13:5 v3: the service name rides as the
     // optional entropy, binding the blob to its JSON entry.
-    if (m_keyOverride.isEmpty()) {
+    if (m_keyOverride.isEmpty() && !g_fallbackKeyPathForTesting) {
         DATA_BLOB entropy{};
         entropy.pbData = reinterpret_cast<BYTE*>(const_cast<char*>(identity.constData()));
         entropy.cbData = static_cast<DWORD>(identity.size());
@@ -203,7 +385,29 @@ QByteArray EncryptedFileSecretStore::encrypt(const QString& service,
     }
 #endif
 
-    QByteArray key = resolveKey();
+    // M-5 (AUDIT-SECURITY-2026-09-25, CWE-321): the fallback path (no
+    // override key) derives its AES key from the legacy seed MIXED WITH the
+    // per-install random secret, and writes the 0x05 generation. No secure
+    // per-install secret → REFUSE the write loudly; never degrade to the
+    // public-seed key the audit flagged.
+    QByteArray key;
+    quint8 version = kVersionAesAad;
+    if (m_keyOverride.isEmpty()) {
+        QString keyErr;
+        QByteArray installSecret = loadOrCreateInstallSecret(m_filePath, &keyErr);
+        if (installSecret.isEmpty()) {
+            qWarning() << "EncryptedFileSecretStore: no secure per-install key "
+                          "material available —" << keyErr
+                       << "; secret NOT stored (the public-seed fallback is "
+                          "refused)";
+            return {};
+        }
+        ScrubOnScopeExit scrubInstall(&installSecret);
+        key = deriveFallbackKey(installSecret);
+        version = kVersionAesInstallSecret;
+    } else {
+        key = resolveKey();
+    }
     // PGR-10 triage (key/plaintext zeroization): scrub the derived AES key on
     // EVERY scope exit — both functions early-return on failure paths.
     ScrubOnScopeExit scrubKey(&key);
@@ -246,7 +450,7 @@ QByteArray EncryptedFileSecretStore::encrypt(const QString& service,
     if (EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, kTagLen, tag) != 1) return {};
 
     QByteArray blob;
-    blob.append(static_cast<char>(kVersionAesAad));
+    blob.append(static_cast<char>(version));
     blob.append(reinterpret_cast<const char*>(nonce), kNonceLen);
     blob.append(reinterpret_cast<const char*>(tag), kTagLen);
     blob.append(cipher);
@@ -338,8 +542,12 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
     // override-key path (hosts/tests) and the non-Windows default path (which
     // writes 0x03) still read these formats.
 #ifdef _WIN32
-    if (m_keyOverride.isEmpty()
-        && (version == kVersionAes || version == kVersionAesAad)) {
+    if (m_keyOverride.isEmpty() && !g_fallbackKeyPathForTesting
+        && (version == kVersionAes || version == kVersionAesAad
+            || version == kVersionAesInstallSecret)) {
+        // 0x05 too: the Windows default path writes DPAPI only — an AES
+        // generation blob there can only be an injected forgery (unless the
+        // test seam is simulating a non-Windows build).
         qWarning() << "EncryptedFileSecretStore: AES blob found on the Windows "
                       "default path — this format cannot be produced "
                       "legitimately there; rejecting a likely forged store "
@@ -348,9 +556,26 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
     }
 #endif
 
-    if (version != kVersionAesAad && version != kVersionAes) return {};
+    if (version != kVersionAesAad && version != kVersionAes
+        && version != kVersionAesInstallSecret) return {};
 
-    QByteArray key = resolveKey();
+    // M-5: the 0x05 generation decrypts ONLY under the per-install secret —
+    // load-only (a missing/corrupt install secret is an honest refusal, never
+    // a minted key that cannot match the blob).
+    QByteArray key;
+    if (version == kVersionAesInstallSecret) {
+        QString keyErr;
+        QByteArray installSecret = loadInstallSecret(m_filePath, &keyErr);
+        if (installSecret.isEmpty()) {
+            qWarning() << "EncryptedFileSecretStore: cannot decrypt a 0x05 "
+                          "entry —" << keyErr;
+            return {};
+        }
+        ScrubOnScopeExit scrubInstall(&installSecret);
+        key = deriveFallbackKey(installSecret);
+    } else {
+        key = resolveKey();
+    }
     // PGR-10 triage (key/plaintext zeroization): scrub the derived AES key on
     // EVERY scope exit — both functions early-return on failure paths.
     ScrubOnScopeExit scrubKey(&key);
@@ -374,7 +599,8 @@ QByteArray EncryptedFileSecretStore::decrypt(const QString& service,
 
     // SEP13:5: v3 blobs authenticate the entry identity through the GCM AAD.
     // Legacy 0x01 blobs carry no AAD and are read without it (migration).
-    if (version == kVersionAesAad) {
+    // M-5: the 0x05 generation is AAD-bound exactly like 0x03.
+    if (version == kVersionAesAad || version == kVersionAesInstallSecret) {
         int aadLen = 0;
         if (EVP_DecryptUpdate(ctx, nullptr, &aadLen,
                               reinterpret_cast<const unsigned char*>(identity.constData()),
@@ -418,6 +644,16 @@ bool EncryptedFileSecretStore::storeSecret(const QString& service, const QString
     // Ensure the directory exists BEFORE locking — QLockFile needs somewhere
     // to put its lock file.
     QDir().mkpath(QFileInfo(m_filePath).absolutePath());
+    // M-5 (AUDIT-SECURITY-2026-09-25, CWE-377): the store directory must be
+    // owner-only — a shared directory publishes secrets.enc.json (and the
+    // per-install key) to every local user regardless of file bits.
+    if (!hardenDirOwnerOnly(QFileInfo(m_filePath).absolutePath())) {
+        qWarning() << "EncryptedFileSecretStore: the store directory"
+                   << QFileInfo(m_filePath).absolutePath()
+                   << "could not be secured to owner-only access; secret NOT "
+                      "stored for" << service;
+        return false;
+    }
 
     // PGR-25: this is a read-modify-write of the shared JSON. Without the
     // lock, two instances storing different entries at the same time lose
@@ -449,11 +685,15 @@ bool EncryptedFileSecretStore::storeSecret(const QString& service, const QString
         root.insert(QStringLiteral("secrets"), entries);
 
         // Atomic write — QSaveFile commits all-or-nothing; never leaves a partial.
+        // Atomic write — QSaveFile commits all-or-nothing; never leaves a partial.
+        // M-5: the store file is owner-only (0600) — set on the temp file so
+        // the atomic rename lands it already restricted.
         QSaveFile out(m_filePath);
         if (!out.open(QIODevice::WriteOnly)) {
             qWarning() << "EncryptedFileSecretStore: cannot open store for write:" << m_filePath;
             return false;
         }
+        out.setPermissions(kOwnerOnlyFile);
         const QByteArray json = QJsonDocument(root).toJson(QJsonDocument::Compact);
         if (out.write(json) != json.size()) {
             out.cancelWriting();
@@ -464,6 +704,19 @@ bool EncryptedFileSecretStore::storeSecret(const QString& service, const QString
             qWarning() << "EncryptedFileSecretStore: commit failed; secret NOT stored for" << service;
             return false;
         }
+#ifdef Q_OS_UNIX
+        // M-5: verify the landed file is actually owner-only; repair once,
+        // then fail loudly — a world-readable secret store must never be
+        // claimed as a success.
+        if (!permsAreOwnerOnlyFile(m_filePath)
+            && !tightenFileOwnerOnly(m_filePath)) {
+            qWarning() << "EncryptedFileSecretStore:" << m_filePath
+                       << "could not be restricted to owner-only access; "
+                          "secret NOT stored (the write is on disk but "
+                          "UNSECURED -- remove it or fix the filesystem)";
+            return false;
+        }
+#endif
     }  // lock released — verification below must not hold the lock
 
     // Verify the secret is actually re-readable before reporting success, so we
@@ -538,6 +791,7 @@ QString EncryptedFileSecretStore::readSecret(const QString& service) const
                     const QByteArray json =
                         QJsonDocument(freshRoot).toJson(QJsonDocument::Compact);
                     QSaveFile out(m_filePath);
+                    out.setPermissions(kOwnerOnlyFile);  // M-5: keep the store 0600
                     if (out.open(QIODevice::WriteOnly)
                         && out.write(json) == json.size() && out.commit()) {
                         qDebug() << "EncryptedFileSecretStore: migrated legacy "
@@ -612,6 +866,7 @@ bool EncryptedFileSecretStore::deleteSecret(const QString& service)
 
             QSaveFile out(m_filePath);
             if (!out.open(QIODevice::WriteOnly)) return false;
+            out.setPermissions(kOwnerOnlyFile);  // M-5: keep the store 0600
             const QByteArray json =
                 QJsonDocument(freshRoot).toJson(QJsonDocument::Compact);
             if (out.write(json) != json.size()) { out.cancelWriting(); return false; }
