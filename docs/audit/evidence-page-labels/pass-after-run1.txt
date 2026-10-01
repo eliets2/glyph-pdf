@@ -1,0 +1,15 @@
+Test project D:/pdf/pdf-w2b-pagelabels/build-rel
+    Start 61: TestPageLabels
+1/1 Test #61: TestPageLabels ...................   Passed    2.04 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+core          =   2.04 sec*proc (1 test)
+headless      =   2.04 sec*proc (1 test)
+pagelabels    =   2.04 sec*proc (1 test)
+pages         =   2.04 sec*proc (1 test)
+qt            =   2.04 sec*proc (1 test)
+unit          =   2.04 sec*proc (1 test)
+
+Total Test time (real) =   2.05 sec

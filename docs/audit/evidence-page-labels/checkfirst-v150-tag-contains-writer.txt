@@ -1,0 +1,25 @@
+# CHECK FIRST proof — mission content already landed at lane base fe6ca6f2
+# Generated: 2026-10-01T06:04:09+03:00
+
+== 1. v1.5.0 TAG contains writer + UI (note claimed they were deferred) ==
+$ git grep -c writeNumberTree v1.5.0 -- src/core/PageLabels.cpp
+v1.5.0:src/core/PageLabels.cpp:8
+$ git grep -c onApplyPageLabels v1.5.0 -- src/modes/PagesMode.cpp
+v1.5.0:src/modes/PagesMode.cpp:4
+
+== 2. When the writer/UI landed ==
+$ git log --format='%h %ad %s' --date=short -S writeNumberTree -- src/core/PageLabels.cpp
+1991d9c1 2026-09-23 consolidate: land 20 parity/hardening branch lines onto main (squashed, purge kept)
+$ git log --format='%h %ad %s' --date=short -S onApplyPageLabels -- src/modes/PagesMode.cpp
+1991d9c1 2026-09-23 consolidate: land 20 parity/hardening branch lines onto main (squashed, purge kept)
+
+== 3. Timeline: scorecard + CHANGELOG note predate nothing — they are STALE ==
+scorecard PARITY-SCORECARD-2026-09-30.md dated 2026-09-30; CHANGELOG [1.5.0] dated 2026-09-29;
+writer+UI landed 2026-09-23 in consolidation 1991d9c1 (before both documents, before the v1.5.0 tag).
+
+== 4. Round-trip pins present at lane base (tests/TestPageLabels.cpp) ==
+$ grep -c readNumberTree tests/TestPageLabels.cpp
+11
+reader helper readNumberTree + QCOMPARE(tree, numberTreeEntries(...)) in: writeNumberTree_decimal_readback,
+writeNumberTree_roman_readback, writeNumberTree_replacesExistingTree, writeNumberTree_startValueOffset,
+writeNumberTreePagesModeCandidateFlowEndToEnd, writeNumberTreeContentBearingFileSurvivesAndCarriesTree

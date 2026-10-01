@@ -1,0 +1,12 @@
+# RECORD fail-before — the stale [1.5.0] scoping note as shipped at lane base fe6ca6f2
+# (No lane-authored code change exists, so the R7 fail-before pin applies to the RECORD correction,)
+# captured from git history before this lane's edit:
+
+$ git show fe6ca6f2:CHANGELOG.md | sed -n '144,145p'
+- **Page Labels groundwork**: pure seams + tests; writer/UI deferred with a
+  scoping note.
+
+# Claimed: writer/UI 'deferred with a scoping note'.
+# Reality (see checkfirst-v150-tag-contains-writer.txt): writer+UI shipped IN v1.5.0
+# (tag contains writeNumberTree x8, onApplyPageLabels x4). The note is factually false
+# for the tagged release — this is the red state the CHANGELOG edit fixes.
