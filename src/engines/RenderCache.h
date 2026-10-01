@@ -16,6 +16,7 @@
 #include <memory>
 #include <future>
 #include <QFuture>
+#include <functional>
 #include "core/interfaces/IPdfRenderer.h"
 
 // Memory-guard thresholds (Session 16 D5)
@@ -109,6 +110,24 @@ public:
     QImage getOrRenderTile(int page, qreal scale, const QRectF &subRect, IPdfRenderer* renderer);
     void insertPage(int page, qreal scale, const QImage &image);
     void insertTile(int page, qreal scale, const QRectF &subRect, const QImage &image);
+
+    // Async render request (PARITY-SCORECARD 2026-09-30 §4 row 16 — the
+    // thumbnail rail's off-GUI path). Cache hit: onRendered is invoked INLINE
+    // (on the caller's thread) and true is returned. Miss: the render is
+    // scheduled on the SAME machinery prefetchViewport uses — the current
+    // m_prefetchCancelToken epoch, registration in m_inFlightPrefetches (so
+    // clear()/~RenderCache cancel + join it before any renderer is retired,
+    // EC06), lowest worker priority, insert into the cache under the lock —
+    // and false is returned. On completion onRendered is invoked ON THE WORKER
+    // THREAD (consumers must marshal to their own thread; the thumbnail rail
+    // hops via queued invokeMethod). If the token epoch advanced while the
+    // render ran (clear()/prefetch supersession — the document-changed case)
+    // the result is discarded and onRendered is NOT invoked: a stale render is
+    // never delivered to the consumer. Unlike prefetchViewport this does NOT
+    // bump the cancel token per request — a thumbnail grid fires N concurrent
+    // requests and none may cancel the others.
+    bool renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
+                         std::function<void(const QImage&)> onRendered);
 
     // Viewport Prefetch
     void prefetchViewport(int centerPage, qreal scale, IPdfRenderer* renderer);

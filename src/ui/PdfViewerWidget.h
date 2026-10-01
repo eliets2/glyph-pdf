@@ -143,6 +143,14 @@ public:
     // Export
     QImage renderPage(int page, qreal scaleFactor = 2.0) const;
 
+    /// Thread-safe raw render of \a page at \a scaleFactor (points->pixels):
+    /// the SAME finite-scale / pixel-budget guards (R12) and paper compositing
+    /// as renderPage, but NO widget page-cache access — the only shared state
+    /// touched is QPdfDocument::render, which serializes PDFium on an internal
+    /// mutex. Safe to call from non-GUI threads (RenderCache prefetch workers,
+    /// the thumbnail rail's off-GUI renders); renderPage funnels through this.
+    QImage renderPageUncached(int page, qreal scaleFactor) const;
+
     /// R12: drop the internal rendered-page cache (document switches do this
     /// automatically). Public so measurement harnesses and tests can pin the
     /// cold-vs-cached behaviour of the real view.

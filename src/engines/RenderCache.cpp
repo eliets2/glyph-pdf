@@ -373,6 +373,80 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
     }
 }
 
+bool RenderCache::renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
+                                  std::function<void(const QImage&)> onRendered) {
+    RenderCacheKey key{page, scale, false, QRectF()};
+
+    // 1. Hit: serve synchronously — no worker, no GUI-thread render anywhere.
+    {
+        WriteLockGuard guard(m_lock);
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            m_hits.fetchAndAddRelaxed(1);
+            touchLru(key, *it);
+            if (onRendered) onRendered(it->image);
+            return true;
+        }
+    }
+
+    if (!renderer) return false;
+
+    // 2. Miss: schedule the render on the prefetch worker path. The cancel
+    //    token is NOT bumped per request (see header contract) — the captured
+    //    epoch is the CURRENT one, so only drainPrefetches()/prefetchViewport
+    //    supersession (i.e. clear() on document change, or an explicit
+    //    viewport prefetch on this cache instance) invalidates it.
+    const int currentToken = m_prefetchCancelToken.loadRelaxed();
+    std::weak_ptr<RenderCache> weakThis = weak_from_this();
+
+    auto future = QtConcurrent::run([weakThis, page, scale, renderer,
+                                     currentToken, onRendered]() {
+        auto self = weakThis.lock();
+        if (!self) return;
+
+        // AR-6 D1 (same discipline as prefetchViewport): the backend serializes
+        // renders behind one mutex, so background renders run at the lowest
+        // thread priority and can never starve a foreground render.
+        if (QThread* t = QThread::currentThread())
+            t->setPriority(QThread::LowestPriority);
+
+        if (self->m_prefetchCancelToken.loadRelaxed() != currentToken)
+            return;
+
+        // getOrRender is the thread-safe lookup->render->insert path (renders
+        // OUTSIDE the cache lock; concurrent duplicate workers dedupe at
+        // insert time via the TOCTOU re-check).
+        QImage rendered = self->getOrRender(page, scale, renderer);
+        if (rendered.isNull()) return;
+
+        // Cancellation between render and delivery: a stale render (document
+        // changed mid-render) is never DELIVERED to the consumer. (It may
+        // already have been inserted by getOrRender; that is safe by
+        // construction — the cache is keyed by page+scale only, so every
+        // document change necessarily routes through clear(), which joins
+        // this worker via drainPrefetches() BEFORE wiping, so no stale entry
+        // survives the wipe and nothing is ever misattributed to new content.)
+        if (self->m_prefetchCancelToken.loadRelaxed() != currentToken)
+            return;
+
+        if (onRendered) onRendered(rendered);
+    });
+
+    {
+        WriteLockGuard guard(m_lock);
+        m_inFlightPrefetches.erase(
+            std::remove_if(m_inFlightPrefetches.begin(), m_inFlightPrefetches.end(),
+                           [](const QFuture<void>& f) { return f.isFinished(); }),
+            m_inFlightPrefetches.end());
+        m_inFlightPrefetches.append(future);
+    }
+
+    // Stats: hits/misses are counted by the actual cache accesses (the sync
+    // hit above, getOrRender inside the worker) — a scheduled-but-cancelled
+    // request counts as neither.
+    return false;
+}
+
 QString RenderCache::getOrExtractText(int page, IPdfRenderer* renderer) {
     m_lock.lockForRead();
     if (m_textLayer.contains(page)) {

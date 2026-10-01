@@ -1340,19 +1340,10 @@ bool checkedRenderSize(qreal scaleFactor, qreal widthPt, qreal heightPt,
 
 } // namespace
 
-QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
+QImage PdfViewerWidget::renderPageUncached(int page, qreal scaleFactor) const
 {
     if (page < 0 || page >= m_document->pageCount())
         return QImage();
-
-    // Check cache (Fix 5) -- match scale factor AND rotation exactly
-    if (m_pageCache.contains(page)
-        && qFuzzyCompare(m_pageCache.value(page).scaleFactor, scaleFactor)
-        && m_pageCache.value(page).rotation == m_rotation) {
-        m_cacheAccessCounter++;
-        m_pageCache[page].lastAccessed = m_cacheAccessCounter;
-        return m_pageCache.value(page).pixmap.toImage();
-    }
 
     // R12 (PERF-04): finite/bounded dimension checks BEFORE the allocation.
     // The old code handed pageSize × scaleFactor straight to
@@ -1363,14 +1354,14 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     bool clamped = false;
     if (!checkedRenderSize(scaleFactor, pageSize.width(), pageSize.height(),
                            &imageSize, &clamped)) {
-        qWarning() << "PdfViewerWidget::renderPage: refusing non-finite or "
+        qWarning() << "PdfViewerWidget::renderPageUncached: refusing non-finite or "
                       "degenerate render request (page" << page
                    << "scale" << scaleFactor
                    << "pageSize" << pageSize << ")";
         return QImage();
     }
     if (clamped) {
-        qWarning() << "PdfViewerWidget::renderPage: request for page" << page
+        qWarning() << "PdfViewerWidget::renderPageUncached: request for page" << page
                    << "at scale" << scaleFactor
                    << "exceeds" << (kMaxRenderPixels / 1000000) << "MP — "
                       "rendering bounded" << imageSize << "instead";
@@ -1396,6 +1387,27 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
         painter.end();
         result = paper;
     }
+
+    return result;
+}
+
+QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
+{
+    if (page < 0 || page >= m_document->pageCount())
+        return QImage();
+
+    // Check cache (Fix 5) -- match scale factor AND rotation exactly
+    if (m_pageCache.contains(page)
+        && qFuzzyCompare(m_pageCache.value(page).scaleFactor, scaleFactor)
+        && m_pageCache.value(page).rotation == m_rotation) {
+        m_cacheAccessCounter++;
+        m_pageCache[page].lastAccessed = m_cacheAccessCounter;
+        return m_pageCache.value(page).pixmap.toImage();
+    }
+
+    QImage result = renderPageUncached(page, scaleFactor);
+    if (result.isNull())
+        return result;
 
     // Store in cache. P9: keep a running byte total instead of re-summing the
     // whole cache on every insert. If this page already had an entry (e.g. cached

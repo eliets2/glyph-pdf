@@ -4020,6 +4020,33 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestThumbnailZoom.cpp")
     set_tests_properties(TestThumbnailZoom PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;search;navigation;qt;headless")
 endif()
 
+# PARITY-SCORECARD 2026-09-30 §4 row 16: thumbnail render off the GUI thread.
+# Pins the off-GUI first-paint contract (placeholder under a parked worker
+# pool, async arrival), RenderCache::renderPageAsync (thread + delivery +
+# cache-hit + clear()-cancel/join semantics) and the renderPageUncached seam.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestThumbnailOffGui.cpp")
+    add_executable(TestThumbnailOffGui tests/TestThumbnailOffGui.cpp)
+    target_include_directories(TestThumbnailOffGui PRIVATE src tests)
+    target_link_libraries(TestThumbnailOffGui PRIVATE
+        pdfws_ui pdfws_engines pdfws_core
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestThumbnailOffGui POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestThumbnailOffGui>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestThumbnailOffGui>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestThumbnailOffGui"
+    )
+    add_test(NAME TestThumbnailOffGui COMMAND TestThumbnailOffGui)
+    set_tests_properties(TestThumbnailOffGui PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;viewing;thumbnails;threads;regression;qt;headless"
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestMergeSuccess.cpp")
     add_executable(TestMergeSuccess tests/TestMergeSuccess.cpp)
     target_include_directories(TestMergeSuccess PRIVATE src tests)

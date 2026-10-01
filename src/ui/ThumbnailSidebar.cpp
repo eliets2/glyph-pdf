@@ -22,11 +22,20 @@
 #include <QPainter>
 #include <QPixmap>
 #include <QPdfDocument>
+#include <QPointer>
 
 // ---------------------------------------------------------------------------
 // D2: IPdfRenderer adapter over the viewer's PDFium-backed QPdfDocument.
 // Renders a page at the requested DPI; RenderCache wraps this for LRU caching
 // so each thumbnail is rendered once and reused across virtualization passes.
+//
+// PARITY-SCORECARD 2026-09-30 §4 row 16: this adapter now renders through
+// PdfViewerWidget::renderPageUncached, which touches NO widget page-cache
+// state (QPixmap/m_pageCache are GUI-only) and is safe on RenderCache
+// prefetch worker threads. The old path called PdfViewerWidget::renderPage,
+// whose internal page cache is not thread-safe and whose one-slot-per-page
+// cache was thrashed by 75-DPI thumbnail renders competing with the live
+// view — and it forced every thumbnail render onto the GUI thread.
 // ---------------------------------------------------------------------------
 class ThumbnailRenderer : public IPdfRenderer {
 public:
@@ -34,11 +43,12 @@ public:
 
     QImage renderPage(int pageIndex, int dpi) override {
         if (!m_viewer) return QImage();
-        // PdfViewerWidget::renderPage takes a points->pixels scale factor.
-        // dpi/72 converts DPI to that factor; the viewer renders via QPdfDocument
-        // (Qt's PDFium-backed PDF module).
+        // PdfViewerWidget::renderPageUncached takes a points->pixels scale
+        // factor. dpi/72 converts DPI to that factor; the viewer renders via
+        // QPdfDocument (Qt's PDFium-backed PDF module), whose render()
+        // serializes PDFium access internally — thread-safe off-GUI.
         const qreal scaleFactor = static_cast<qreal>(dpi) / 72.0;
-        return m_viewer->renderPage(pageIndex, scaleFactor);
+        return m_viewer->renderPageUncached(pageIndex, scaleFactor);
     }
 
     QImage renderTile(int pageIndex, const QRectF& /*subRect*/, int dpi) override {
@@ -132,7 +142,20 @@ ThumbnailSidebar::ThumbnailSidebar(QWidget* parent)
 // Out-of-line destructor: ThumbnailRenderer (held by unique_ptr) is only a
 // complete type in this translation unit, so the deleter must be instantiated
 // here rather than in the header / MOC unit.
-ThumbnailSidebar::~ThumbnailSidebar() = default;
+//
+// Off-GUI discipline (row 16): background thumbnail renders run on RenderCache
+// prefetch workers that hold a raw IPdfRenderer* (m_renderer) and marshal
+// completions to `this`. clear() — not reset() — must run here while `this`
+// and m_renderer are still fully alive: drainPrefetches() bumps the cancel
+// token and JOINS every in-flight worker before we return, so no worker can
+// outlive the renderer or the sidebar. (Plain member destruction would run
+// m_renderer's destructor BEFORE m_renderCache's — the exact retirement-order
+// hazard the EC06 machinery exists to prevent.)
+ThumbnailSidebar::~ThumbnailSidebar()
+{
+    if (m_renderCache)
+        m_renderCache->clear();
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -140,6 +163,17 @@ ThumbnailSidebar::~ThumbnailSidebar() = default;
 
 void ThumbnailSidebar::setViewer(PdfViewerWidget* viewer)
 {
+    // Retire the PREVIOUS render pipeline in the order the RenderCache
+    // contract requires (EC06): clear() first — it cancels and joins every
+    // in-flight background thumbnail render while the old renderer (and its
+    // old viewer pointer) is still alive — and only afterwards may the
+    // renderer be reset. Resetting the renderer first would be a
+    // use-after-free for any worker still inside it.
+    if (m_renderCache)
+        m_renderCache->clear();
+    m_renderer.reset();
+    m_renderCache.reset();
+
     m_viewer = viewer;
 
     // (Re)build the 75-DPI thumbnail render cache + renderer for this viewer.
@@ -148,9 +182,6 @@ void ThumbnailSidebar::setViewer(PdfViewerWidget* viewer)
         m_renderCache = std::make_shared<RenderCache>();
         // Thumbnails are small (≈140x181 px); a modest budget holds plenty.
         m_renderCache->setMaxCacheSize(32LL * 1024 * 1024);
-    } else {
-        m_renderer.reset();
-        m_renderCache.reset();
     }
 
     rebuild();
@@ -293,9 +324,13 @@ QWidget* ThumbnailSidebar::createThumbWidget(int pageIndex)
     paper->setObjectName("thumbPaper");
     paper->setFixedSize(thumbPaperWidth(), thumbPaperHeight());
 
-    // D2: real PDFium-rendered thumbnail (cached via RenderCache at 75 DPI),
-    // replacing the former fake title/text/image block placeholders. The render
-    // is produced once per page and reused across virtualization passes.
+    // D2: real PDFium-rendered thumbnail (cached via RenderCache at 75 DPI).
+    // Row 16: the render itself NEVER runs on the GUI thread. A cache hit is
+    // delivered inline by RenderCache::renderPageAsync; a miss is scheduled on
+    // the RenderCache prefetch worker path and the pixmap is delivered via a
+    // queued GUI-thread hop. Until then the label stays an honest blank sheet
+    // (empty text, empty pixmap — never fabricated content) flagged
+    // `thumbPending` so styling can distinguish a loading slot.
     auto* paperLayout = new QVBoxLayout(paper);
     paperLayout->setContentsMargins(0, 0, 0, 0);
     paperLayout->setSpacing(0);
@@ -305,24 +340,42 @@ QWidget* ThumbnailSidebar::createThumbWidget(int pageIndex)
     pageImage->setAlignment(Qt::AlignCenter);
     pageImage->setScaledContents(false);
 
-    QImage rendered;
-    if (m_renderCache && m_renderer) {
-        // getOrRender's scale arg maps to DPI as dpi = scale * 72, so passing
-        // 75/72 yields a 75-DPI render.
-        const qreal scale = static_cast<qreal>(ThumbnailDpi) * m_thumbZoom / 72.0;
-        rendered = m_renderCache->getOrRender(pageIndex, scale, m_renderer.get());
-    }
+    const qreal thumbScale = static_cast<qreal>(ThumbnailDpi) * m_thumbZoom / 72.0;
+    const QSize paperSize = paper->size();
+    const QPointer<QLabel> imageGuard(pageImage);
 
-    if (!rendered.isNull()) {
-        // Fit the real page render inside the paper area, preserving aspect.
-        QPixmap pm = QPixmap::fromImage(rendered).scaled(
-            paper->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-        pageImage->setPixmap(pm);
-    } else {
-        // Honest fallback when no document/render is available yet (e.g. the
-        // page failed to render) — a blank sheet, never fabricated content.
-        pageImage->setText(QString());
-    }
+    // Stale-slot guard for the queued delivery: identifies the exact
+    // page+scale slot this label was created for, so a completion that races
+    // a rebuild's deleteLater (QPointer not yet nulled) cannot paint a slot
+    // that no longer matches. Cache-side staleness (document changed
+    // mid-render) is handled by the RenderCache cancel-token epoch.
+    const qint64 slotScaleQ = RenderCacheGrid::quantize(thumbScale, RenderCacheGrid::ScaleStep);
+    pageImage->setProperty("thumbPage", pageIndex);
+    pageImage->setProperty("thumbScaleQ", slotScaleQ);
+
+    auto onRendered = [this, imageGuard, pageIndex, slotScaleQ, paperSize](const QImage &img) {
+        if (img.isNull()) return;
+        // Runs on the RenderCache worker thread: hop to the GUI thread. The
+        // invocation is contexted on `this` — if the sidebar is destroyed the
+        // delivery is dropped; the QPointer drops deliveries for labels that
+        // virtualization or a rebuild already retired.
+        QMetaObject::invokeMethod(this, [this, imageGuard, pageIndex, slotScaleQ, paperSize, img]() {
+            QLabel *label = imageGuard.data();
+            if (!label) return;
+            if (label->property("thumbPage").toInt() != pageIndex
+                || label->property("thumbScaleQ").toLongLong() != slotScaleQ)
+                return;
+            label->setProperty("thumbPending", false);
+            // Fit the real page render inside the paper area, preserving aspect.
+            label->setPixmap(QPixmap::fromImage(img).scaled(
+                paperSize, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        }, Qt::QueuedConnection);
+    };
+
+    // getOrRender's scale arg maps to DPI as dpi = scale * 72, so passing
+    // 75/72 yields a 75-DPI render.
+    if (m_renderCache && m_renderer)
+        m_renderCache->renderPageAsync(pageIndex, thumbScale, m_renderer.get(), onRendered);
 
     paperLayout->addWidget(pageImage);
     frameLayout->addWidget(paper, 0, Qt::AlignCenter);
