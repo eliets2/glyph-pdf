@@ -1,0 +1,88 @@
+Test project D:/pdf/pdf-w2-quad/build
+      Start  13: TestSidecarReopenState
+ 1/19 Test  #13: TestSidecarReopenState ...........   Passed    7.61 sec
+      Start  39: TestControllers
+ 2/19 Test  #39: TestControllers ..................   Passed   25.62 sec
+      Start  85: TestCommentsReview
+ 3/19 Test  #85: TestCommentsReview ...............   Passed    4.18 sec
+      Start  89: TestInspector
+ 4/19 Test  #89: TestInspector ....................   Passed    4.26 sec
+      Start  91: TestFindReplace
+ 5/19 Test  #91: TestFindReplace ..................   Passed    4.36 sec
+      Start 108: TestShapeInkPersistence
+ 6/19 Test #108: TestShapeInkPersistence ..........   Passed    1.08 sec
+      Start 109: TestQuadPointsMarkup
+ 7/19 Test #109: TestQuadPointsMarkup .............   Passed    1.33 sec
+      Start 110: TestMeasurePanelHonesty
+ 8/19 Test #110: TestMeasurePanelHonesty ..........   Passed    1.20 sec
+      Start 113: TestLegacyOriginSpace
+ 9/19 Test #113: TestLegacyOriginSpace ............   Passed    2.35 sec
+      Start 138: TestTextExtractionCoords
+10/19 Test #138: TestTextExtractionCoords .........   Passed    2.11 sec
+      Start 141: TestViewerRotation
+11/19 Test #141: TestViewerRotation ...............   Passed    1.70 sec
+      Start 142: TestTwoPageOverlay
+12/19 Test #142: TestTwoPageOverlay ...............   Passed    3.79 sec
+      Start 143: TestViewingModes
+13/19 Test #143: TestViewingModes .................   Passed    4.37 sec
+      Start 144: TestViewParity
+14/19 Test #144: TestViewParity ...................   Passed   44.26 sec
+      Start 161: TestAnnotationDjot
+15/19 Test #161: TestAnnotationDjot ...............   Passed    1.88 sec
+      Start 171: TestTextEditStyle
+16/19 Test #171: TestTextEditStyle ................   Passed    2.42 sec
+      Start 173: TestPersistenceOutcomes
+17/19 Test #173: TestPersistenceOutcomes ..........   Passed   11.88 sec
+      Start 187: TestRotate270PageSpace
+18/19 Test #187: TestRotate270PageSpace ...........   Passed    1.74 sec
+      Start 190: TestPgr37PageSpaceLaw
+19/19 Test #190: TestPgr37PageSpaceLaw ............   Passed    1.95 sec
+
+100% tests passed, 0 tests failed out of 19
+
+Label Time Summary:
+annot           =   1.88 sec*proc (1 test)
+annotations     =  14.11 sec*proc (5 tests)
+comments        =   4.18 sec*proc (1 test)
+controllers     =  25.62 sec*proc (1 test)
+conversion      =   2.11 sec*proc (1 test)
+djot            =   1.88 sec*proc (1 test)
+edit            =   4.36 sec*proc (1 test)
+editing         =   2.42 sec*proc (1 test)
+eyecare         =   4.37 sec*proc (1 test)
+find-replace    =   4.36 sec*proc (1 test)
+forms           =   4.09 sec*proc (2 tests)
+headless        = 128.09 sec*proc (19 tests)
+identity        =  11.88 sec*proc (1 test)
+inspector       =   4.26 sec*proc (1 test)
+integration     =  19.49 sec*proc (2 tests)
+measure         =   1.20 sec*proc (1 test)
+nightmode       =   4.37 sec*proc (1 test)
+opacity         =   2.42 sec*proc (1 test)
+pagespace       =   1.95 sec*proc (1 test)
+parity          =  44.26 sec*proc (1 test)
+persistence     =  18.38 sec*proc (5 tests)
+pgr37           =   1.95 sec*proc (1 test)
+pptx            =   2.11 sec*proc (1 test)
+properties      =   4.26 sec*proc (1 test)
+qt              = 128.09 sec*proc (19 tests)
+redaction       =   1.95 sec*proc (1 test)
+redesign        =  44.26 sec*proc (1 test)
+regression      =  52.42 sec*proc (3 tests)
+review          =   4.18 sec*proc (1 test)
+richtext        =   1.88 sec*proc (1 test)
+rotation        =   1.70 sec*proc (1 test)
+roundtrip       =   1.88 sec*proc (1 test)
+security        =   1.95 sec*proc (1 test)
+session         =  11.88 sec*proc (1 test)
+shell           =   7.61 sec*proc (1 test)
+sidecar         =   7.61 sec*proc (1 test)
+spacing         =   2.42 sec*proc (1 test)
+t2-2            =   4.36 sec*proc (1 test)
+text            =   2.42 sec*proc (1 test)
+twopage         =   3.79 sec*proc (1 test)
+ui              =  75.34 sec*proc (4 tests)
+unit            = 128.09 sec*proc (19 tests)
+viewing         =  54.12 sec*proc (4 tests)
+
+Total Test time (real) = 128.14 sec

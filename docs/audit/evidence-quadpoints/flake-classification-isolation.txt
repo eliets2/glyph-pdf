@@ -1,0 +1,18 @@
+flake-classification-isolation.txt — pre-rebase gate attempt (02d1a898-based tree) hit 4
+failures: TestSecretStore (ctest 60s TIMEOUT), TestWelcomeRoutes, TestLaneScheduler
+(timing pin 1002ms vs <1000ms), TestBatchMode. Isolation runs on the same tree:
+
+== TestSecretStore
+Totals: 25 passed, 0 failed, 0 skipped, 0 blacklisted, 11148ms
+
+== TestWelcomeRoutes
+Totals: 20 passed, 0 failed, 0 skipped, 0 blacklisted, 24045ms
+
+== TestLaneScheduler
+FAIL!  : TestLaneScheduler::testCrossPagePipelining() 'elapsed < 10 * 100' returned FALSE. (Cross-page pipeline took 1535ms, expected < 1000ms (overlap required))
+Totals: 12 passed, 1 failed, 0 skipped, 0 blacklisted, 4003ms
+
+== TestBatchMode
+FAIL!  : TestBatchMode::testCompressOpProducesOutput() Compared values are not the same
+Totals: 17 passed, 1 failed, 0 skipped, 0 blacklisted, 9438ms
+

@@ -1,0 +1,1211 @@
+Test project D:/pdf/pdf-w2-quad/build
+        Start   1: UnitTests
+  1/192 Test   #1: UnitTests ...........................   Passed    0.25 sec
+        Start   2: TestInterfaces
+  2/192 Test   #2: TestInterfaces ......................   Passed    0.19 sec
+        Start   3: TestExpiryInterface
+  3/192 Test   #3: TestExpiryInterface .................   Passed    1.13 sec
+        Start   4: SmokeTest
+  4/192 Test   #4: SmokeTest ...........................   Passed    0.57 sec
+        Start   5: TestSanitization
+  5/192 Test   #5: TestSanitization ....................   Passed    1.01 sec
+        Start   6: TestSanitizeTrailerUaf
+  6/192 Test   #6: TestSanitizeTrailerUaf ..............   Passed    0.30 sec
+        Start   7: TestAutosave
+  7/192 Test   #7: TestAutosave ........................   Passed    0.87 sec
+        Start   8: TestDocumentIdentity
+  8/192 Test   #8: TestDocumentIdentity ................   Passed    2.86 sec
+        Start   9: TestBatesBatchSafety
+  9/192 Test   #9: TestBatesBatchSafety ................   Passed    4.51 sec
+        Start  10: TestRecoverySave
+ 10/192 Test  #10: TestRecoverySave ....................   Passed    2.22 sec
+        Start  11: TestReadOnlyGate
+ 11/192 Test  #11: TestReadOnlyGate ....................   Passed    4.33 sec
+        Start  12: TestSidecarReopenState
+ 12/192 Test  #12: TestSidecarReopenState ..............   Passed    2.14 sec
+        Start  13: TestSignatureValidationMock
+ 13/192 Test  #13: TestSignatureValidationMock .........   Passed    0.28 sec
+        Start  14: TestRobustness
+ 14/192 Test  #14: TestRobustness ......................   Passed    0.37 sec
+        Start  15: TestSecretStore
+ 15/192 Test  #15: TestSecretStore .....................   Passed    8.98 sec
+        Start  16: TestSignatureValidation
+ 16/192 Test  #16: TestSignatureValidation .............   Passed    0.55 sec
+        Start  17: TestSignatureRealCrypto
+ 17/192 Test  #17: TestSignatureRealCrypto .............   Passed    5.52 sec
+        Start  18: TestSendForSigning
+ 18/192 Test  #18: TestSendForSigning ..................   Passed    1.97 sec
+        Start  19: TestEraseSignedGuard
+ 19/192 Test  #19: TestEraseSignedGuard ................   Passed    0.56 sec
+        Start  20: TestSignatureAppearance
+ 20/192 Test  #20: TestSignatureAppearance .............   Passed    2.23 sec
+        Start  21: TestOptimizeSignedGuard
+ 21/192 Test  #21: TestOptimizeSignedGuard .............   Passed    0.49 sec
+        Start  22: TestImageDedup
+ 22/192 Test  #22: TestImageDedup ......................   Passed    0.58 sec
+        Start  23: TestChain1
+ 23/192 Test  #23: TestChain1 ..........................   Passed    0.33 sec
+        Start  24: TestRedaction
+ 24/192 Test  #24: TestRedaction .......................   Passed    0.96 sec
+        Start  25: TestDedupSMask
+ 25/192 Test  #25: TestDedupSMask ......................   Passed    0.31 sec
+        Start  26: TestCompressJpegReencode
+ 26/192 Test  #26: TestCompressJpegReencode ............   Passed    2.43 sec
+        Start  27: TestOptimizeEstimate
+ 27/192 Test  #27: TestOptimizeEstimate ................   Passed    0.34 sec
+        Start  28: TestLayoutEnsemble
+ 28/192 Test  #28: TestLayoutEnsemble ..................   Passed    0.19 sec
+        Start  29: TestOcrPipeline
+ 29/192 Test  #29: TestOcrPipeline .....................   Passed    0.56 sec
+        Start  30: TestOcrReviewLifecycle
+ 30/192 Test  #30: TestOcrReviewLifecycle ..............   Passed    1.04 sec
+        Start  31: TestOcrVerifyNavigation
+ 31/192 Test  #31: TestOcrVerifyNavigation .............   Passed    0.59 sec
+        Start  32: TestOcrPreprocessor
+ 32/192 Test  #32: TestOcrPreprocessor .................   Passed    2.80 sec
+        Start  33: TestOcrDjotMapper
+ 33/192 Test  #33: TestOcrDjotMapper ...................   Passed    0.35 sec
+        Start  34: TestThreadSafety
+ 34/192 Test  #34: TestThreadSafety ....................   Passed    9.30 sec
+        Start  35: TestEncryption
+ 35/192 Test  #35: TestEncryption ......................   Passed    0.83 sec
+        Start  36: TestResourceLimits
+ 36/192 Test  #36: TestResourceLimits ..................   Passed    0.51 sec
+        Start  37: TestControllers
+ 37/192 Test  #37: TestControllers .....................   Passed   19.24 sec
+        Start  38: TestRibbonIntegrity
+ 38/192 Test  #38: TestRibbonIntegrity .................   Passed    0.33 sec
+        Start  39: TestMenuBarIntegrity
+ 39/192 Test  #39: TestMenuBarIntegrity ................   Passed    0.30 sec
+        Start  40: TestCommandBinding
+ 40/192 Test  #40: TestCommandBinding ..................   Passed    5.23 sec
+        Start  41: TestWelcomeRoutes
+ 41/192 Test  #41: TestWelcomeRoutes ...................***Failed   36.20 sec
+********* Start testing of TestWelcomeRoutes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestWelcomeRoutes::initTestCase()
+QWARN  : TestWelcomeRoutes::qtConcurrentDeliveryProbe() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::qtConcurrentDeliveryProbe()
+QWARN  : TestWelcomeRoutes::welcomeExposesTheTwelveTaskRoutesAndOpen() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::welcomeExposesTheTwelveTaskRoutesAndOpen()
+QWARN  : TestWelcomeRoutes::openRouteOpensTheFixture() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::openRouteOpensTheFixture() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::openRouteOpensTheFixture() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-NNmTOY" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::openRouteOpensTheFixture()
+QWARN  : TestWelcomeRoutes::editRouteLandsOnTheEditTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::editRouteLandsOnTheEditTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::editRouteLandsOnTheEditTab() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-SxKSRg" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::editRouteLandsOnTheEditTab()
+QWARN  : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-qXuecG" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::convertRouteLandsOnTheConvertTab()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-uQEzWp" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::organizeRouteLandsOnPagesAndRotatePersists()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::splitExtractRouteLandsOnPages() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-IwfggV" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::splitExtractRouteLandsOnPages()
+QWARN  : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-GCHUYM" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::annotateRouteArmsTheHighlightTool()
+QWARN  : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-ekZNiA" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::fillSignRouteLandsOnTheSignaturesPanel()
+QWARN  : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-lxLHTy" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::protectRouteLandsOnTheProtectTab()
+QWARN  : TestWelcomeRoutes::compressRouteOpensTheCompressTask() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::compressRouteOpensTheCompressTask() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::compressRouteOpensTheCompressTask() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-DkWyjd" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::compressRouteOpensTheCompressTask()
+QWARN  : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-NKCXAY" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::ocrRouteMatchesTheOcrCapability()
+QWARN  : TestWelcomeRoutes::officeRouteMatchesTheOfficeImportCapability() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::officeRouteMatchesTheOfficeImportCapability()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-NNydQr" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::imagesRouteProducesAndOpensTheOutput()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::mergeRouteProducesTheMergedArtifact()
+QWARN  : TestWelcomeRoutes::batchAndCompareLinksReachTheirTasks() This plugin does not support propagateSizeHints()
+PASS   : TestWelcomeRoutes::batchAndCompareLinksReachTheirTasks()
+QWARN  : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-KIebth" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::canceledOpenLeavesNoStaleIntent()
+QWARN  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() This plugin does not support propagateSizeHints()
+QWARN  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() This plugin does not support propagateSizeHints()
+FAIL!  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() Compared values are not the same
+   Actual   (list->count()): 2
+   Expected (1)            : 1
+D:/pdf/pdf-w2-quad/tests/TestWelcomeRoutes.cpp(649) : failure location
+QWARN  : TestWelcomeRoutes::recentFilesOpenAndRemovedWhenMissing() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestWelcomeRoutes\\TestWelcomeRoutes-NvkKTc" most likely due to the presence of read-only files.
+PASS   : TestWelcomeRoutes::cleanupTestCase()
+Totals: 19 passed, 1 failed, 0 skipped, 0 blacklisted, 35833ms
+********* Finished testing of TestWelcomeRoutes *********
+
+        Start  42: TestSweepW3UxFlows
+ 42/192 Test  #42: TestSweepW3UxFlows ..................***Failed  302.25 sec
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 start: fixture D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-TKBHrJ/report.pdf
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step1: open landed — page count 1
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step2: highlight tool armed via production dispatch
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step3: DRAG DID NOT PLACE (offscreen harness limitation) — staged via the viewer annotation model
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F4 step4: save-in-place dispatched
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step4 verified: reopen shows 1 annotation(s)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: clicked prompt button 'Yes' on 'Save Document As' (question: 'existing.pdf already exists.
+Do you want to replace it?')
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step5 verified: guard prompt answered Yes; target rewritten (size 14338 ? 11009)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: decline path: the save dialog stayed open for another choice - dismissing
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step6: decline prompt never appeared (noSeen=false); target size now 13496 (was 13496)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-TKBHrJ" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: F2a start: welcome merge card ? Select PDFs to Merge ? Save Merged PDF
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: modal seen: title='Open Merged PDF' text='Merge complete. Would you like to open the output file? '
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: F2a verified: artifact has 1 page(s) and carries the input content; completion modal title='Open Merged PDF' text='Merge complete. Would you like to open the output file?
+'
+PASS   : TestSweepW3UxFlows::flow2a_welcomeMerge_route()
+QWARN  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step1: batch screen reachable from the welcome (standalone link)
+QWARN  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: driving dialog matched by 'presetNameEdit' (title='Save as Preset')
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step2: preset save attempted through the real dialog
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step3: preset picker shows 'uxflowpreset (compress)' (1 saved); steps label: 'Steps (1):
+  1. compress'
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() optimizeDocument: unused-object sweep removed 0 object(s)
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step4: preset run finished — success=1 fail=0 skip=0; log: Starting batch: 1 files — operation: Preset Pipeline
+â?? big_run.pdf
+  â?³ step 1 compress [ok] 13913 B â?? 13470 B Â· 41 ms
+
+BATCH COMPLETE — 1 of 1 succeeded
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() optimizeDocument: unused-object sweep removed 0 object(s)
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step5: identical re-run - success=1 fail=0; log: Starting batch: 1 files — operation: Preset Pipeline
+â?? big_rerun.pdf
+  â?³ step 1 compress [ok] 13913 B â?? 13470 B Â· 39 ms
+
+BATCH COMPLETE — 1 of 1 succeeded
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step5: identical re-run finished green
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b verified: 2 artifact(s) in the preset out dir; both runs green
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b verified: 2-file batch merge ? 2 page(s), both parts present; output at D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-eFrWZa/mpart1_merged.pdf; completion named it: status='BATCH COMPLETE — 2 of 2 succeeded — merged into mpart1_merged.pdf'
+PASS   : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline()
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 start: fixture with TOPSECRETDATA at a known position
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step1: redact screen activated
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step2: 1 redaction mark(s) placed
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step3: apply dialog configured (sanitize + proof) and accepted
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+Fontconfig error: Cannot load default config file: File not found
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: modal seen: title='Redaction Complete' text='The redacted copy has been saved to:
+D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-JUpoXx/secret-doc_redacted.pdf
+
+A fully sanitized copy (metadata, attachments, JavaScript removed) has been saved to:
+D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-J'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step4 verified: redacted output exists; the secret is GONE from all streams
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 completion surface: modal title='Redaction Complete' text='The redacted copy has been saved to:
+D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-JUpoXx/secret-doc_redacted.pdf
+
+A fully sanitized copy (metadata, attachments, JavaScript removed) has been saved to:
+D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-JUpoXx/secret-doc_sanitized.pdf
+
+Redaction proof: PASSED — no removed string survives on any swept su'; statusbar='Redactions applied to saved output: secret-doc_redacted.pdf; sanitized copy: secret-doc_sanitized.pdf; redaction proof: PASSED'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step5: sanitized copy landed as requested
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step6: apply configured with an IMPOSSIBLE sanitize target
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: modal seen: title='Redaction Partially Complete — Sanitization Failed' text='Redacted copy saved to:
+D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-JUpoXx/secret2_redacted.pdf
+
+Sanitization FAILED: The redacted copy was saved, but sanitization failed: cannot open destination for safe write: The system cannot find the path specified.
+
+The saved file s'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 partial-failure modal: title='Redaction Partially Complete — Sanitization Failed' text='Redacted copy saved to:
+D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-JUpoXx/secret2_redacted.pdf
+
+Sanitization FAILED: The redacted copy was saved, but sanitization failed: cannot open destination for safe write: The system cannot find the path specified.
+
+The saved file still contains document metadata, attachments and embedded JavaScript. Keep the redacted file, retry '
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step6 verified: the failure is not reported as success (verdict in the transcript above)
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-JUpoXx" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure()
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b start: pattern-text fixture (public text + pattern-stream secret)
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() [HomeController] Pruned 1 missing recent file(s).
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b step1: redact screen activated
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b step2: 1 redaction mark(s) placed over the public text
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b step3: apply dialog configured and accepted
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() exciseContentRegions: "The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box." page 0 — aborting (no visual-only half edit).
+QCRITICAL: TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() SECURITY: Redaction on page 0 failed to apply content stream surgery: "The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box." Aborting operation to prevent insecure visual-only overlay.
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: modal seen: title='Redaction Failed' text='Redaction failed. The original file was not modified and no output was written.
+
+Redaction failed on page 1: Failed to apply redactions on page 1. The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted ov'
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b refusal disclosure: title='Redaction Failed' text='Redaction failed. The original file was not modified and no output was written.
+
+Redaction failed on page 1: Failed to apply redactions on page 1. The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box.. The original document was not modified.
+
+Stage: Redacting'
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b verified: labeled refusal naming the pattern reason, no output written, source untouched
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-rdrwfa" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 start: 3-page fixture; regex [Aa]lpha[a-z]* ? Alpha + alphabet + alpha = 3
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support raise()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step1: dialog open via production entry
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step2: COUNT reported: '4 match(es) on 3 page(s) — count shown before replace.'
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step3: REPLACE ALL reported: 'Replaced 4 of 4 occurrence(s). 4 replacement(s) changed the text width (first on page 1) — check those pages for overlapping text.
+Geometry: 4 of 4 replacement(s) changed the text width.
+Length differs in 4 case(s) (first: 1, 'Alpha' ? 'Zeta').'
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step4: surviving 'lpha' glyph runs after save: 0 (outcome disclosed: 'Replaced 4 of 4 occurrence(s). 4 replacement(s) changed the text width (first on page 1) — check those pages for overlap')
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 verified: count-before-replace + replace accounting are honest (WP-R07)
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-Omvlwm" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty()
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a: dispatching production Sign
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a sign dialog: title='Digital Signature'; credentials filled
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'No' on 'Open Signed PDF' (question: 'Signing complete. Would you like to open the signed file?')
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a verified: 1 signature(s) on the saved artifact; completion prompt seen=1 (dismissed with No)
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: modal seen: title='Validate All Signatures' text='0 of 1 signature(s) are valid:
+
+• (unknown signer) — INVALID (UntrustedChain) '
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a verify surface: title='Validate All Signatures' text='0 of 1 signature(s) are valid:
+
+• (unknown signer) — INVALID (UntrustedChain)
+'
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12827 78365 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Certify Document' (title='Certify Document')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b certify-on-signed: purpose combo enabled=1 items=2
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b disclosed reason: 'Certify is unavailable: this document already has 1 signature(s). A certification (author) signature must be the FIRST signature in a document, so it cannot be added on top of existing ones. Use Appro'
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b done: certify-on-signed state recorded (see transcript)
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Certify Document' (title='Certify Document')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4c: Certify purpose + level 2 + credentials set; accepting
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 13741 79279 1071
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'No' on 'Open Certified PDF' (question: 'Certification complete. Would you like to open the certified file?')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4c verified: certified artifact carries /DocMDP /P=2; certify dialog seen=1; completion prompt seen=1
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Prepare Signing Request' (title='Prepare Signing Request')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d: two signers added through the real Add Signer control
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d: Save Request accepted
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support raise()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d verified: sidecar written next to the document
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 1: signature dialog filled
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 1 panel state after 3s: '1. Signer 1 — SIGNED at 2026-09-30T23:51:12Z (field sig1, PAdES B-B) — integrity intact (trust: UntrustedChain)'
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 2: signature dialog filled
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'Discard' on 'Unsaved Changes' (question: 'The document has unsaved changes.')
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R (Info key /Producer changed)"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R (Info key /Producer changed)"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82590 148128 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R (Info key /Producer changed)"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82590 148128 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R (Info key /Producer changed)"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82590 148128 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 2 panel state after 3s: '2. Signer 2 — SIGNED at 2026-09-30T23:51:15Z (field sig2, PAdES B-B) — integrity intact (trust: UntrustedChain)'
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12655 78193 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 1 0 R (Info key /Producer changed)"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82590 148128 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d completion surface: 'Signer 3 of 3: Signer 3 — field sig3 (page 1)'; engine signatures on doc: 2; steps signed: 2
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-biISKN" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest()
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 start: image-only fixture OCRME 42 (FIRST-RUN default prefs — F5-F2 pin)
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F-route: clicking welcome card 'ocr'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() [HomeController] Pruned 3 missing recent file(s).
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step1: OCR verify screen open via the welcome route
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F2 shipped defaults as shown on screen: deskew=0 binarize=0 denoise=0
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F1 live lifecycle surface during run1: 'Running OCR — initializing OCR models (first use can take several minutes)…'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 5s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 8s; Run enabled=1 textLen=8 statusBar='OCR Complete. 2 text blocks detected.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step2 verified: recognized text: 'OCRME 42'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() MrcPdfA: wrote 19637 bytes to "D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-ZNLMSz/scan_ocr.pdf"
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() MrcPdfA: veraPDF not available — skipping conformance gate
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step3: accept (save dialog driven to D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-ZNLMSz/searchable-copy.pdf) then reject clicked — status text captured in transcript below
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run2(after reject): waiting… 5s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run2(after reject): waiting… 8s; Run enabled=1 textLen=8 statusBar='OCR Complete. 2 text blocks detected.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step4 verified: re-Ocr after reject completes again
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 3s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 6s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 9s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 12s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 15s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 18s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 21s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 24s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 27s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 30s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 45s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 60s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 75s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 90s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): budget 90s exhausted; Run enabled=0 textLen=0
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step5 (text page): OCR on an already-digital page ? text pane now: '' (empty = a 'no text recognized' state; content = OCR ran with NO already-text disclosure); terminal after 91s (Run enabled=0)
+FAIL!  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() 'runPushButton->isEnabled()' returned FALSE. (F5: the run must end in a state that tells the user where they stand)
+D:/pdf/pdf-w2-quad/tests/TestSweepW3UxFlows.cpp(1794) : failure location
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-ZNLMSz" most likely due to the presence of read-only files.
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() [HomeController] Pruned 1 missing recent file(s).
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: driving dialog matched by 'recipientList' (title='Encrypt with Recipient Certificates')
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6: recipient certs accepted=1 count=2; disclosure: 'How recipients work: every recipient receives its own CMS envelope, and all envelopes wrap the SAME session key. Re-encrypting a document that is already encryp'
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6 verified: encrypted output written; probe: /Encrypt present: Filter=PubSec PubSec=1 Recipients=1
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: task dialog seen: title='ERROR' text='? ERROR This document is certificate-encrypted (PubSec). GlyphPDF cannot decrypt it — open it in a viewer that has the matching recipient certificate installed. File: D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-pLOMlq/sensitive_enc.pdf'
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6 open-with-owner: modal title='ERROR' text='? ERROR This document is certificate-encrypted (PubSec). GlyphPDF cannot decrypt it — open it in a viewer that has the matching recipient certificate installed. File: D:/pdf/pdf-w2-quad/build/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-pLOMlq/sens'; viewer page count now 0
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-pLOMlq" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients()
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 start: fixture without /Lang, without /Title, with an image w/o /Alt
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() [HomeController] Pruned 1 missing recent file(s).
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 disclosure box: 'Detection and tagging. This report shows what a tagged document needs — it never certifies PDF/UA. Auto-tagging builds a best-effort structure tree from layout heuristics: a tagged document is not a conforming document. Reading order is not verified against intent, tables and lists are not tagged, and no conformance verdict of any kind is issued.'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 scan verdict: '? 5 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 0: opening editor for finding #1 (status before: '? 5 gap(s) found')
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 editor: language chosen and Apply clicked
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 0: post-fix status: '? 4 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 1: opening editor for finding #3 (status before: '? 4 gap(s) found')
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 editor: alt text set and Apply clicked
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 1: post-fix status: '? 3 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 2: no enabled FIX buttons remain
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 honesty-refusal recorded: a FIX button is disabled with tooltip: 'No /Title in this document — set one under Document Properties first'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 final status: '? 3 gap(s) found'; unexpected modals during fix loop: OK=0 Yes=0 No=0
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-MqvbiV" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan()
+QWARN  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F7b start: untagged fixture, open through the real route
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F7b refusal status: 'Document is read-only — editing is disabled.'
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F7b verified: read-only session refuses tagging; file untouched
+QWARN  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-DMUakK" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session()
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: clicked prompt button 'Cancel' on 'Unsaved Changes' (question: 'The document has unsaved changes.')
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F7c cancel status: 'Tagging not applied: canceled — the document has unsaved changes'
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: clicked prompt button 'Discard' on 'Unsaved Changes' (question: 'The document has unsaved changes.')
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F7c discard: tagging proceeded past the explicit Discard
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F7c verified: dirty session asks Save/Discard/Cancel at the in-place write boundary
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2-quad\\build\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-KENuLF" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 13 passed, 1 failed, 0 skipped, 0 blacklisted, 298285ms
+********* Finished testing of TestSweepW3UxFlows *********
+ObjectCache(00007fff54cfa7c0)::~ObjectCache(): WARNING! LEAK! object 000001e871d73e50 still has count 1 (id C:/Users/User/AppData/Local/GlyphPDFTests/TestSweepW3UxFlows/tessdata/eng.traineddatalstm-punc-dawg)
+ObjectCache(00007fff54cfa7c0)::~ObjectCache(): WARNING! LEAK! object 000001e8734c4230 still has count 1 (id C:/Users/User/AppData/Local/GlyphPDFTests/TestSweepW3UxFlows/tessdata/eng.traineddatalstm-word-dawg)
+ObjectCache(00007fff54cfa7c0)::~ObjectCache(): WARNING! LEAK! object 000001e8734c42a0 still has count 1 (id C:/Users/User/AppData/Local/GlyphPDFTests/TestSweepW3UxFlows/tessdata/eng.traineddatalstm-number-dawg)
+
+        Start  43: TestUiAccessibility
+ 43/192 Test  #43: TestUiAccessibility .................   Passed   12.64 sec
+        Start  44: TestUiAccessibility200
+ 44/192 Test  #44: TestUiAccessibility200 ..............   Passed   11.87 sec
+        Start  45: TestIntegration
+ 45/192 Test  #45: TestIntegration .....................   Passed    0.85 sec
+        Start  46: TestPerformance
+ 46/192 Test  #46: TestPerformance .....................   Passed    1.01 sec
+        Start  47: TestVeraPdf
+ 47/192 Test  #47: TestVeraPdf .........................   Passed    0.90 sec
+        Start  48: TestReadingOrderAsync
+ 48/192 Test  #48: TestReadingOrderAsync ...............   Passed    1.39 sec
+        Start  49: TestAccessibilityChecker
+ 49/192 Test  #49: TestAccessibilityChecker ............   Passed    0.80 sec
+        Start  50: TestAccessibilityPanel
+ 50/192 Test  #50: TestAccessibilityPanel ..............   Passed    5.56 sec
+        Start  51: TestAccessibilityFixes
+ 51/192 Test  #51: TestAccessibilityFixes ..............   Passed    2.41 sec
+        Start  52: TestAccessibilityTagger
+ 52/192 Test  #52: TestAccessibilityTagger .............   Passed    2.99 sec
+        Start  53: TestLaneScheduler
+ 53/192 Test  #53: TestLaneScheduler ...................   Passed    6.08 sec
+        Start  54: TestFormBuilder
+ 54/192 Test  #54: TestFormBuilder .....................   Passed    2.11 sec
+        Start  55: TestFormPersistence
+ 55/192 Test  #55: TestFormPersistence .................   Passed    0.95 sec
+        Start  56: TestCompareEntry
+ 56/192 Test  #56: TestCompareEntry ....................   Passed   10.41 sec
+        Start  57: TestCompareIntegration
+ 57/192 Test  #57: TestCompareIntegration ..............   Passed    3.17 sec
+        Start  58: TestPagesMode
+ 58/192 Test  #58: TestPagesMode .......................   Passed    5.16 sec
+        Start  59: TestPageLabels
+ 59/192 Test  #59: TestPageLabels ......................   Passed    1.33 sec
+        Start  60: TestBatchMode
+ 60/192 Test  #60: TestBatchMode .......................***Failed    2.65 sec
+********* Start testing of TestBatchMode *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestBatchMode::initTestCase()
+PASS   : TestBatchMode::testFileListPopulation()
+PASS   : TestBatchMode::testDuplicateFileIgnored()
+PASS   : TestBatchMode::testBatchConvert()
+PASS   : TestBatchMode::testBatchWithOneBadFile()
+QDEBUG : TestBatchMode::testCompressOpProducesOutput() optimizeDocument: unused-object sweep removed 0 object(s)
+FAIL!  : TestBatchMode::testCompressOpProducesOutput() Compared values are not the same
+   Actual   (bm.successCount()): 0
+   Expected (1)                : 1
+D:/pdf/pdf-w2-quad/tests/TestBatchMode.cpp(304) : failure location
+PASS   : TestBatchMode::compressDpiControlsExistWithDefaults()
+PASS   : TestBatchMode::namedRedactPresetCheckBoxesExist()
+PASS   : TestBatchMode::namedDpiPresetsDriveTheSpin()
+PASS   : TestBatchMode::resolveCompressTargetDpiClampsToSupportedRange()
+PASS   : TestBatchMode::effectiveRedactPatternsResolvePresetsAndFreeForm()
+PASS   : TestBatchMode::redactPresetCheckBoxesFeedCheckedKeys()
+PASS   : TestBatchMode::mergeRunsAsyncWithProgressAndPreservesPageOrder()
+PASS   : TestBatchMode::mergeCancelStopsAtFileBoundaryAndWritesNoPartialOutput()
+QWARN  : TestBatchMode::mergeAccountsPerItemFailureAndKeepsPageOrder() BatchMode merge: failed to append "D:/pdf/pdf-w2-quad/build/test-tmp/TestBatchMode/TestBatchMode-pdkYHC/f_bad.pdf" : PdfErrorCode::InvalidPDF, This is not a PDF file.
+Callstack:t#0 Error Source: private/PdfParser.cpp(172), Information: Unable to read PDF header
+PASS   : TestBatchMode::mergeAccountsPerItemFailureAndKeepsPageOrder()
+PASS   : TestBatchMode::testCancelBatch()
+PASS   : TestBatchMode::errorLogCsvNeutralizesFormulaLeads()
+PASS   : TestBatchMode::cleanupTestCase()
+Totals: 17 passed, 1 failed, 0 skipped, 0 blacklisted, 2151ms
+********* Finished testing of TestBatchMode *********
+
+        Start  61: TestBatchPresets
+ 61/192 Test  #61: TestBatchPresets ....................   Passed    1.98 sec
+        Start  62: TestBatchPresetsP2
+ 62/192 Test  #62: TestBatchPresetsP2 ..................   Passed   26.38 sec
+        Start  63: TestBatchOcrLanguage
+ 63/192 Test  #63: TestBatchOcrLanguage ................   Passed    1.10 sec
+        Start  64: TestBatchOcrSkipText
+ 64/192 Test  #64: TestBatchOcrSkipText ................   Passed    7.65 sec
+        Start  65: TestOcrPreprocessPrefs
+ 65/192 Test  #65: TestOcrPreprocessPrefs ..............   Passed    1.86 sec
+        Start  66: TestBatesCrossDoc
+ 66/192 Test  #66: TestBatesCrossDoc ...................   Passed    5.27 sec
+        Start  67: TestOpenRouting
+ 67/192 Test  #67: TestOpenRouting .....................   Passed    0.52 sec
+        Start  68: TestExcisionCorruption
+ 68/192 Test  #68: TestExcisionCorruption ..............   Passed    1.14 sec
+        Start  69: TestBatchOpsCoverage
+ 69/192 Test  #69: TestBatchOpsCoverage ................   Passed    4.64 sec
+        Start  70: TestPdfACidSetSafety
+ 70/192 Test  #70: TestPdfACidSetSafety ................   Passed    1.28 sec
+        Start  71: TestReadingOrderThreshold
+ 71/192 Test  #71: TestReadingOrderThreshold ...........   Passed    0.73 sec
+        Start  72: TestReadingOrderMcid
+ 72/192 Test  #72: TestReadingOrderMcid ................   Passed    0.55 sec
+        Start  73: TestReadingOrderDepthCap
+ 73/192 Test  #73: TestReadingOrderDepthCap ............   Passed    1.02 sec
+        Start  74: TestLinkBookmarkRoundTrip
+ 74/192 Test  #74: TestLinkBookmarkRoundTrip ...........   Passed    0.99 sec
+        Start  75: TestSignatureSessionCache
+ 75/192 Test  #75: TestSignatureSessionCache ...........   Passed    0.93 sec
+        Start  76: TestCapabilityRegistry
+ 76/192 Test  #76: TestCapabilityRegistry ..............   Passed    1.00 sec
+        Start  77: TestXfaHonestyBanner
+ 77/192 Test  #77: TestXfaHonestyBanner ................   Passed    0.56 sec
+        Start  78: TestTaskNavRegistry
+ 78/192 Test  #78: TestTaskNavRegistry .................   Passed    0.62 sec
+        Start  79: TestScreenStateSync
+ 79/192 Test  #79: TestScreenStateSync .................   Passed    1.00 sec
+        Start  80: TestRibbonCollapse
+ 80/192 Test  #80: TestRibbonCollapse ..................   Passed    1.02 sec
+        Start  81: TestModeStripPins
+ 81/192 Test  #81: TestModeStripPins ...................   Passed    0.58 sec
+        Start  82: TestStatusBarSlim
+ 82/192 Test  #82: TestStatusBarSlim ...................   Passed    0.96 sec
+        Start  83: TestCommentsReview
+ 83/192 Test  #83: TestCommentsReview ..................   Passed    1.71 sec
+        Start  84: TestWelcomeLayout
+ 84/192 Test  #84: TestWelcomeLayout ...................   Passed    1.47 sec
+        Start  85: TestSignatureBadges
+ 85/192 Test  #85: TestSignatureBadges .................   Passed    3.21 sec
+        Start  86: TestBatchOcrConfidence
+ 86/192 Test  #86: TestBatchOcrConfidence ..............   Passed    0.46 sec
+        Start  87: TestInspector
+ 87/192 Test  #87: TestInspector .......................   Passed    2.89 sec
+        Start  88: TestPatternRedact
+ 88/192 Test  #88: TestPatternRedact ...................   Passed    1.74 sec
+        Start  89: TestFindReplace
+ 89/192 Test  #89: TestFindReplace .....................   Passed    4.16 sec
+        Start  90: TestReviewSummary
+ 90/192 Test  #90: TestReviewSummary ...................   Passed    1.21 sec
+        Start  91: TestPrintableSummary
+ 91/192 Test  #91: TestPrintableSummary ................   Passed    1.56 sec
+        Start  92: TestDynamicStamps
+ 92/192 Test  #92: TestDynamicStamps ...................   Passed    1.02 sec
+        Start  93: TestAutoBookmarks
+ 93/192 Test  #93: TestAutoBookmarks ...................   Passed    2.60 sec
+        Start  94: TestDjotRoundtrip
+ 94/192 Test  #94: TestDjotRoundtrip ...................   Passed    1.03 sec
+        Start  95: TestDjotFuzz
+ 95/192 Test  #95: TestDjotFuzz ........................   Passed    1.32 sec
+        Start  96: TestUpdateChecker
+ 96/192 Test  #96: TestUpdateChecker ...................   Passed    0.80 sec
+        Start  97: TestWatermarkFont
+ 97/192 Test  #97: TestWatermarkFont ...................   Passed    0.95 sec
+        Start  98: TestOcrLanguage
+ 98/192 Test  #98: TestOcrLanguage .....................   Passed    0.65 sec
+        Start  99: TestRedactClearMarks
+ 99/192 Test  #99: TestRedactClearMarks ................   Passed    1.75 sec
+        Start 100: TestLinkSchemeSafety
+100/192 Test #100: TestLinkSchemeSafety ................   Passed    0.47 sec
+        Start 101: TestThumbnailZoom
+101/192 Test #101: TestThumbnailZoom ...................   Passed    0.52 sec
+        Start 102: TestMergeSuccess
+102/192 Test #102: TestMergeSuccess ....................   Passed    0.42 sec
+        Start 103: TestFillFormLock
+103/192 Test #103: TestFillFormLock ....................   Passed    0.51 sec
+        Start 104: TestFillFormNoOp
+104/192 Test #104: TestFillFormNoOp ....................   Passed    0.83 sec
+        Start 105: TestReadingOrderInheritance
+105/192 Test #105: TestReadingOrderInheritance .........   Passed    0.89 sec
+        Start 106: TestShapeInkPersistence
+106/192 Test #106: TestShapeInkPersistence .............   Passed    0.74 sec
+        Start 107: TestQuadPointsMarkup
+107/192 Test #107: TestQuadPointsMarkup ................   Passed    0.57 sec
+        Start 108: TestMeasurePanelHonesty
+108/192 Test #108: TestMeasurePanelHonesty .............   Passed    0.63 sec
+        Start 109: TestMeasureCore
+109/192 Test #109: TestMeasureCore .....................   Passed    0.52 sec
+        Start 110: TestMeasureRoundTrip
+110/192 Test #110: TestMeasureRoundTrip ................   Passed    0.73 sec
+        Start 111: TestLegacyOriginSpace
+111/192 Test #111: TestLegacyOriginSpace ...............   Passed    1.11 sec
+        Start 112: TestMeasureCsvExport
+112/192 Test #112: TestMeasureCsvExport ................   Passed    0.73 sec
+        Start 113: TestCompressStripSanitize
+113/192 Test #113: TestCompressStripSanitize ...........   Passed    0.59 sec
+        Start 114: TestCompressDialogHonesty
+114/192 Test #114: TestCompressDialogHonesty ...........   Passed    0.92 sec
+        Start 115: TestFieldMetadata
+115/192 Test #115: TestFieldMetadata ...................   Passed    0.70 sec
+        Start 116: TestFormSafety
+116/192 Test #116: TestFormSafety ......................   Passed    4.63 sec
+        Start 117: TestFormJsCalc
+117/192 Test #117: TestFormJsCalc ......................   Passed   17.21 sec
+        Start 118: TestFormJsAdversarial
+118/192 Test #118: TestFormJsAdversarial ...............   Passed    5.92 sec
+        Start 119: TestFormStaleDisclosure
+119/192 Test #119: TestFormStaleDisclosure .............   Passed    2.64 sec
+        Start 120: TestFormKeystroke
+120/192 Test #120: TestFormKeystroke ...................   Passed    2.71 sec
+        Start 121: TestEngineSave
+121/192 Test #121: TestEngineSave ......................   Passed    7.42 sec
+        Start 122: TestEncryptedPackageSafeWrite
+122/192 Test #122: TestEncryptedPackageSafeWrite .......   Passed    9.30 sec
+        Start 123: TestPrintJob
+123/192 Test #123: TestPrintJob ........................   Passed   21.36 sec
+        Start 124: TestTempOwnership
+124/192 Test #124: TestTempOwnership ...................   Passed    0.81 sec
+        Start 125: TestCleanupCli
+125/192 Test #125: TestCleanupCli ......................   Passed   98.99 sec
+        Start 126: TestFormUndo
+126/192 Test #126: TestFormUndo ........................   Passed    1.62 sec
+        Start 127: TestValidateAllSignatures
+127/192 Test #127: TestValidateAllSignatures ...........   Passed    0.66 sec
+        Start 128: TestExportPathBadge
+128/192 Test #128: TestExportPathBadge .................   Passed    2.01 sec
+        Start 129: TestImageEditWiring
+129/192 Test #129: TestImageEditWiring .................   Passed    0.57 sec
+        Start 130: TestRedactSanitizeBundle
+130/192 Test #130: TestRedactSanitizeBundle ............   Passed    1.25 sec
+        Start 131: TestRedactTransaction
+131/192 Test #131: TestRedactTransaction ...............   Passed    4.42 sec
+        Start 132: TestRedactionProof
+132/192 Test #132: TestRedactionProof ..................   Passed    4.98 sec
+        Start 133: TestPptxOverlayAlpha
+133/192 Test #133: TestPptxOverlayAlpha ................   Passed    1.94 sec
+        Start 134: TestAutoDetectHeuristic
+134/192 Test #134: TestAutoDetectHeuristic .............   Passed    1.05 sec
+        Start 135: TestConversionExtraction
+135/192 Test #135: TestConversionExtraction ............   Passed    4.44 sec
+        Start 136: TestTextExtractionCoords
+136/192 Test #136: TestTextExtractionCoords ............   Passed    1.53 sec
+        Start 137: TestEraseWiring
+137/192 Test #137: TestEraseWiring .....................   Passed    0.87 sec
+        Start 138: TestAnnotationToolBar
+138/192 Test #138: TestAnnotationToolBar ...............   Passed    0.72 sec
+        Start 139: TestViewerRotation
+139/192 Test #139: TestViewerRotation ..................   Passed    1.18 sec
+        Start 140: TestTwoPageOverlay
+140/192 Test #140: TestTwoPageOverlay ..................   Passed    3.50 sec
+        Start 141: TestViewingModes
+141/192 Test #141: TestViewingModes ....................   Passed    2.27 sec
+        Start 142: TestViewParity
+142/192 Test #142: TestViewParity ......................   Passed   36.83 sec
+        Start 143: TestSignaturePicker
+143/192 Test #143: TestSignaturePicker .................   Passed    1.52 sec
+        Start 144: TestCertEncryptPicker
+144/192 Test #144: TestCertEncryptPicker ...............   Passed    1.55 sec
+        Start 145: TestCertifySelector
+145/192 Test #145: TestCertifySelector .................   Passed    5.92 sec
+        Start 146: TestPolicyController
+146/192 Test #146: TestPolicyController ................   Passed    1.23 sec
+        Start 147: TestPolicyWiring
+147/192 Test #147: TestPolicyWiring ....................   Passed    0.82 sec
+        Start 148: TestOcspConsent
+148/192 Test #148: TestOcspConsent .....................   Passed    0.82 sec
+        Start 149: TestSupportBundle
+149/192 Test #149: TestSupportBundle ...................   Passed    1.40 sec
+        Start 150: TestNetworkDisclosure
+150/192 Test #150: TestNetworkDisclosure ...............   Passed    1.91 sec
+        Start 151: TestOcrAcceptSeam
+151/192 Test #151: TestOcrAcceptSeam ...................   Passed    0.47 sec
+        Start 152: TestSearchFlags
+152/192 Test #152: TestSearchFlags .....................   Passed    0.81 sec
+        Start 153: TestExportPresets
+153/192 Test #153: TestExportPresets ...................   Passed    0.79 sec
+        Start 154: TestOcrAcceptScope
+154/192 Test #154: TestOcrAcceptScope ..................   Passed    0.75 sec
+        Start 155: TestViewerLinkSeam
+155/192 Test #155: TestViewerLinkSeam ..................   Passed    2.62 sec
+        Start 156: TestHyperlinkNavigation
+156/192 Test #156: TestHyperlinkNavigation .............   Passed    1.57 sec
+        Start 157: TestRedactMarkAll
+157/192 Test #157: TestRedactMarkAll ...................   Passed    7.79 sec
+        Start 158: TestRedactApplyMarks
+158/192 Test #158: TestRedactApplyMarks ................   Passed    0.67 sec
+        Start 159: TestAnnotationDjot
+159/192 Test #159: TestAnnotationDjot ..................   Passed    1.52 sec
+        Start 160: TestAiProvider
+160/192 Test #160: TestAiProvider ......................   Passed    0.76 sec
+        Start 161: TestOllamaProvider
+161/192 Test #161: TestOllamaProvider ..................   Passed   47.44 sec
+        Start 162: TestDiffEngine
+162/192 Test #162: TestDiffEngine ......................   Passed    5.58 sec
+        Start 163: TestOfficeImport
+163/192 Test #163: TestOfficeImport ....................   Passed    6.26 sec
+        Start 164: TestMrcPipeline
+164/192 Test #164: TestMrcPipeline .....................   Passed    2.38 sec
+        Start 165: TestCheckedMutationCoverage
+165/192 Test #165: TestCheckedMutationCoverage .........   Passed    3.30 sec
+        Start 166: TestHistoryIntegrity
+166/192 Test #166: TestHistoryIntegrity ................   Passed    3.11 sec
+        Start 167: TestImageAppearance
+167/192 Test #167: TestImageAppearance .................   Passed    3.05 sec
+        Start 168: TestOfficeExport
+168/192 Test #168: TestOfficeExport ....................   Passed    0.93 sec
+        Start 169: TestTextEditStyle
+169/192 Test #169: TestTextEditStyle ...................   Passed    1.40 sec
+        Start 170: TestEraserEngine
+170/192 Test #170: TestEraserEngine ....................   Passed    1.33 sec
+        Start 171: TestPersistenceOutcomes
+171/192 Test #171: TestPersistenceOutcomes .............   Passed    7.82 sec
+        Start 172: TestRenderGuards
+172/192 Test #172: TestRenderGuards ....................   Passed   19.02 sec
+        Start 173: TestSep13LeadCapability
+173/192 Test #173: TestSep13LeadCapability .............   Passed    0.62 sec
+        Start 174: TestSep13LeadBatchMerge
+174/192 Test #174: TestSep13LeadBatchMerge .............   Passed    2.39 sec
+        Start 175: TestSep13LeadOcrGuards
+175/192 Test #175: TestSep13LeadOcrGuards ..............   Passed    1.00 sec
+        Start 176: TestSep13LeadConversionExport
+176/192 Test #176: TestSep13LeadConversionExport .......   Passed    1.22 sec
+        Start 177: TestSep13LeadRedactionProof
+177/192 Test #177: TestSep13LeadRedactionProof .........   Passed    2.36 sec
+        Start 178: R14ProbeSep13Fixes
+178/192 Test #178: R14ProbeSep13Fixes ..................   Passed   21.42 sec
+        Start 179: TestSep13LeadBtDowngrade
+179/192 Test #179: TestSep13LeadBtDowngrade ............   Passed   21.04 sec
+        Start 180: TestSep13LeadComparePerf
+180/192 Test #180: TestSep13LeadComparePerf ............   Passed   17.52 sec
+        Start 181: TestSweepW1PresetAdversary
+181/192 Test #181: TestSweepW1PresetAdversary ..........   Passed    1.55 sec
+        Start 182: TestSweepW1SigningAdversary
+182/192 Test #182: TestSweepW1SigningAdversary .........   Passed    2.74 sec
+        Start 183: TestSweepW1SummaryPolicyAdversary
+183/192 Test #183: TestSweepW1SummaryPolicyAdversary ...   Passed    3.40 sec
+        Start 184: TestSweepW1SecProbe
+184/192 Test #184: TestSweepW1SecProbe .................   Passed    0.89 sec
+        Start 185: TestRotate270PageSpace
+185/192 Test #185: TestRotate270PageSpace ..............   Passed    1.49 sec
+        Start 186: R14ProbeBatchSkip
+186/192 Test #186: R14ProbeBatchSkip ...................***Not Run (Disabled)   0.00 sec
+        Start 187: TestGsdW2Probe
+187/192 Test #187: TestGsdW2Probe ......................   Passed    6.80 sec
+        Start 188: TestPgr37PageSpaceLaw
+188/192 Test #188: TestPgr37PageSpaceLaw ...............   Passed    1.94 sec
+        Start 189: TestPgr35BatchCollision
+189/192 Test #189: TestPgr35BatchCollision .............   Passed    1.34 sec
+        Start 190: TestPgr36StaleSigningPanel
+190/192 Test #190: TestPgr36StaleSigningPanel ..........   Passed    1.31 sec
+        Start 191: TestFileHandleCoordination
+191/192 Test #191: TestFileHandleCoordination ..........   Passed   33.32 sec
+        Start 192: TestCommandRegistry
+192/192 Test #192: TestCommandRegistry .................   Passed    0.44 sec
+
+98% tests passed, 3 tests failed out of 191
+
+Label Time Summary:
+R14-probe             =   0.00 sec*proc (1 test)
+a11y-checker          =   0.80 sec*proc (1 test)
+a11y-fixes            =   2.41 sec*proc (1 test)
+a11y-panel            =   5.56 sec*proc (1 test)
+a11y-tagger           =   2.99 sec*proc (1 test)
+accept                =   1.22 sec*proc (2 tests)
+accessibility         =  40.83 sec*proc (11 tests)
+adversarial           =   5.92 sec*proc (1 test)
+adversary             =   7.69 sec*proc (3 tests)
+ai                    =  48.20 sec*proc (2 tests)
+annot                 =   1.52 sec*proc (1 test)
+annotations           =   7.49 sec*proc (7 tests)
+appearance            =   2.23 sec*proc (1 test)
+async                 =   1.39 sec*proc (1 test)
+auto-bookmarks        =   2.60 sec*proc (1 test)
+autodetect            =   1.05 sec*proc (1 test)
+autosave              =   0.87 sec*proc (1 test)
+badge                 =   3.21 sec*proc (1 test)
+batch                 =  55.42 sec*proc (11 tests)
+bates                 =   9.78 sec*proc (2 tests)
+benchmark             =   1.01 sec*proc (1 test)
+binding               =   5.23 sec*proc (1 test)
+builder               =   2.11 sec*proc (1 test)
+cache                 =   0.93 sec*proc (1 test)
+capability            =   2.18 sec*proc (3 tests)
+certify               =   5.92 sec*proc (1 test)
+chain1                =   0.33 sec*proc (1 test)
+cleanup-cli           =  98.99 sec*proc (1 test)
+codec                 =   2.35 sec*proc (2 tests)
+collapse              =   1.02 sec*proc (1 test)
+commands              =   6.79 sec*proc (4 tests)
+comments              =   5.50 sec*proc (4 tests)
+compare               =  31.09 sec*proc (3 tests)
+compression           =   8.04 sec*proc (8 tests)
+concurrency           =   6.08 sec*proc (1 test)
+confidence            =   0.46 sec*proc (1 test)
+controllers           =  19.24 sec*proc (1 test)
+conversion            =  12.13 sec*proc (6 tests)
+convert               =   7.19 sec*proc (2 tests)
+coordinator           =  33.32 sec*proc (1 test)
+core                  =  25.73 sec*proc (4 tests)
+corruption            =   1.14 sec*proc (1 test)
+cross-page            =   0.56 sec*proc (1 test)
+crypto                =   5.52 sec*proc (1 test)
+csv                   =   0.73 sec*proc (1 test)
+dedup                 =   0.31 sec*proc (1 test)
+diff                  =   5.58 sec*proc (1 test)
+djot                  =   4.21 sec*proc (4 tests)
+dpi                   =  11.87 sec*proc (1 test)
+e2e                   =   0.85 sec*proc (1 test)
+edit                  =   6.76 sec*proc (2 tests)
+editing               =   7.22 sec*proc (5 tests)
+encryption            =   2.38 sec*proc (2 tests)
+endpoint              =  47.44 sec*proc (1 test)
+engine                =   7.42 sec*proc (1 test)
+engines               =  24.45 sec*proc (2 tests)
+ensemble              =   0.19 sec*proc (1 test)
+erase                 =   1.44 sec*proc (2 tests)
+eraser                =   1.33 sec*proc (1 test)
+estimate              =   0.34 sec*proc (1 test)
+excision              =   1.14 sec*proc (1 test)
+expiry                =   1.13 sec*proc (1 test)
+export                =  13.03 sec*proc (4 tests)
+extraction            =   4.44 sec*proc (1 test)
+eyecare               =   2.27 sec*proc (1 test)
+find-replace          =   4.16 sec*proc (1 test)
+flags                 =   0.81 sec*proc (1 test)
+font                  =   0.95 sec*proc (1 test)
+form-fields           =  11.35 sec*proc (7 tests)
+form-js               =  28.47 sec*proc (4 tests)
+forms                 =  44.03 sec*proc (15 tests)
+fuzz                  =   1.32 sec*proc (1 test)
+gsd                   =   6.80 sec*proc (1 test)
+guards                =  19.02 sec*proc (1 test)
+headless              = 1088.29 sec*proc (188 tests)
+history               =   6.41 sec*proc (2 tests)
+honesty               =   2.23 sec*proc (3 tests)
+identity              =  10.68 sec*proc (2 tests)
+image                 =   3.05 sec*proc (1 test)
+images                =   6.84 sec*proc (2 tests)
+import                =   6.78 sec*proc (2 tests)
+infrastructure        =  99.80 sec*proc (2 tests)
+inspector             =   2.89 sec*proc (1 test)
+integration           =  44.90 sec*proc (19 tests)
+integrity             =   0.63 sec*proc (2 tests)
+interface             =   0.28 sec*proc (1 test)
+interfaces            =   1.33 sec*proc (2 tests)
+iou                   =   0.19 sec*proc (1 test)
+javascript            =  23.12 sec*proc (2 tests)
+jpeg                  =   2.43 sec*proc (1 test)
+k5                    =  33.32 sec*proc (1 test)
+keyboard              =  12.64 sec*proc (1 test)
+lane-scheduler        =   6.08 sec*proc (1 test)
+language              =   1.76 sec*proc (2 tests)
+layout                =   1.67 sec*proc (2 tests)
+lcs                   =   5.58 sec*proc (1 test)
+lifecycle             =   1.04 sec*proc (1 test)
+lifetime              =  47.44 sec*proc (1 test)
+links                 =   5.19 sec*proc (3 tests)
+mapper                =   0.35 sec*proc (1 test)
+matrix-pins           =   0.58 sec*proc (1 test)
+measure               =   2.61 sec*proc (4 tests)
+menubar               =   5.52 sec*proc (2 tests)
+merge                 =   5.06 sec*proc (2 tests)
+mock                  =   1.04 sec*proc (2 tests)
+mode-strip            =   0.58 sec*proc (1 test)
+modes                 =  70.66 sec*proc (9 tests)
+mrc                   =   2.38 sec*proc (1 test)
+myers                 =   5.58 sec*proc (1 test)
+n17                   =   1.55 sec*proc (1 test)
+n18                   =   5.92 sec*proc (1 test)
+navigation            =   3.20 sec*proc (5 tests)
+network               =   0.82 sec*proc (1 test)
+network-disclosure    =   1.91 sec*proc (1 test)
+nightmode             =   2.27 sec*proc (1 test)
+ocr                   =  19.48 sec*proc (14 tests)
+office                =   7.19 sec*proc (2 tests)
+ollama                =  47.44 sec*proc (1 test)
+ooxml                 =   0.93 sec*proc (1 test)
+opacity               =   4.45 sec*proc (2 tests)
+open                  =   0.52 sec*proc (1 test)
+optimize              =   0.58 sec*proc (1 test)
+orientation           =   2.80 sec*proc (1 test)
+pagelabels            =   1.33 sec*proc (1 test)
+pages                 =  16.70 sec*proc (5 tests)
+pagespace             =   1.94 sec*proc (1 test)
+parity                =  36.83 sec*proc (1 test)
+patterns              =   1.74 sec*proc (1 test)
+pdfa                  =  12.89 sec*proc (8 tests)
+perf                  =  17.52 sec*proc (1 test)
+perf04                =  19.02 sec*proc (1 test)
+performance           =   1.01 sec*proc (1 test)
+persistence           =  58.15 sec*proc (19 tests)
+pgr35                 =   1.34 sec*proc (1 test)
+pgr36                 =   1.31 sec*proc (1 test)
+pgr37                 =   1.94 sec*proc (1 test)
+picker                =   1.52 sec*proc (1 test)
+pipeline              =   0.56 sec*proc (1 test)
+policy                =   6.27 sec*proc (4 tests)
+pptx                  =   3.47 sec*proc (2 tests)
+preprocess            =   4.66 sec*proc (2 tests)
+presets               =  30.70 sec*proc (4 tests)
+print                 =  21.36 sec*proc (1 test)
+printable-summary     =   1.56 sec*proc (1 test)
+privacy               =  23.53 sec*proc (7 tests)
+probe                 =   6.80 sec*proc (2 tests)
+proof                 =   4.98 sec*proc (1 test)
+properties            =   2.89 sec*proc (1 test)
+provenance            =   1.36 sec*proc (2 tests)
+provider              =  48.20 sec*proc (2 tests)
+qt                    = 963.13 sec*proc (183 tests)
+r14review             =  21.42 sec*proc (1 test)
+r15                   =   5.23 sec*proc (1 test)
+r16                   =  36.20 sec*proc (1 test)
+r17                   =  24.51 sec*proc (2 tests)
+r24                   =   6.18 sec*proc (5 tests)
+reading-order         =   3.68 sec*proc (4 tests)
+readonly              =   4.33 sec*proc (1 test)
+real-crypto           =   0.55 sec*proc (1 test)
+recipients            =   1.55 sec*proc (1 test)
+recovery              =   2.22 sec*proc (1 test)
+redact                =   4.64 sec*proc (1 test)
+redaction             =  27.96 sec*proc (11 tests)
+redactionproof        =   2.36 sec*proc (1 test)
+redesign              =  36.83 sec*proc (1 test)
+regression            =  48.15 sec*proc (8 tests)
+render                =  19.02 sec*proc (1 test)
+resources             =   0.51 sec*proc (1 test)
+review                =   3.34 sec*proc (3 tests)
+review-summary        =   1.21 sec*proc (1 test)
+ribbon                =   6.58 sec*proc (3 tests)
+richtext              =   1.52 sec*proc (1 test)
+robustness            =   0.37 sec*proc (1 test)
+rotation              =   1.18 sec*proc (1 test)
+roundtrip             =   4.18 sec*proc (4 tests)
+routes                =  36.20 sec*proc (1 test)
+routing               =   0.52 sec*proc (1 test)
+rover                 =   0.56 sec*proc (1 test)
+rtl                   =  12.64 sec*proc (1 test)
+safesave              =  42.61 sec*proc (2 tests)
+sandwich              =   2.38 sec*proc (1 test)
+sanitization          =   3.14 sec*proc (4 tests)
+sanitize              =   0.99 sec*proc (1 test)
+save                  =   7.42 sec*proc (1 test)
+scheduling            =   6.08 sec*proc (1 test)
+seam                  =   2.62 sec*proc (1 test)
+search                =   1.33 sec*proc (2 tests)
+secrets               =   8.98 sec*proc (1 test)
+security              =  58.04 sec*proc (32 tests)
+security-sweep-w1     =   0.89 sec*proc (1 test)
+sep13leads            =  46.14 sec*proc (7 tests)
+session               =  12.90 sec*proc (3 tests)
+shell                 =  19.95 sec*proc (8 tests)
+sidecar               =   2.14 sec*proc (1 test)
+signature             =  21.04 sec*proc (1 test)
+signatures            =  27.47 sec*proc (14 tests)
+signing               =   1.31 sec*proc (1 test)
+skip-text             =   7.65 sec*proc (1 test)
+smoke                 =   0.57 sec*proc (1 test)
+spacing               =   1.40 sec*proc (1 test)
+stamps                =   1.02 sec*proc (1 test)
+statusbar             =   0.96 sec*proc (1 test)
+structural            =   0.35 sec*proc (1 test)
+subprocess            =   0.90 sec*proc (1 test)
+summary               =   3.40 sec*proc (1 test)
+support-bundle        =   1.40 sec*proc (1 test)
+sweep-w1              =   7.69 sec*proc (3 tests)
+sweep-w2              =   0.58 sec*proc (1 test)
+sweep-w3              = 302.25 sec*proc (1 test)
+sync                  =   1.00 sec*proc (1 test)
+t2-2                  =   4.16 sec*proc (1 test)
+t2-3                  =   1.21 sec*proc (1 test)
+t2-6                  =   1.02 sec*proc (1 test)
+t2-9                  =   2.60 sec*proc (1 test)
+tasknav               =   0.62 sec*proc (1 test)
+temp                  =   0.81 sec*proc (1 test)
+text                  =   1.40 sec*proc (1 test)
+threads               =   9.30 sec*proc (1 test)
+timing                =   0.56 sec*proc (1 test)
+toolbar               =   0.72 sec*proc (1 test)
+tools                 =  98.99 sec*proc (1 test)
+transaction           =   4.42 sec*proc (1 test)
+twopage               =   3.50 sec*proc (1 test)
+u02                   =   3.60 sec*proc (4 tests)
+u03                   =   0.59 sec*proc (1 test)
+u08                   =   1.00 sec*proc (1 test)
+ui                    = 501.73 sec*proc (20 tests)
+ui-redesign           =   0.44 sec*proc (1 test)
+undo                  =   7.77 sec*proc (3 tests)
+unit                  = 1074.30 sec*proc (174 tests)
+update                =   0.80 sec*proc (1 test)
+ux-audit              = 302.25 sec*proc (1 test)
+verapdf               =   0.90 sec*proc (1 test)
+viewing               =  47.97 sec*proc (6 tests)
+watermark             =   5.59 sec*proc (2 tests)
+welcome               =  37.67 sec*proc (2 tests)
+workflow              =   5.60 sec*proc (3 tests)
+xfa                   =   0.56 sec*proc (1 test)
+zorder                =   3.05 sec*proc (1 test)
+
+Total Test time (real) = 1098.58 sec
+
+The following tests did not run:
+	186 - R14ProbeBatchSkip (Disabled)
+
+The following tests FAILED:
+	 41 - TestWelcomeRoutes (Failed)                        headless qt r16 routes ui unit welcome
+	 42 - TestSweepW3UxFlows (Failed)                       headless qt sweep-w3 ui unit ux-audit
+	 60 - TestBatchMode (Failed)                            batch headless modes qt ui unit
+Errors while running CTest
