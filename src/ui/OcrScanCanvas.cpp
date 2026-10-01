@@ -28,6 +28,11 @@ OcrScanCanvas::OcrScanCanvas(QWidget* parent)
 void OcrScanCanvas::setPageImage(const QImage& image)
 {
     m_image = image;
+    // A region bbox is only meaningful in the pixel space of the image it was
+    // dragged on — a new page image invalidates it.
+    m_regionRect = QRectF();
+    m_rubberBand = QRectF();
+    m_dragging = false;
     update();
 }
 
@@ -41,6 +46,27 @@ void OcrScanCanvas::setSelectedWord(int stableId)
 {
     m_selectedId = stableId;
     update();
+}
+
+void OcrScanCanvas::clearSelectedRegion()
+{
+    // RED-state stub (pins-first commit): inert until the implementation
+    // commit — see TestOcrRegionReocr for the pins that fail on this body.
+    m_regionRect = QRectF();
+    update();
+}
+
+QRectF OcrScanCanvas::imageRegionFor(const QRectF& widgetRect, const QImage& image,
+                                     const QRectF& pane)
+{
+    // RED-state stub (pins-first commit): inert — the real widget→image
+    // mapping (imageRectFor-derived, clamped, normalized) lands with the
+    // implementation commit and must make the mapping pins GREEN without
+    // touching the empty-result pin's contract.
+    Q_UNUSED(widgetRect);
+    Q_UNUSED(image);
+    Q_UNUSED(pane);
+    return QRectF();
 }
 
 QRectF OcrScanCanvas::imageRectFor(const QSizeF& imageSize, const QRectF& pane)
@@ -104,6 +130,18 @@ void OcrScanCanvas::mousePressEvent(QMouseEvent* event)
     }
     // Clicks on empty page space change nothing (no signal, selection kept).
     event->accept();
+}
+
+// ── Region re-OCR drag-select (RED-state stubs; real bodies land with the
+// implementation commit) ─────────────────────────────────────────────────────
+void OcrScanCanvas::mouseMoveEvent(QMouseEvent* event)
+{
+    Q_UNUSED(event);
+}
+
+void OcrScanCanvas::mouseReleaseEvent(QMouseEvent* event)
+{
+    Q_UNUSED(event);
 }
 
 void OcrScanCanvas::paintEvent(QPaintEvent* /*event*/)

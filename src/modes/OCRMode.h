@@ -228,6 +228,24 @@ public slots:
     /// retry; a successful save returns to a reviewable state.
     void notifySaveFinished(bool saved, bool canceled, const QString& message);
 
+    // ── PARITY-SCORECARD-2026-09-30 §4 row 12: region-scoped re-OCR ─────────
+    /// The scan canvas committed a drag-select: store `imageRect` (pageImage
+    /// pixel space — the LayoutRegion::bbox coordinate system) as the region
+    /// the next "Re-OCR this region" request scopes to. An EMPTY rect clears
+    /// the selection (a drag that missed the image must not leave a stale
+    /// region behind). Public slot: the canvas signal lands here, and tests
+    /// drive it through the moc exactly as the signal does.
+    void onScanRegionSelected(QRectF imageRect);
+    /// Whole-page re-OCR entry (the "Re-OCR entire page" menu action): same
+    /// ReviewState guard as the region entry, but always dispatches the
+    /// whole-page empty bbox — it must never silently re-send a previously
+    /// selected region.
+    void onReOcrWholePage();
+
+    /// The region bbox (pageImage pixel space) the next region re-OCR request
+    /// will scope to. Empty = no selection. Test/inspection seam.
+    const QRectF& contextRegionBbox() const { return m_contextRegionBbox; }
+
 private slots:
     void onImagePaneContextMenu(const QPoint &pos);
     void onReOcrRegion();
@@ -307,7 +325,10 @@ private:
     // the scan canvas and the word magnifier share its image implicitly.
     OcrReviewSession m_session;
 
-    // Last right-clicked region bbox (used by onReOcrRegion)
+    // Region re-OCR (§4 row 12): the drag-selected region bbox in pageImage
+    // pixel space (the LayoutRegion::bbox system) that onReOcrRegion scopes
+    // to; empty = no selection. Set by onScanRegionSelected, cleared when a
+    // fresh recognition delivers (a stale bbox cannot scope a new run).
     QRectF m_contextRegionBbox;
 
     // Toolbar controls

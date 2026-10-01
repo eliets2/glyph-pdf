@@ -178,6 +178,19 @@ public slots:
     // the OCR Verify screen's Run button can drive the same real pipeline as the ribbon.
     void runOcr();
 
+    // PARITY-SCORECARD-2026-09-30 §4 row 12: region-scoped re-OCR. A non-empty
+    // regionBbox (pageImage pixel space — the SAME coordinate system
+    // LayoutRegion::bbox uses) scopes the run to that region: the EXISTING
+    // pipeline recognizes the region's crop only, and the resulting word boxes
+    // are mapped back into pageImage space before delivery, so the review
+    // records are identical in shape/coordinates to the whole-page path's. An
+    // empty/null bbox is the whole-page run (runOcr() delegates to exactly
+    // that). A garbage region (degenerate / outside the rendered page) is a
+    // typed ocrRunFailed refusal — never a silent no-op, never a dishonest
+    // whole-page fallback. A separate slot (not a runOcr overload) because a
+    // PMF connect cannot adapt a wider slot signature to ocrRunRequested().
+    void runOcrRegion(const QRectF& regionBbox);
+
     // §9.4 P0: persist the accepted OCR results as a searchable MRC PDF/A copy
     // (called directly from MainWindow, but kept as a slot for consistency with
     // the other EditController entry points wired to the OCR Verify screen).
@@ -188,6 +201,28 @@ public slots:
 
     // §9.4 P0 test seam: assemble the per-page OCR payload for exportMrcPdfA.
     static PageOcrResult buildPageOcrResult(int pageIndex, const QList<MergedOcrWord>& words);
+
+    // ── PARITY-SCORECARD-2026-09-30 §4 row 12: region-scoped re-OCR ─────────
+    // Pure seam: map a user-selected region bbox (pageImage pixel space — the
+    // SAME coordinate system LayoutRegion::bbox uses) onto the rendered page
+    // image. Normalizes the input, clamps it to the image bounds and returns
+    // the pixel crop the scoped OCR run must recognize; a region that is
+    // degenerate (zero/negative extent) or does not intersect the page image
+    // yields an EMPTY rect and a typed, human-readable rejectReason — the
+    // scoped run refuses instead of silently re-OCR-ing the whole page.
+    // Empty/null regionBbox means "no region" and is NOT an error here (the
+    // whole-page path never asks for a crop); callers gate on their own
+    // isRegionRun flag.
+    static QRect ocrRegionCropRect(const QRectF& regionBbox, const QSize& pageSize,
+                                   QString* rejectReason = nullptr);
+
+    // Pure seam: a scoped run recognizes the CROP, so pipeline word boxes land
+    // in crop space — translate them back into pageImage pixel space by the
+    // crop's top-left so the delivered review records are IDENTICAL in shape
+    // and coordinate system to the whole-page path's (same session, same
+    // overlay, same export).
+    static QList<MergedOcrWord> ocrRegionWordsToPageSpace(QList<MergedOcrWord> words,
+                                                          const QPoint& cropTopLeft);
 
     // §9.4 honesty seams: the interactive Accept flow persists a ONE-PAGE MRC
     // PDF/A (runOcr recognises the current page only), so the save dialog and

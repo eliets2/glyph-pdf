@@ -2142,6 +2142,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrReviewLifecycle.cpp")
     )
 endif()
 
+# ── TestOcrRegionReocr (PARITY-SCORECARD-2026-09-30 §4 row 12 — region-scoped
+#    re-OCR: canvas drag → LayoutRegion-bbox → scoped pipeline run + honest
+#    garbage-region refusals) ─────────────────────────────────────────────────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
+    add_executable(TestOcrRegionReocr
+        tests/TestOcrRegionReocr.cpp
+    )
+    target_include_directories(TestOcrRegionReocr PRIVATE src tests)
+    target_link_libraries(TestOcrRegionReocr PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestOcrRegionReocr POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrRegionReocr>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOcrRegionReocr>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrRegionReocr"
+    )
+    add_test(NAME TestOcrRegionReocr COMMAND TestOcrRegionReocr)
+    set_tests_properties(TestOcrRegionReocr PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;ocr;reocr-region;review;qt;headless"
+    )
+endif()
+
 # ── TestOcrVerifyNavigation (U03 — source-image verification workflow) ───────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrVerifyNavigation.cpp")
     add_executable(TestOcrVerifyNavigation

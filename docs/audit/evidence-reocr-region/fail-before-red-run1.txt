@@ -1,0 +1,68 @@
+Test project D:/pdf/pdf-w2b-reocr/build-rel
+    Start 32: TestOcrRegionReocr
+1/1 Test #32: TestOcrRegionReocr ...............***Failed    0.20 sec
+********* Start testing of TestOcrRegionReocr *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrRegionReocr::initTestCase()
+PASS   : TestOcrRegionReocr::deliveredSessionIsReviewReady()
+PASS   : TestOcrRegionReocr::regionEntryOutsideReviewReadyStaysGuarded()
+PASS   : TestOcrRegionReocr::wholePageEntryGuardedAndDispatchesEmptyBbox()
+FAIL!  : TestOcrRegionReocr::regionReocrWithoutSelectionIsTypedNoop() 'reOcrSpy.count() == 0' returned FALSE. (region entry dispatched with NO selection — the empty bbox means WHOLE PAGE downstream, so this silently re-ran the entire page instead of refusing)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(162) : failure location
+FAIL!  : TestOcrRegionReocr::selectedRegionIsStoredAndDispatchedVerbatim() Compared values are not the same
+   Actual   (panel.contextRegionBbox()): QRectF(0,0 0x0) (bottomright 0,0)
+   Expected (region)                   : QRectF(5,6 20x10) (bottomright 25,16)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(181) : failure location
+PASS   : TestOcrRegionReocr::emptySelectionClearsStoredRegion()
+PASS   : TestOcrRegionReocr::freshDeliveryClearsStoredRegion()
+FAIL!  : TestOcrRegionReocr::wholePageEntryDoesNotDisturbStoredRegion() Compared values are not the same
+   Actual   (panel.contextRegionBbox()): QRectF(0,0 0x0) (bottomright 0,0)
+   Expected (region)                   : QRectF(5,6 20x10) (bottomright 25,16)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(228) : failure location
+FAIL!  : TestOcrRegionReocr::imageRegionForMapsWidgetDragIntoImageSpace() Compared values are not the same
+   Actual   (OcrScanCanvas::imageRegionFor(QRectF(150, 10, 100, 50), img, pane)): QRectF(0,0 0x0) (bottomright 0,0)
+   Expected (QRectF(50, 10, 100, 50))                                           : QRectF(50,10 100x50) (bottomright 150,60)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(239) : failure location
+FAIL!  : TestOcrRegionReocr::imageRegionForClampsToImage() Compared values are not the same
+   Actual   (OcrScanCanvas::imageRegionFor(QRectF(250, -50, 100, 80), img, pane)): QRectF(0,0 0x0) (bottomright 0,0)
+   Expected (QRectF(150, 0, 50, 30))                                             : QRectF(150,0 50x30) (bottomright 200,30)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(251) : failure location
+PASS   : TestOcrRegionReocr::imageRegionForEmptyWhenDragMissesImage()
+FAIL!  : TestOcrRegionReocr::canvasDragCommitsRegionInImageSpace() 'regionSpy.count() == 1' returned FALSE. (a drag-select on the source canvas emitted no region — the row-12 click→bbox mapping is not wired)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(282) : failure location
+FAIL!  : TestOcrRegionReocr::regionCropRectMapsInteriorRegion() '!crop.isNull()' returned FALSE. (interior region produced no crop — scoped re-OCR cannot run)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(315) : failure location
+FAIL!  : TestOcrRegionReocr::regionCropRectNormalizesNegativeExtent() Compared values are not the same
+   Actual   (EditController::ocrRegionCropRect(QRectF(90, 10, -30, 20), QSize(100, 200), &reason)): QRect(0,0 0x0) (bottomright -1,-1)
+   Expected (QRect(60, 10, 30, 20))                                                               : QRect(60,10 30x20) (bottomright 89,29)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(326) : failure location
+FAIL!  : TestOcrRegionReocr::regionCropRectClampsToPage() Compared values are not the same
+   Actual   (EditController::ocrRegionCropRect(QRectF(80, 190, 40, 30), QSize(100, 200), &reason)): QRect(0,0 0x0) (bottomright -1,-1)
+   Expected (QRect(80, 190, 20, 10))                                                              : QRect(80,190 20x10) (bottomright 99,199)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(335) : failure location
+FAIL!  : TestOcrRegionReocr::regionCropRectRejectsGarbageWithTypedReason() '!reason.trimmed().isEmpty()' returned FALSE. (outside region was silently accepted — no typed refusal reason)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(358) : failure location
+FAIL!  : TestOcrRegionReocr::regionWordsAreMappedBackIntoPageSpace() Compared values are not the same
+   Actual   (words[0].boundingBox)   : QRectF(10,10 60x14) (bottomright 70,24)
+   Expected (QRectF(110, 60, 60, 14)): QRectF(110,60 60x14) (bottomright 170,74)
+D:/pdf/pdf-w2b-reocr/tests/TestOcrRegionReocr.cpp(373) : failure location
+PASS   : TestOcrRegionReocr::cleanupTestCase()
+Totals: 8 passed, 11 failed, 0 skipped, 0 blacklisted, 126ms
+********* Finished testing of TestOcrRegionReocr *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+headless        =   0.20 sec*proc (1 test)
+ocr             =   0.20 sec*proc (1 test)
+qt              =   0.20 sec*proc (1 test)
+reocr-region    =   0.20 sec*proc (1 test)
+review          =   0.20 sec*proc (1 test)
+unit            =   0.20 sec*proc (1 test)
+
+Total Test time (real) =   0.21 sec
+
+The following tests FAILED:
+	 32 - TestOcrRegionReocr (Failed)                       headless ocr qt reocr-region review unit
+Errors while running CTest

@@ -766,6 +766,29 @@ QString EditController::ocrDispatchBlocker(const QString& filePath, int page)
     return QString();
 }
 
+// ── PARITY-SCORECARD-2026-09-30 §4 row 12: region-scoped re-OCR seams ───────
+
+// RED-state stubs (pins-first commit): the seams exist so TestOcrRegionReocr
+// compiles and its pins fail at RUNTIME — the honest fail-before — instead of
+// not building at all. The real clamp/translate logic lands with the
+// implementation commit; the negative control (scoped revert of that commit)
+// must reproduce exactly these failures.
+QRect EditController::ocrRegionCropRect(const QRectF& regionBbox, const QSize& pageSize,
+                                        QString* rejectReason)
+{
+    Q_UNUSED(regionBbox);
+    Q_UNUSED(pageSize);
+    if (rejectReason) rejectReason->clear();
+    return QRect();
+}
+
+QList<MergedOcrWord> EditController::ocrRegionWordsToPageSpace(QList<MergedOcrWord> words,
+                                                               const QPoint& cropTopLeft)
+{
+    Q_UNUSED(cropTopLeft);
+    return words;
+}
+
 // ARC07 residual: the accept flow exports a searchable COPY, so a read-only
 // document keeps the route (Save-As shape — same policy that leaves Save As
 // available). The one refused shape is writing over the read-only document
@@ -951,7 +974,14 @@ PageOcrResult EditController::buildReviewedPageOcrResult(
     return r;
 }
 
-void EditController::runOcr() {
+void EditController::runOcr() { runOcrRegion(QRectF()); }
+
+void EditController::runOcrRegion(const QRectF& regionBbox) {
+    // RED-state note (pins-first commit): the region parameter is accepted so
+    // the host can pass the review panel's selection through, but it is
+    // deliberately INERT until the implementation commit — the run below is
+    // still whole-page (the honest fail-before for the region pins).
+    Q_UNUSED(regionBbox);
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || _ocrRunning) return;
 

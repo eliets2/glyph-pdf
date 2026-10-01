@@ -35,6 +35,23 @@ public:
     /// hit-testing so the two can never drift apart.
     static QRectF imageRectFor(const QSizeF& imageSize, const QRectF& pane);
 
+    /// ── PARITY-SCORECARD-2026-09-30 §4 row 12: region re-OCR selection ─────
+    /// Pure seam: map a WIDGET-space drag rect onto the page image the canvas
+    /// currently letterboxes into `pane` — the inverse of the mapping
+    /// wordIdAt()/paintEvent() use, built on the same imageRectFor source of
+    /// truth. Returns the clamped, normalized region in pageImage PIXEL space
+    /// (the LayoutRegion::bbox coordinate system); an empty result means the
+    /// drag did not intersect the image (a garbage selection must not be
+    /// silently widened into a whole-page region).
+    static QRectF imageRegionFor(const QRectF& widgetRect, const QImage& image,
+                                 const QRectF& pane);
+
+    /// The region the user last drag-selected, in pageImage pixel space
+    /// (empty = no selection). Reset whenever a new page image is loaded —
+    /// a bbox from the previous image's pixel space is stale garbage.
+    QRectF selectedRegion() const { return m_regionRect; }
+    void clearSelectedRegion();
+
     QSize minimumSizeHint() const override;
 
 signals:
@@ -42,9 +59,16 @@ signals:
     /// OCRMode funnels this into the same selectWord() the word links use.
     void wordClicked(int stableId);
 
+    /// Emitted when a drag-select finishes: the clamped region in pageImage
+    /// pixel space, or an empty rect when the drag missed the image (which
+    /// also CLEARS the selection — the honest "no region" state).
+    void regionSelected(QRectF imageRect);
+
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
 
 private:
     QRectF drawRect() const;             // current fit-to-pane image rect
@@ -53,6 +77,12 @@ private:
     QImage m_image;
     QList<OcrReviewedWord> m_words;
     int m_selectedId = -1;
+    // Region re-OCR: the committed selection (image space) and the live
+    // rubber band while a drag is in progress (widget space; empty = none).
+    QRectF m_regionRect;
+    QRectF m_rubberBand;
+    QPointF m_pressPos;
+    bool m_dragging = false;
 };
 
 } // namespace gp

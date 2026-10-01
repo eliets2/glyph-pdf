@@ -1072,6 +1072,26 @@ void OCRMode::onReOcrRegion()
     emit reOcrRegionRequested(m_contextRegionBbox);
 }
 
+// ── Region-scoped re-OCR (§4 row 12) — RED-state stubs ──────────────────────
+// The slots exist so TestOcrRegionReocr compiles and its pins fail at RUNTIME
+// (the honest fail-before). The real store/guard bodies land with the
+// implementation commit.
+
+void OCRMode::onScanRegionSelected(QRectF imageRect)
+{
+    Q_UNUSED(imageRect);
+    // Inert: the selection is NOT stored yet — the region-store pin must fail.
+}
+
+void OCRMode::onReOcrWholePage()
+{
+    // Same ReviewState guard discipline as onReOcrRegion (SEP13 lead 11): a
+    // whole-page re-OCR is a REVIEW action. Always dispatches the empty bbox
+    // (whole page) — never a previously selected region.
+    if (m_reviewState != ReviewState::ReviewReady) return;
+    emit reOcrRegionRequested(QRectF());
+}
+
 // ── setOcrResults ─────────────────────────────────────────────────────────────
 
 void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
