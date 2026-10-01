@@ -65,6 +65,7 @@ g++ -std=c++17 -g -O1 -o fuzz/bin/redaction_driver.exe \
   -Wl,--end-group \
   -L$L -lQt6Core -lQt6Gui -lQt6Widgets -lQt6Network -lQt6Concurrent \
   -lfreetype -lfontconfig -lxml2 -lz -lssl -lcrypto -lzip -lqpdf \
+  -lpcre2-16 \
   -lleptonica -ltesseract -lopenjp2 -lgomp \
   onnxruntime-win-x64-1.17.3/lib/onnxruntime.lib \
   -lws2_32 -lCredui -lAdvapi32 -lCrypt32
