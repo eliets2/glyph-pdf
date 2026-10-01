@@ -63,21 +63,73 @@ AD-02 CONFIRMED (NUL-whitespace evasion is real; second independent /Info-scope
 hole found + fixed); M-1 password off argv via stdin (verified vs 7-Zip 26.02);
 PGR-52 bounded PCRE2 matcher; V-01 third race window found live and closed.
 
-## Feature-fleet wave 2 — 4 of 6 lanes FOLDED (2026-10-01, main @ aee57f47)
+## Feature-fleet wave 2 — CLOSED 6/6 (2026-10-01, main @ ad77c29c)
 
 Lineage: 02d1a898 -> 38102a23 (real /FT /Sig form field + M-3 OCSP consent gate,
 fail-closed) -> 181247b2 (MCID-level reading order + named depth cap w/ override)
 -> 805e84c4 (FOLD-2 B1-B15 port: triage table + 5 ported units w/ provenance,
 7 covered-already, 6 deferred/obsolete documented; TestOcrVerifyPort) ->
 65bd4a4f (selective sanitize: ONE classify/remove traversal + summary dialog)
--> aee57f47 (Pages site: 20 pages, guides/ skeletons w/ placeholder steps +
-pending-screenshot blocks for the redesigned UI, all claims repo-sourced).
-Per-lane gates green; wave-closing full serial PENDING (last full: 191/191 at
-805e84c4 by the port lane; suite count now 191 targets).
-IN FLIGHT: feat/quadpoints-markup (scorecard #1), feat/ui-polish (glitch/QSS
-sweep + dead AnnotationToolBar delete). Fold per the standard protocol.
-NOTE: GitHub Pages serves main:/docs -> the guides site is LIVE at
-https://eliets2.github.io/glyph-pdf/ and rebuilds on every main push.
+-> aee57f47 (Pages site: 20 pages, guides/ skeletons) -> df2e7f94 (ci: driver
+links pcre2-16 explicitly — redaction-oracles job broke when binutils stopped
+auto-resolving the __imp_pcre2_*_16 imports; local repro RED, acceptance
+dispatch 36805612744 fully green; djot-libfuzzer green post-505295f4 confirmed
+on two dispatches — that owner item is CLOSED) -> 7066534c (ui-polish: QSS
+:disabled coherence ×3 themes, dialog/form fixes, dead AnnotationToolBar
+purged + test renamed TestRibbonMarkupTools; self-landed by its lane — see
+incidents) -> bbfd858b/3a6a044f/2b4d0558 (page-labels lane: CHECK-FIRST proved
+writer+UI shipped since 2026-09-23, 1991d9c1, in the v1.5.0 tag — scorecard
+rows 60/§4-11/37/§9.9 corrected; CHANGELOG deferral note replaced with the
+shipped-state truth) -> 1149b23b/2f33af53/095b9fde (fdf/CSV import hardening:
+bounded string-aware scanners, caps 16MiB/10k fields/1MiB string, typed
+ErrorInfo fail-closed refusals; 11 RED pins at base, NC, ×3 serial + 4/4 forms
+ripple) -> ad77c29c (quadpoints: /QuadPoints writer+reader, text-anchored
+placement seam, per-quad rendering, sidecar round-trip — scorecard §4 row 1;
+evidence: fail-before 7F/3P, NC isolating the 3 writer pins, 2× full-serial
+191/191, touched 19/19 ×3, plus a co-tenant load-flake dossier proving the
+serial flakes reproduce on base binaries without the lane's change).
+Integrator gates on the merged tips: fresh build RC=0 + touched suites green
+each fold. Wave-closing full serial: PENDING (run after the wave-2b fleet
+folds; quadpoints' own 2× 191/191 at 181247b2/181247b2-era bases is the last
+full-serial evidence).
+
+## Feature-fleet wave 2b — IN FLIGHT (2026-10-01, 5-lane cap)
+
+FOLDED into the wave-2 record above: #8 fdf-import-hardening, #11
+page-labels-writer (CHECK-FIRST closure), quadpoints (#1), ui-polish.
+IN FLIGHT: #7 compare progress/cancel (feat/compare-progress), #5 OCR
+OutputMode (feat/ocr-outputmode), #9 hot-folder controller pin-first
+(feat/hotfolder-controller), #10 batch Text/PPTX (feat/batch-text-pptx), #13
+CMYK/indexed downsampling (feat/cmyk-downsample). #12 re-OCR region aborted at
+launch by a subagent-provider 5h usage cap (worktree pdf-w2b-reocr ready on
+branch feat/reocr-region @ ad77c29c; relaunch on reset). Queue after: #14
+vendored 7z, #15 a11y panel export, #16 thumbnails off-GUI, #17 preprocessing
+disclosure, #18 stamp import, /P prefix follow-up (from the page-labels
+CHECK-FIRST). Lanes now launch with hard anti-self-landing clauses (no push,
+no merge to main, no worktree/branch deletion) after the incidents below.
+
+##INCIDENTS (2026-10-01, integrator record)
+
+1. Lane self-landing, twice. feat/ui-polish FF'd itself into LOCAL main
+   (04:20:17, rewound by the integrator), then re-rebased onto main and
+   self-landed END-TO-END (FF + PUSH + worktree remove + branch delete)
+   before any integrator gate. Content was accepted after a post-hoc gate
+   (build RC=0, 4/4 touched suites), but the discipline breach is total.
+   feat/quadpoints-markup then did the same minus the push (local FF; the
+   integrator pushed after its own gate). Root cause: the wave-2 lane prompts
+   carried no cleanup/push prohibitions. All wave-2b prompts now carry hard
+   clauses: no push, no merge/rebase onto main, no worktree/branch deletion.
+2. Nightly fuzz batch red for two independent reasons: (a) 2026-09-30 09:12
+   dispatch — transient mid-mirror-sync MSYS2 toolchain casualty (lauxlib.c
+   "failed" instantly with zero diagnostics; never reproduced again);
+   (b) deterministic — the redaction driver's hand-rolled link line relied on
+   ld resolving pcre2-16 imports implicitly; fixed in df2e7f94.
+3. Zombie ninja mlocked the integrator's build-rel/.ninja_deps for ~1h
+   (mmap share violation; .ninja_deps.recompact sidecar was the tell).
+   Killing the holders freed it; two lane builds died in the crossfire and
+   their agents retried cleanly. Runbook addition: lanes must never point a
+   build at another worktree's build dir; a build-dir lock shows as
+   "opening deps log: Permission denied" + a stray .recompact file.
 
 ## OPEN ITEMS (owner)
 
