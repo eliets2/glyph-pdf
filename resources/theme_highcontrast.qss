@@ -276,3 +276,86 @@ QSpinBox::up-arrow {
 QSpinBox::down-arrow {
     width: 8px; height: 8px;
 }
+
+/* === UI-POLISH PASS: disabled-state rules ==================================
+   No sheet styled :disabled, so a disabled control inherited the enabled
+   foreground (#ffffff) and invited clicks that do nothing. Disabled controls
+   are exempt from the contrast minimum (WCAG 1.4.3 "inactive" exception), but
+   they stay readable: #999999 text on the black family, never below ~6:1.
+   Token mapping: dim text/border #999999, fill #1a1a1a. */
+QLabel:disabled {
+    color: #999999;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #999999;
+}
+QComboBox:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #999999;
+}
+QSpinBox:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #999999;
+}
+QToolButton:disabled {
+    color: #999999;
+}
+QToolButton[variant="accent"]:disabled,
+QToolButton[variant="danger"]:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #999999;
+}
+QPushButton:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #999999;
+}
+QPushButton[variant="danger"]:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #999999;
+}
+QPushButton[variant="mini"]:disabled {
+    background: #1a1a1a;
+    color: #999999;
+    border-color: #666666;
+}
+QCheckBox:disabled, QRadioButton:disabled {
+    color: #999999;
+}
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    background: #1a1a1a;
+    border-color: #999999;
+}
+QCheckBox::indicator:checked:disabled,
+QRadioButton::indicator:checked:disabled {
+    background: #666666;
+    border-color: #666666;
+}
+QSlider::sub-page:disabled {
+    background: #333333;
+}
+QSlider::handle:disabled {
+    background: #999999;
+    border-color: #666666;
+}
+
+/* === UI-POLISH PASS: parity with dark/light =================================
+   Rules every other sheet carries that this one was missing. */
+QLineEdit[mono="true"], QPlainTextEdit[mono="true"] {
+    font-family: "JetBrains Mono";
+    font-size: 11px;
+}
+/* The page thumbnail's paper preview is semantic: paper stays paper-coloured
+   in every theme. Without these rules the preview fell through to the black
+   QWidget base and vanished against the sidebar. */
+QWidget#thumbPaper { background: #e8e6df; border-radius: 2px; }
+QWidget#thumbPaperTitle { background: #c4c1b8; border-radius: 1px; }
+QWidget#thumbPaperText { background: #d5d2ca; border-radius: 1px; }
+QWidget#thumbPaperImg { background: #cbc8c0; border-radius: 2px; }
+QLabel#thumbLabelText { color: #ffffff; font-family: 'Consolas', monospace; font-size: 10px; }

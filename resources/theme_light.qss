@@ -42,8 +42,10 @@ QMainWindow, QWidget#centralHost { background-color: #e9e6dd; }
 QWidget#canvasMargin { background-color: #bdb8ad; }
 
 QMenuBar { background-color: #d8d5cb; border-bottom: 1px solid #b0aca0; min-height: 26px; padding: 0 6px; color: #454650; }
+QMenuBar::item { background: transparent; padding: 4px 8px; }
 QMenuBar::item:selected, QMenuBar::item:pressed { background: #cac6bb; color: #1a1b1e; }
 QMenu { background: #e9e6dd; border: 1px solid #8a8678; color: #1a1b1e; }
+QMenu::item { padding: 4px 18px; background: transparent; }
 QMenu::item:selected { background: #cac6bb; }
 QMenu::separator { height: 1px; background: #b0aca0; margin: 4px 0; }
 
@@ -345,4 +347,72 @@ QSpinBox::up-arrow {
 }
 QSpinBox::down-arrow {
     width: 7px; height: 7px;
+}
+
+/* === UI-POLISH PASS: disabled-state rules ==================================
+   No sheet styled :disabled, so a disabled control inherited the enabled
+   foreground (#1a1b1e) and invited clicks that do nothing. One coherent
+   dimmed set for the recurring controls; accent/danger variants dim to the
+   same neutral grey so contextually unavailable actions read as one family.
+   Token mapping: fg3 #9c9a90 text, bg2 #d8d5cb fill, line #b0aca0 border. */
+QLabel:disabled {
+    color: #9c9a90;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #b0aca0;
+}
+QComboBox:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #b0aca0;
+}
+QSpinBox:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #b0aca0;
+}
+QToolButton:disabled {
+    color: #9c9a90;
+}
+QToolButton[variant="accent"]:disabled,
+QToolButton[variant="danger"]:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #b0aca0;
+}
+QPushButton:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #b0aca0;
+}
+QPushButton[variant="danger"]:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #b0aca0;
+}
+QPushButton[variant="mini"]:disabled {
+    background: #d8d5cb;
+    color: #9c9a90;
+    border-color: #cac6bb;
+}
+QCheckBox:disabled, QRadioButton:disabled {
+    color: #9c9a90;
+}
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    background: #d8d5cb;
+    border-color: #b0aca0;
+}
+QCheckBox::indicator:checked:disabled,
+QRadioButton::indicator:checked:disabled {
+    background: #9c9a90;
+    border-color: #9c9a90;
+}
+QSlider::sub-page:disabled {
+    background: #cac6bb;
+}
+QSlider::handle:disabled {
+    background: #9c9a90;
+    border-color: #b0aca0;
 }

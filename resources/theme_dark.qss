@@ -715,3 +715,71 @@ QSpinBox::up-arrow {
 QSpinBox::down-arrow {
     width: 7px; height: 7px;
 }
+
+/* === UI-POLISH PASS: disabled-state rules ==================================
+   No sheet styled :disabled, so a disabled control inherited the enabled
+   foreground (#dfe1e5) and invited clicks that do nothing. One coherent
+   dimmed set for the recurring controls; accent/danger variants dim to the
+   same neutral grey so contextually unavailable actions read as one family.
+   Token mapping: fg3 #52555a text, bg2 #2b2d30 fill, line #393b40 border. */
+QLabel:disabled {
+    color: #52555a;
+}
+QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #393b40;
+}
+QComboBox:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #393b40;
+}
+QSpinBox:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #393b40;
+}
+QToolButton:disabled {
+    color: #52555a;
+}
+QToolButton[variant="accent"]:disabled,
+QToolButton[variant="danger"]:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #393b40;
+}
+QPushButton:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #393b40;
+}
+QPushButton[variant="danger"]:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #393b40;
+}
+QPushButton[variant="mini"]:disabled {
+    background: #2b2d30;
+    color: #52555a;
+    border-color: #34363b;
+}
+QCheckBox:disabled, QRadioButton:disabled {
+    color: #52555a;
+}
+QCheckBox::indicator:disabled, QRadioButton::indicator:disabled {
+    background: #2b2d30;
+    border-color: #393b40;
+}
+QCheckBox::indicator:checked:disabled,
+QRadioButton::indicator:checked:disabled {
+    background: #52555a;
+    border-color: #52555a;
+}
+QSlider::sub-page:disabled {
+    background: #34363b;
+}
+QSlider::handle:disabled {
+    background: #52555a;
+    border-color: #393b40;
+}

@@ -16,16 +16,24 @@
 //   5. The installed effect really changes the viewer's rendered output.
 #include <QtTest/QtTest>
 #include <QApplication>
+#include <QCheckBox>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QGraphicsColorizeEffect>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPageSize>
 #include <QPainter>
 #include <QPdfView>
 #include <QPdfWriter>
+#include <QPushButton>
 #include <QScrollArea>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include "ui/NightModeEffect.h"
 #include "ui/PdfViewerWidget.h"
+#include "util/GpTheme.h"
 
 class TestViewingModes : public QObject {
     Q_OBJECT
@@ -38,6 +46,7 @@ private slots:
     void loadedPageIsVisibleUnderTheShippedStylesheet();
     void loadingADocumentAnnouncesItsFirstPage();
     void renderedPagesArePaperWhite();
+    void disabledControlsReadAsDisabledUnderEveryShippedSheet();
 
 private:
     static QString writeOnePagePdf(const QTemporaryDir &dir, const QString &name);
@@ -45,6 +54,7 @@ private:
     static int paperPixels(const QImage &image);
     static bool isSepia(QGraphicsEffect *effect);
     static bool isNight(QGraphicsEffect *effect);
+    static bool loadThemeSheet(gp::Theme::Mode mode, QString *out);
 };
 
 QList<QWidget *> TestViewingModes::surfaces(PdfViewerWidget &viewer)
@@ -253,6 +263,103 @@ void TestViewingModes::renderedPagesArePaperWhite()
     QVERIFY(!page.isNull());
     QCOMPARE(page.pixelColor(2, 2), QColor(Qt::white));   // blank margin = paper
     QCOMPARE(page.pixelColor(page.width() - 3, page.height() - 3), QColor(Qt::white));
+}
+
+// The theme QSS resources are compiled into the app executable only
+// (resources.qrc is a PdfWorkstation source — G20), so resolve the sheet from
+// the injected source dir when the resource path is absent.
+bool TestViewingModes::loadThemeSheet(gp::Theme::Mode mode, QString *out)
+{
+    const QString resourcePath = gp::Theme::sheetForMode(mode);
+    if (QFile::exists(resourcePath)) {
+        QFile f(resourcePath);
+        if (f.open(QIODevice::ReadOnly)) {
+            *out = QString::fromUtf8(f.readAll());
+            return true;
+        }
+    }
+    const QString fileName = QFileInfo(resourcePath).fileName();
+#ifdef GLYPHPDF_SOURCE_RESOURCE_DIR
+    {
+        QFile f(QDir(QStringLiteral(GLYPHPDF_SOURCE_RESOURCE_DIR)).filePath(fileName));
+        if (f.open(QIODevice::ReadOnly)) {
+            *out = QString::fromUtf8(f.readAll());
+            return true;
+        }
+    }
+#else
+    Q_UNUSED(fileName);
+#endif
+    return false;
+}
+
+// feat/ui-polish regression: before the :disabled sections existed, NO shipped
+// sheet styled disabled controls, so a disabled input/button/checkbox
+// inherited the enabled foreground (probe: #dfe1e5 dark / #1a1b1e light /
+// #ffffff high-contrast) and contextually unavailable actions invited clicks
+// that do nothing. Every shipped sheet must now dim all three recurring
+// control families, per-theme, while leaving enabled colours untouched.
+void TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet()
+{
+    struct SheetGuard {
+        QString previous = qApp->styleSheet();
+        ~SheetGuard() { qApp->setStyleSheet(previous); }
+    } guard;
+
+    struct Expectation {
+        gp::Theme::Mode mode;
+        const char *disabledText;
+    };
+    const Expectation expectations[] = {
+        { gp::Theme::Dark,         "#52555a" },
+        { gp::Theme::Light,        "#9c9a90" },
+        { gp::Theme::HighContrast, "#999999" },
+    };
+
+    for (const Expectation &e : expectations) {
+        QString sheet;
+        QVERIFY2(loadThemeSheet(e.mode, &sheet),
+                 qPrintable(QStringLiteral("cannot load sheet for mode %1").arg(int(e.mode))));
+        // High-contrast parity with the other sheets: the thumbnail paper
+        // preview (semantic paper colours) and the mono input font must be
+        // styled here too — they were missing and the preview vanished
+        // against the black sidebar.
+        if (e.mode == gp::Theme::HighContrast) {
+            QVERIFY2(sheet.contains(QStringLiteral("QWidget#thumbPaper")),
+                     "high-contrast sheet must style the thumbnail paper preview");
+            QVERIFY2(sheet.contains(QStringLiteral("QLineEdit[mono=\"true\"]")),
+                     "high-contrast sheet must style mono inputs");
+        }
+        QVERIFY2(sheet.contains(QStringLiteral(":disabled")),
+                 "every shipped sheet must carry disabled-state rules");
+
+        qApp->setStyleSheet(sheet);
+
+        QLineEdit edit;
+        QPushButton button;
+        QCheckBox check;
+        QSpinBox spin;
+        QWidget *controls[] = { &edit, &button, &check, &spin };
+        for (QWidget *w : controls) {
+            w->ensurePolished();
+            const QColor enabledText =
+                w->palette().color(QPalette::WindowText);
+            w->setEnabled(false);
+            w->ensurePolished();
+            const QColor disabledText =
+                w->palette().color(QPalette::Disabled, QPalette::WindowText);
+            QVERIFY2(disabledText != enabledText,
+                     qPrintable(QStringLiteral("%1: disabled %2 still paints in the "
+                                              "enabled foreground")
+                                    .arg(gp::Theme::sheetForMode(e.mode), w->metaObject()->className())));
+            QVERIFY2(disabledText.name() == QLatin1String(e.disabledText),
+                     qPrintable(QStringLiteral("%1: disabled %2 text is %3, expected %4")
+                                    .arg(gp::Theme::sheetForMode(e.mode),
+                                         w->metaObject()->className(),
+                                         disabledText.name(),
+                                         QLatin1String(e.disabledText))));
+        }
+    }
 }
 
 QTEST_MAIN(TestViewingModes)

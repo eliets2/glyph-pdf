@@ -4883,6 +4883,11 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewingModes.cpp")
     add_executable(TestViewingModes tests/TestViewingModes.cpp)
     target_include_directories(TestViewingModes PRIVATE src tests)
+    # The disabled-state pin loads the shipped theme sheets, which live in the
+    # source tree for test binaries (G20 injection pattern, see TestStatusBarSlim).
+    target_compile_definitions(TestViewingModes PRIVATE
+        GLYPHPDF_SOURCE_RESOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/resources"
+    )
     target_link_libraries(TestViewingModes PRIVATE
         pdfws_ui pdfws_engines pdfws_core podofo::podofo Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets
     )
