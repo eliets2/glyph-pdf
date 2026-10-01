@@ -3030,6 +3030,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchPresetsP2.cpp")
     )
 endif()
 
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHotFolder.cpp")
+    add_executable(TestHotFolder
+        tests/TestHotFolder.cpp
+    )
+    target_include_directories(TestHotFolder PRIVATE src tests)
+    target_link_libraries(TestHotFolder PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestHotFolder POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestHotFolder>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestHotFolder>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestHotFolder"
+    )
+    add_test(NAME TestHotFolder COMMAND TestHotFolder)
+    set_tests_properties(TestHotFolder PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;modes;batch;hotfolder;ui;qt;headless"
+        RESOURCE_LOCK BatchModeIO
+        # Debounce-window and OS fs-event waits are timing-sensitive; the
+        # scorecard lane discipline is serial-only for this suite.
+        RUN_SERIAL TRUE
+    )
+endif()
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOcrLanguage.cpp")
     add_executable(TestBatchOcrLanguage
         tests/TestBatchOcrLanguage.cpp
