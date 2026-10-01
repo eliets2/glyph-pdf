@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security — GlyphPDF</title>
+  <meta name="description" content="GlyphPDF's security posture: fully offline processing, no telemetry, SHA-256-verified updates, content-excision redaction, and honest disclosure of limitations.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="../guides/">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="index.html" aria-current="page">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="wrap page">
+      <h1 class="page-title">Security</h1>
+      <p class="lede">GlyphPDF is built for environments where documents must not leave the machine. Everything below is stated in the repository's own documentation and pinned by its test suite where noted.</p>
+
+      <h2>The offline posture</h2>
+      <ul class="tips" role="list">
+        <li><strong>No telemetry, no cloud.</strong> The app runs fully offline; there is no account, no subscription and no phone-home. Exports carry an explicit local-processing notice — "Processed 100% locally, no internet, no upload".</li>
+        <li><strong>The one network-aware feature is consent-gated.</strong> The optional AI Chat panel talks to a local Ollama only, with a loopback guard that rejects lookalike hostnames; document content never leaves the machine. OCSP/CRL checks on the signing path ask for per-document consent and fail closed when refused.</li>
+        <li><strong>Updates never happen silently.</strong> The updater fetches a small JSON manifest, requires consent at every stage, verifies the download's SHA-256 and its Authenticode signature before install, and refuses unsigned installers by design (it is dormant until a code-signed release ships).</li>
+      </ul>
+
+      <h2>Verify what you install</h2>
+      <p>Every release is published with a <code>.sha256</code> sidecar. Verify before installing:</p>
+      <pre><code>Get-FileHash .\GlyphPDF-x64.msi -Algorithm SHA256</code></pre>
+      <p>Compare with the value in the release's <code>.sha256</code> file. Full instructions are on the <a href="../download/">Download page</a>.</p>
+
+      <h2>Document-security engineering</h2>
+      <ul class="tips">
+        <li><strong>Redaction excises, it never paints over.</strong> Redacted text is removed from the content stream, so "covered" content is genuinely gone; a proof step refuses to certify what it cannot verify. The optional redaction audit log deliberately records only a region count and an after-hash — never coordinates or pre-image data that could fingerprint the original.</li>
+        <li><strong>Sanitization removes 15+ hidden-data vectors</strong> (metadata, JavaScript, embedded files, and more), and the compression path's metadata strip runs the same full sanitize logic.</li>
+        <li><strong>SHA-256 only.</strong> Digital signatures (PAdES B-LT/B-LTA) use SHA-256 hashing exclusively — no MD5, no SHA-1 — and RSA keys below 2048 bits are rejected before signing.</li>
+        <li><strong>Form scripts are sandboxed.</strong> AcroForm Calculate/Format/Keystroke/Validate scripts run in a quickjs-ng sandbox with a CPU deadline.</li>
+        <li><strong>Saves are transactional.</strong> Redaction and expiry writes run as single transactions with source-integrity (SHA-256) checks and atomic commits; a failed write leaves the source byte-identical.</li>
+        <li><strong>Admin control.</strong> Machine policy lets administrators manage settings; managed values are always shown as "Managed by policy".</li>
+      </ul>
+
+      <h2>License posture on security-sensitive dependencies</h2>
+      <p>The build enforces its dependency policy with hard errors: MuPDF (AGPL-3.0) and Poppler (GPL-2.0+) are never linked in-process; veraPDF (AGPL-3.0) runs as a subprocess only; DjVu exists as an optional importer, never an output format. Third-party licenses are inventoried in <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE-3RD-PARTY.md">LICENSE-3RD-PARTY.md</a>.</p>
+
+      <h2>Audits and evidence</h2>
+      <p>The repository carries its verification work in the open: a code-level parity scorecard, security audit records, and a per-item evidence ledger under <code>docs/audit/</code> and <code>docs/security/</code> on GitHub. Named open items are published rather than hidden — see the scorecard's still-open list.</p>
+
+      <h2>Reporting a problem</h2>
+      <p>A formal, dedicated disclosure policy has not been published yet. Until one is, please report security issues through the repository's <a href="https://github.com/eliets2/glyph-pdf/issues">GitHub Issues</a> — for anything sensitive, say so in the issue and keep details minimal until the maintainer responds.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> · <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

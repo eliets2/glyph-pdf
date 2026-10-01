@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download — GlyphPDF</title>
+  <meta name="description" content="Download GlyphPDF for Windows: installer (MSI) or portable ZIP, every dependency bundled. Verify with the .sha256 sidecar. No telemetry, no cloud.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="../guides/">Guides</a></li>
+          <li><a href="index.html" aria-current="page">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <div class="wrap page">
+      <h1 class="page-title">Download</h1>
+      <p class="lede">You need nothing but the app itself. Qt 6, the PDF and OCR engines, the C++ and Visual C++ runtimes and the OCR models are all bundled inside the download — get it and run it.</p>
+
+      <div class="grid">
+        <section class="card">
+          <h3>Installer (recommended)</h3>
+          <p><code>GlyphPDF-x64.msi</code> — double-click, Next, Finish. Adds Start-menu and desktop shortcuts and an "Open with GlyphPDF" entry for PDFs.</p>
+          <a class="btn primary" href="https://github.com/eliets2/glyph-pdf/releases/latest">Get the latest release</a>
+        </section>
+        <section class="card">
+          <h3>Portable (no install)</h3>
+          <p><code>GlyphPDF-x64-portable.zip</code> — unzip anywhere, including a USB stick, and run <code>GlyphPDF.exe</code>. Nothing is written to the registry.</p>
+          <a class="btn ghost" href="https://github.com/eliets2/glyph-pdf/releases/latest">Get the latest release</a>
+        </section>
+      </div>
+
+      <h2>System requirements</h2>
+      <p>Windows 10 (version 1607+) or Windows 11, 64-bit. 4&nbsp;GB RAM recommended for OCR on large documents. That is the entire list.</p>
+
+      <h2>Verify your download</h2>
+      <p>Every release is published with a <code>.sha256</code> sidecar. Check the file before installing:</p>
+      <pre><code>Get-FileHash .\GlyphPDF-x64.msi -Algorithm SHA256</code></pre>
+      <p>Compare the output with the value in the release's <code>.sha256</code> file. The in-app updater performs the same SHA-256 verification (plus an Authenticode signature check) before it ever offers to install anything.</p>
+
+      <h2>Package manager</h2>
+      <p>A <code>winget</code> package (<code>Glyph.GlyphPDF</code>) will follow once releases are code-signed.</p>
+
+      <h2>Updates</h2>
+      <p>The in-app update checker reads the manifest at <a href="../updates/latest.json">updates/latest.json</a>, requires your consent at every stage, and is dormant until a code-signed release ships — it refuses unsigned installers by design. The on-launch check can be turned off in Preferences &gt; Updates.</p>
+
+      <p class="status-line">Release notes, assets and checksums live on the <a href="https://github.com/eliets2/glyph-pdf/releases">GitHub Releases page</a>. Source code: <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a>.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> · <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>
