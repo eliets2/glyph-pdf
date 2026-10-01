@@ -27,18 +27,14 @@ ResizeDialog::ResizeDialog(QWidget* parent) : QDialog(parent) {
     _heightSpin->setRange(1.0, 10000.0);
     _heightSpin->setDecimals(2);
 
-    _unitCombo = new QComboBox(this);
-    _unitCombo->addItem(tr("Points"));
-
     QFormLayout* formLayout = new QFormLayout;
     formLayout->addRow(tr("Preset:"), _presetCombo);
-    
+
     QHBoxLayout* wLayout = new QHBoxLayout;
     wLayout->addWidget(_widthSpin);
     wLayout->addWidget(new QLabel("x"));
     wLayout->addWidget(_heightSpin);
-    wLayout->addWidget(_unitCombo);
-    formLayout->addRow(tr("Size:"), wLayout);
+    formLayout->addRow(tr("Size (points):"), wLayout);
 
     QDialogButtonBox* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);

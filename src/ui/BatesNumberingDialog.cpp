@@ -46,15 +46,20 @@ BatesNumberingDialog::BatesNumberingDialog(QWidget* parent) : QDialog(parent) {
     for (const auto& p : kPresets) _presetCombo->addItem(tr(p.name));
 
     _prefixEdit = new QLineEdit(this);
+    _prefixEdit->setPlaceholderText(tr("e.g. PROD — text before the number"));
     _suffixEdit = new QLineEdit(this);
+    _suffixEdit->setPlaceholderText(tr("text after the number (optional)"));
 
     _startSpin = new QSpinBox(this);
     _startSpin->setRange(1, 999999);
     _startSpin->setValue(1);
+    _startSpin->setToolTip(tr("First document in the batch receives this number; "
+                              "the sequence continues across pages and files"));
 
     _digitsSpin = new QSpinBox(this);
     _digitsSpin->setRange(3, 10);
     _digitsSpin->setValue(6);
+    _digitsSpin->setToolTip(tr("Numbers are zero-padded to this many digits, e.g. 000042"));
 
     _fontCombo = new QComboBox(this);
     _fontCombo->addItems(QFontDatabase::families());
@@ -115,6 +120,10 @@ BatesNumberingDialog::BatesNumberingDialog(QWidget* parent) : QDialog(parent) {
     _batchList->setSelectionMode(QAbstractItemView::ExtendedSelection);
     _batchAddBtn = new QPushButton(tr("Add PDFs…"), this);
     _batchRemoveBtn = new QPushButton(tr("Remove Selected"), this);
+    _batchRemoveBtn->setEnabled(false); // enabled-but-noop until a file is selected
+    connect(_batchList, &QListWidget::itemSelectionChanged, this, [this]() {
+        _batchRemoveBtn->setEnabled(!_batchList->selectedItems().isEmpty());
+    });
     connect(_batchAddBtn, &QPushButton::clicked, this, &BatesNumberingDialog::addBatchFiles);
     connect(_batchRemoveBtn, &QPushButton::clicked, this, &BatesNumberingDialog::removeSelectedBatchFiles);
 

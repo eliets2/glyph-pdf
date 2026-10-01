@@ -18,7 +18,6 @@ private:
     QComboBox* _presetCombo;
     QDoubleSpinBox* _widthSpin;
     QDoubleSpinBox* _heightSpin;
-    QComboBox* _unitCombo;
 
     void updateSpinsFromPreset();
 };

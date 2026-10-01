@@ -25,6 +25,8 @@
 #include <QFileInfo>
 #include <QTimer>
 #include <QList>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QPushButton>
 #include <QSettings>
 #include <QUndoStack>
@@ -358,6 +360,39 @@ private slots:
                  qPrintable(QStringLiteral("G15: the shared editor must never stay on the "
                                           "doomed staged candidate; resident: %1").arg(resident)));
         m_win.reset();
+    }
+
+    // feat/ui-polish: the batch panel's "Remove Selected" used to be live with
+    // an empty list — a click did nothing. It must start disabled and enable
+    // only while a file is selected; the prefix edit discloses its format
+    // through a placeholder instead of sitting blank.
+    void batchRemoveButtonStateAndFieldDisclosures()
+    {
+        gp::BatesNumberingDialog dlg;
+        QPushButton *removeBtn = nullptr;
+        const QList<QPushButton *> buttons = dlg.findChildren<QPushButton *>();
+        for (QPushButton *b : buttons)
+            if (b->text().contains(QStringLiteral("Remove Selected")))
+                removeBtn = b;
+        QVERIFY2(removeBtn, "Remove Selected button must exist");
+        QVERIFY2(!removeBtn->isEnabled(),
+                 "Remove Selected must start disabled — with an empty list a click is a no-op");
+
+        auto *list = dlg.findChild<QListWidget *>();
+        QVERIFY(list);
+        dlg.setBatchFiles({ QStringLiteral("a.pdf"), QStringLiteral("b.pdf") });
+        QVERIFY2(!removeBtn->isEnabled(),
+                 "adding files must not enable Remove Selected until one is selected");
+        list->setCurrentRow(0);
+        QVERIFY2(removeBtn->isEnabled(),
+                 "selecting a file must enable Remove Selected");
+        list->clearSelection();
+        QVERIFY2(!removeBtn->isEnabled(),
+                 "clearing the selection must disable Remove Selected again");
+
+        const QList<QLineEdit *> edits = dlg.findChildren<QLineEdit *>();
+        QVERIFY2(edits.size() >= 2 && !edits.first()->placeholderText().isEmpty(),
+                 "the prefix edit must disclose its format via a placeholder");
     }
 };
 

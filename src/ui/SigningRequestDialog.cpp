@@ -50,6 +50,7 @@ SigningRequestDialog::SigningRequestDialog(SignatureManager *signing,
 
     auto *form = new QFormLayout;
     m_nameEdit = new QLineEdit(this);
+    m_nameEdit->setPlaceholderText(tr("e.g. Jane Doe"));
     form->addRow(tr("Signer name"), m_nameEdit);
 
     m_bindingCombo = new QComboBox(this);

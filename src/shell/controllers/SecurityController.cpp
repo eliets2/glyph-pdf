@@ -36,6 +36,7 @@
 #include <QPointer>
 #include <QMetaObject>
 #include <QCoreApplication>
+#include <QApplication>
 #include <QInputDialog>
 #include <QFileInfo>
 #include <QDir>
@@ -611,7 +612,12 @@ void SecurityController::verifySignatures() {
     // only navigating to the signatures panel.
     auto* viewer = _mainWindow->pdfViewer();
     if (viewer && _ctx && _ctx->signing && !viewer->filePath().isEmpty()) {
+        // validateSignatures runs synchronously on the GUI thread (byte-range
+        // digests + public-key verification per signature); without a busy
+        // cursor the app looks frozen for the duration.
+        QApplication::setOverrideCursor(Qt::WaitCursor);
         const QList<SignatureInfo> infos = _ctx->signing->validateSignatures(viewer->filePath());
+        QApplication::restoreOverrideCursor();
         if (infos.isEmpty()) {
             QMessageBox::information(_mainWindow, tr("Validate All Signatures"),
                 tr("This document has no digital signatures."));

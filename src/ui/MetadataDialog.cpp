@@ -12,11 +12,17 @@ MetadataDialog::MetadataDialog(const PdfMetadata &metadata, QWidget *parent)
     resize(400, 250);
 
     titleEdit = new QLineEdit(metadata.title, this);
+    titleEdit->setPlaceholderText(tr("Document title"));
     authorEdit = new QLineEdit(metadata.author, this);
+    authorEdit->setPlaceholderText(tr("Author name"));
     subjectEdit = new QLineEdit(metadata.subject, this);
+    subjectEdit->setPlaceholderText(tr("Subject"));
     keywordsEdit = new QLineEdit(metadata.keywords, this);
+    keywordsEdit->setPlaceholderText(tr("keyword one, keyword two, …"));
     creatorEdit = new QLineEdit(metadata.creator, this);
+    creatorEdit->setPlaceholderText(tr("Application that created the document"));
     producerEdit = new QLineEdit(metadata.producer, this);
+    producerEdit->setPlaceholderText(tr("Application that produced the PDF"));
 
     QFormLayout *form = new QFormLayout;
     form->addRow(tr("Title:"), titleEdit);
