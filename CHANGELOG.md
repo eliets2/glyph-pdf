@@ -141,8 +141,13 @@ verified.
 - **Pages/Welcome**: fixed drag-reorder (silently dead in the live path),
   selection visibility, insertion indicator, keyboard moves; responsive Welcome
   card grid.
-- **Page Labels groundwork**: pure seams + tests; writer/UI deferred with a
-  scoping note.
+- **Page Labels (§9.9)**: the writer and UI shipped in this release. "Apply Page
+  Labels…" (Pages task ▸ thumbnail context menu) writes the catalog /PageLabels
+  number tree through the SafeSave candidate transaction — all five /S styles
+  (D, r, R, a, A) with explicit /St, any stale tree replaced — pinned by
+  `TestPageLabels` write → re-read round trips. Scope, honestly: one uniform
+  labeling range per document; per-range UI, /Kids branching and /P prefixes
+  remain open.
 
 ## [1.4.0] — 2026-09-02
 
