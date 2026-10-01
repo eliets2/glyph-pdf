@@ -2,6 +2,7 @@
 #include "OCRMode.h"
 #include "shell/FlowToolbarLayout.h"
 #include "engines/ocr/RapidOcrEngine.h"
+#include "engines/ocr/OcrPreprocessor.h"  // §4 row 17: capability-query-driven tooltips
 #include "core/OcrTypes.h"
 #include "util/GpTheme.h"
 #include "util/Badge.h"
@@ -60,6 +61,21 @@ static const char* kOcrEmptyStateHtml =
     "<span style='color:#8a8a8a;font-size:13px;'>No OCR results yet.<br><br>"
     "Open a scanned PDF and run OCR to review the recognized text and "
     "per-word confidence here.</span>";
+
+// ── §4 row 17 (parity row 22): honest preprocessing disclosure ──────────────
+// The Leptonica-backed steps (deskew, 0/90/180/270 orientation, Sauvola
+// binarize) are gated by HAS_TESSERACT at compile time; historically that
+// gating was invisible in the UI, so a build without it silently degraded —
+// deskew/Auto-Rotate became no-ops and Binarize quietly dropped to a fixed
+// threshold. The tooltips below are COMPOSED FROM the OcrPreprocessor
+// capability query (never hardcoded), so the panel cannot disagree with the
+// pipeline it drives: each tooltip states what the build will actually do
+// and, when a step is absent, what the user can do about it.
+static QString preprocessingToolTip(const QString& availableText,
+                                    const QString& missingText)
+{
+    return OcrPreprocessor::leptonicaAvailable() ? availableText : missingText;
+}
 
 // ── B10: per-language user dictionary (ported from archive/final/feat/
 //    ocr-verify-finereader 45f5d13b) ─────────────────────────────────────────
@@ -314,6 +330,17 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     // via these persisted toggles (Auto-Rotate below set the precedent).
     m_chkDeskew = new QCheckBox(tr("Deskew"));
     m_chkDeskew->setObjectName("ocrChkDeskew");
+    // §4 row 17: the tooltip is composed from the OcrPreprocessor capability
+    // query — a build without Leptonica must SAY that Deskew will do nothing
+    // instead of silently no-oping.
+    m_chkDeskew->setToolTip(preprocessingToolTip(
+        tr("Measure and straighten a tilted scan (Leptonica pixFindSkew) "
+           "before recognition. Opt-in, off by default; blank pages and pages "
+           "within 0.1° of level are left untouched."),
+        tr("Deskew is NOT available in this build: it was compiled without "
+           "Tesseract/Leptonica, so leaving this on has no effect on "
+           "recognition. Use a build with OCR support, or straighten the scan "
+           "in an image editor before importing it.")));
     m_chkDeskew->setChecked(QSettings().value(kOcrPreprocessDeskewKey, false).toBool());
     m_chkDeskew->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkDeskew, &QCheckBox::toggled, this, [](bool checked) {
@@ -324,6 +351,16 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_chkBinarize = new QCheckBox(tr("Binarize"));
     m_chkBinarize->setObjectName("ocrChkBinarize");
+    // §4 row 17: without Leptonica the binarizer DEGRADES (adaptive Sauvola →
+    // fixed threshold); the tooltip must disclose the fallback, not hide it.
+    m_chkBinarize->setToolTip(preprocessingToolTip(
+        tr("Adaptive Sauvola binarization (black & white) before "
+           "recognition — robust on uneven lighting and stains. Opt-in, off "
+           "by default."),
+        tr("This build was compiled without Tesseract/Leptonica, so Binarize "
+           "falls back to a simple fixed threshold instead of adaptive "
+           "Sauvola — expect worse results on uneven lighting. Use a build "
+           "with OCR support for adaptive binarization.")));
     m_chkBinarize->setChecked(QSettings().value(kOcrPreprocessBinarizeKey, false).toBool());
     m_chkBinarize->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkBinarize, &QCheckBox::toggled, this, [](bool checked) {
@@ -334,6 +371,11 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
 
     m_chkDenoise = new QCheckBox(tr("Denoise"));
     m_chkDenoise->setObjectName("ocrChkDenoise");
+    // §4 row 17: denoise is the one Qt-only step — available in EVERY build,
+    // and the tooltip says so (no false absence claim either direction).
+    m_chkDenoise->setToolTip(tr(
+        "3×3 median filter to remove speckle before recognition (Qt-only — "
+        "available in every build). Opt-in, off by default."));
     m_chkDenoise->setChecked(QSettings().value(kOcrPreprocessDenoiseKey, false).toBool());
     m_chkDenoise->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkDenoise, &QCheckBox::toggled, this, [](bool checked) {
@@ -348,6 +390,17 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
     // change unless the user asks for it.
     m_chkOrientDetect = new QCheckBox(tr("Auto-Rotate"));
     m_chkOrientDetect->setObjectName("ocrChkOrientDetect");
+    // §4 row 17: orientation detection is Leptonica-only and silently no-ops
+    // without it — the tooltip must say so plainly when the query reports the
+    // capability absent.
+    m_chkOrientDetect->setToolTip(preprocessingToolTip(
+        tr("Detect and correct 0/90/180/270 page orientation (Leptonica) "
+           "before recognition. Opt-in, off by default; pages with an "
+           "inconclusive signal are left untouched."),
+        tr("Auto-Rotate is NOT available in this build: it was compiled "
+           "without Tesseract/Leptonica, so leaving this on has no effect on "
+           "recognition. Rotate pages on the Pages screen instead, or use a "
+           "build with OCR support.")));
     m_chkOrientDetect->setChecked(QSettings().value(kOcrOrientDetectKey, false).toBool());
     m_chkOrientDetect->setStyleSheet("color:#c0c0c0; spacing:4px;");
     connect(m_chkOrientDetect, &QCheckBox::toggled, this, [](bool checked) {

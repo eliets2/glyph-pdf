@@ -10,6 +10,7 @@
 #include <QFileInfo>
 
 #include "modes/OCRMode.h"
+#include "engines/ocr/OcrPreprocessor.h"
 
 class TestOcrPreprocessPrefs : public QObject {
     Q_OBJECT
@@ -118,6 +119,81 @@ private slots:
                  "pipeline will honor");
         QVERIFY2(denoise && denoise->isChecked(),
                  "persisted Denoise=on must restore checked");
+    }
+
+    // ── §4 row 17 (parity row 22): preprocessing capability disclosure ──────
+    // A build without Leptonica silently degraded preprocessing: deskew and
+    // Auto-Rotate became no-ops, Binarize dropped to a fixed threshold, and
+    // the HAS_TESSERACT gating was invisible in the UI. The preprocessing
+    // checkboxes' tooltips must therefore be composed from the
+    // OcrPreprocessor::leptonicaAvailable() capability query — never a
+    // hardcoded string — and disclose plainly in BOTH configurations:
+    //  - without Leptonica: Deskew/Auto-Rotate say they are not available and
+    //    what to do instead; Binarize discloses the fixed-threshold fallback;
+    //  - with Leptonica: no false absence/degradation claims either.
+    // Runs in both configurations on purpose (D03 dual-config discipline):
+    // each branch is only exercised where its wording is the truth.
+    void tooltipsDisclosePreprocessingCapability() {
+        gp::OCRMode mode;
+        auto* deskew   = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDeskew"));
+        auto* binarize = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkBinarize"));
+        auto* denoise  = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkDenoise"));
+        auto* orient   = mode.findChild<QCheckBox*>(QStringLiteral("ocrChkOrientDetect"));
+        QVERIFY2(deskew && binarize && denoise && orient,
+                 "all four preprocessing checkboxes must exist");
+
+        const QString deskewTip   = deskew->toolTip();
+        const QString binarizeTip = binarize->toolTip();
+        const QString denoiseTip  = denoise->toolTip();
+        const QString orientTip   = orient->toolTip();
+
+        // A SILENT checkbox is exactly the row-22 failure shape: every
+        // preprocessing toggle must carry SOME capability disclosure.
+        QVERIFY2(!deskewTip.isEmpty(),   "Deskew checkbox must have a tooltip");
+        QVERIFY2(!binarizeTip.isEmpty(), "Binarize checkbox must have a tooltip");
+        QVERIFY2(!denoiseTip.isEmpty(),  "Denoise checkbox must have a tooltip");
+        QVERIFY2(!orientTip.isEmpty(),   "Auto-Rotate checkbox must have a tooltip");
+
+        // Denoise is Qt-only: it works in every build, so its tooltip must
+        // never claim the capability is missing (in either configuration).
+        QVERIFY2(!denoiseTip.contains(QStringLiteral("not available"),
+                                      Qt::CaseInsensitive),
+                 "Denoise works in every build — its tooltip must not claim "
+                 "it is unavailable");
+
+        const QString absence = QStringLiteral("not available in this build");
+        if (!OcrPreprocessor::leptonicaAvailable()) {
+            QVERIFY2(deskewTip.contains(absence, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("no-Leptonica build: the Deskew tooltip "
+                                              "must disclose the missing capability; got: ")
+                                + deskewTip));
+            QVERIFY2(orientTip.contains(absence, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("no-Leptonica build: the Auto-Rotate tooltip "
+                                              "must disclose the missing capability; got: ")
+                                + orientTip));
+            QVERIFY2(binarizeTip.contains(QStringLiteral("fixed threshold"),
+                                          Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("no-Leptonica build: the Binarize tooltip "
+                                              "must disclose the fixed-threshold fallback; got: ")
+                                + binarizeTip));
+        } else {
+            // An honest Leptonica build must not scare users with absence
+            // wording that is not true of it (the hardcoded-string failure
+            // shape: a tooltip that ignores the capability query).
+            QVERIFY2(!deskewTip.contains(absence, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("Leptonica build: the Deskew tooltip must not "
+                                              "claim the capability is missing; got: ")
+                                + deskewTip));
+            QVERIFY2(!orientTip.contains(absence, Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("Leptonica build: the Auto-Rotate tooltip must not "
+                                              "claim the capability is missing; got: ")
+                                + orientTip));
+            QVERIFY2(!binarizeTip.contains(QStringLiteral("fixed threshold"),
+                                           Qt::CaseInsensitive),
+                     qPrintable(QStringLiteral("Leptonica build: the Binarize tooltip must not "
+                                              "claim the degraded fallback; got: ")
+                                + binarizeTip));
+        }
     }
 
     void firstRunOcrSeedIsStagedBesideTheBuild() {

@@ -40,6 +40,18 @@ class OcrPreprocessor {
 public:
     OcrPreprocessor() = default;
 
+    /// Capability query (parity §4 row 17 / July row 22): does THIS build carry
+    /// the Leptonica-backed preprocessing chain (deskew via pixFindSkew,
+    /// 0/90/180/270 orientation detection, Sauvola adaptive binarization)?
+    /// It is compiled only under HAS_TESSERACT; without it deskew and
+    /// orientation are documented no-ops and binarize silently falls back to a
+    /// plain fixed threshold. The query exists so the OCR screen's
+    /// preprocessing checkboxes can DISCLOSE that instead of silently
+    /// degrading — the UI must ask this, never re-derive it from its own
+    /// assumptions. denoise and DPI normalization are Qt-only and available in
+    /// every configuration.
+    static bool leptonicaAvailable();
+
     /// Run the full preprocessing pipeline on a page image.
     PreprocessedImage process(const QImage &input, const OcrPreprocessOptions &opts = {}) const;
 

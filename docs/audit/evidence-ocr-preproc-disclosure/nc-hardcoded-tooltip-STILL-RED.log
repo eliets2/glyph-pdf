@@ -1,0 +1,12 @@
+********* Start testing of TestOcrPreprocessPrefs *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrPreprocessPrefs::initTestCase()
+PASS   : TestOcrPreprocessPrefs::defaultsMatchPipelineBehavior()
+PASS   : TestOcrPreprocessPrefs::togglingPersistsToQSettings()
+PASS   : TestOcrPreprocessPrefs::persistedPrefsRestoreOnConstruction()
+FAIL!  : TestOcrPreprocessPrefs::tooltipsDisclosePreprocessingCapability() '!deskewTip.contains(absence, Qt::CaseInsensitive)' returned FALSE. (Leptonica build: the Deskew tooltip must not claim the capability is missing; got: Deskew is NOT available in this build: it was compiled without Tesseract/Leptonica, so leaving this on has no effect on recognition. Use a build with OCR support, or straighten the scan in an image editor before importing it.)
+D:/pdf/pdf-w2b-ppdisc/tests/TestOcrPreprocessPrefs.cpp(183) : failure location
+PASS   : TestOcrPreprocessPrefs::firstRunOcrSeedIsStagedBesideTheBuild()
+PASS   : TestOcrPreprocessPrefs::cleanupTestCase()
+Totals: 6 passed, 1 failed, 0 skipped, 0 blacklisted, 133ms
+********* Finished testing of TestOcrPreprocessPrefs *********

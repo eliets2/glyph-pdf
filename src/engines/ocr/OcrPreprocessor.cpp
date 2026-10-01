@@ -168,6 +168,15 @@ int uprightRotation(const QImage &input)
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
+bool OcrPreprocessor::leptonicaAvailable()
+{
+#ifdef HAS_TESSERACT
+    return true;
+#else
+    return false;
+#endif
+}
+
 PreprocessedImage OcrPreprocessor::process(const QImage &input, const OcrPreprocessOptions &opts) const
 {
     PreprocessedImage result;
