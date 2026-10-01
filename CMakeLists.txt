@@ -3945,6 +3945,37 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDynamicStamps.cpp")
     )
 endif()
 
+# Row 18 image-as-stamp import: the library dialog's image import entry
+# point, the image-variant catalog slot (load/save round trip + tampered
+# path refusals), unchanged built-in catalog semantics, and the REUSE PROOF
+# that an image stamp placed via the signature-Upload path persists through
+# the §9.7 P0 /Stamp + image-appearance writer (mode AND raster reload).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestStampImageImport.cpp")
+    add_executable(TestStampImageImport
+        tests/TestStampImageImport.cpp
+    )
+    target_include_directories(TestStampImageImport PRIVATE src tests)
+    target_link_libraries(TestStampImageImport PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestStampImageImport POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestStampImageImport>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestStampImageImport>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestStampImageImport"
+    )
+    add_test(NAME TestStampImageImport COMMAND TestStampImageImport)
+    set_tests_properties(TestStampImageImport PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;comments;stamps;stamp-image-import;qt;headless"
+    )
+endif()
+
 # T2-9 auto-bookmarks: heading/TOC heuristics (disclosed basis), the
 # IOutlineEditor committed outline write verified in a saved+reopened
 # artifact, the preview dialog (editable titles, uncheckable rows), and the
