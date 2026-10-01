@@ -79,6 +79,16 @@ public:
                                                   const QString& filePath);
     static QStringList encryptedPackageValidateArgs(const QString& candidate);
 
+    // PARITY-SCORECARD-2026-09-30 §4 row 14 (July §3 row 75) seam, same
+    // pure-function status as the argv builders above: locates the 7-Zip
+    // console tool — the application-owned (vendored, SHA-256-pinned) copy
+    // beside the executable FIRST, then PATH, then the conventional 7-Zip
+    // install dirs. Empty result = no 7-Zip anywhere; the caller must
+    // disclose that honestly. `appDirOverride` exists purely for tests
+    // (empty = QCoreApplication::applicationDirPath()). See
+    // third_party/7zip/PROVENANCE.md for the vendored-binary record.
+    static QString locateSevenZip(const QString& appDirOverride = {});
+
 private:
     void onSave();
     void onSaveAs();

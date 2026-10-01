@@ -38,6 +38,7 @@
 #include <thread>
 
 #include "engines/SafeSave.h"
+#include "shell/controllers/HomeController.h"
 
 using gp::SafeSave::ExternalWriteResult;
 using gp::SafeSave::runExternalWriterCommit;
@@ -361,16 +362,13 @@ private slots:
     // replaces it with an archive that opens with the chosen password, never
     // with the wrong one, and contains exactly the intended input.
     void realSevenZipEndToEnd() {
-        QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
-        if (sevenZip.isEmpty()) {
-            const QStringList cands{
-                QStringLiteral("C:/Program Files/7-Zip/7z.exe"),
-                QStringLiteral("C:/Program Files (x86)/7-Zip/7z.exe")};
-            for (const QString& c : cands)
-                if (QFileInfo::exists(c)) { sevenZip = c; break; }
-        }
+        // PARITY-SCORECARD-2026-09-30 §4 row 14: resolve through the shared
+        // app-owned-first locator — the bundled copy staged beside this test
+        // binary wins, a system install is only a fallback. QSKIP now means
+        // "no 7-Zip anywhere", not merely "not on PATH".
+        const QString sevenZip = gp::HomeController::locateSevenZip();
         if (sevenZip.isEmpty())
-            QSKIP("7z not installed on this machine — the lifecycle legs above carry the regression");
+            QSKIP("no 7-Zip anywhere (no bundled copy beside the test binary, no system install) — the lifecycle legs above carry the regression");
 
         const QString input = m_work.filePath(QStringLiteral("report.pdf"));
         const QByteArray inputBytes =

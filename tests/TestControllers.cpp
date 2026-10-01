@@ -298,14 +298,15 @@ private slots:
                      qPrintable(QString("argv element leaks the password: %1").arg(a)));
         }
 
-        // (c) live end-to-end through the REAL 7-Zip + stdin path (QSKIP when
-        // no 7z.exe is installed): the archive must be genuinely encrypted
-        // with the stdin-delivered password and unreadable without it.
-        QString sevenZip = QStandardPaths::findExecutable(QStringLiteral("7z"));
+        // (c) live end-to-end through the REAL 7-Zip + stdin path (QSKIP only
+        // when no 7-Zip exists anywhere): the archive must be genuinely
+        // encrypted with the stdin-delivered password and unreadable without
+        // it. Resolution via the shared app-owned-first locator — the bundled
+        // copy staged beside this test binary wins (PARITY-SCORECARD
+        // §4 row 14); a system install is only a fallback.
+        const QString sevenZip = gp::HomeController::locateSevenZip();
         if (sevenZip.isEmpty())
-            sevenZip = QStringLiteral("C:/Program Files/7-Zip/7z.exe");
-        if (!QFileInfo::exists(sevenZip))
-            QSKIP("7z.exe not available on this machine — argv-shape assertions above still ran");
+            QSKIP("no 7-Zip anywhere (no bundled copy beside the test binary, no system install) — argv-shape assertions above still ran");
 
         QTemporaryDir dir;
         QVERIFY(dir.isValid());

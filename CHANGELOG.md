@@ -4,6 +4,15 @@ All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Encrypted packages work offline:** GlyphPDF now ships its own 7-Zip 26.02
+  (AES-256 encrypted package creation) — the app prefers the bundled copy
+  beside the executable and no longer requires a system-installed 7z.exe.
+  The vendored binaries are committed with pinned SHA-256 hashes (verified at
+  build time) and full provenance/license records; if no tool can be located
+  at all, the app says exactly what is missing.
+
 ## [1.5.0] — 2026-09-29
 
 **The consolidation release.**

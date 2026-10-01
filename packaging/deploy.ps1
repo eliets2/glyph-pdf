@@ -287,6 +287,33 @@ if (Test-Path (Join-Path $veraSrc 'verapdf.bat')) {
     Write-Host '      Note: if veraPDF is present in the final build, re-run deploy.ps1 with it staged.'
 }
 
+#  10b. Bundle the vendored 7-Zip (REQUIRED — PARITY-SCORECARD-2026-09-30 §4
+# row 14). The encrypted-package feature resolves its 7z.exe from the
+# application-owned directory FIRST (HomeController::locateSevenZip): official
+# installs must carry the committed, SHA-256-pinned copy, otherwise a machine
+# without a system 7-Zip loses AES-256 encrypted packages (the offline pitch).
+# License compliance: the upstream license text MUST travel with the binaries
+# (LGPL §4 / BSD attribution) — hard-fail if either is missing.
+$sevenZipSrc = Join-Path $ProjectRoot 'third_party\7zip'
+$sevenZipExe = Join-Path $sevenZipSrc 'bin\7z.exe'
+$sevenZipDll = Join-Path $sevenZipSrc 'bin\7z.dll'
+if ((Test-Path $sevenZipExe) -and (Test-Path $sevenZipDll)) {
+    Write-Host 'Bundling vendored 7-Zip 26.02 (encrypted packages)...'
+    Copy-Item $sevenZipExe $DeployDir -Force
+    Copy-Item $sevenZipDll $DeployDir -Force
+    $sevenZipLicense = Join-Path $sevenZipSrc 'License.txt'
+    if (-not (Test-Path $sevenZipLicense)) {
+        throw "LGPL COMPLIANCE GATE: third_party/7zip/License.txt is missing. " +
+              "The 7-Zip license text must travel with the bundled binaries " +
+              "(see third_party/7zip/PROVENANCE.md)."
+    }
+    Copy-Item $sevenZipLicense (Join-Path $DeployDir 'LICENSE-7-Zip.txt') -Force
+} else {
+    throw "VENDORED 7-ZIP GATE: third_party/7zip/bin/7z.exe and 7z.dll are required " +
+          "for official installs (the encrypted-package capability must not depend on " +
+          "a system-installed 7z.exe). Restore the committed binaries before deploying."
+}
+
 #  11. Branding + licenses
 Write-Host 'Copying icon and licenses...'
 Copy-Item (Join-Path $PackDir 'stage\glyphpdf.ico') $DeployDir
@@ -321,7 +348,7 @@ Copy-Item $sourceOffer $DeployDir -Force
 Write-Host 'Validating deploy tree...'
 $critical = 'GlyphPDF.exe', 'Qt6Core.dll', 'Qt6Widgets.dll', 'Qt6Pdf.dll',
             'libpodofo.dll', 'pdfium.dll', 'onnxruntime.dll',
-            'libtesseract-5.5.dll', 'libcrypto-3-x64.dll',
+            'libtesseract-5.5.dll', 'libcrypto-3-x64.dll', '7z.exe', '7z.dll',
             'VCRUNTIME140.dll', 'VCRUNTIME140_1.dll', 'MSVCP140.dll',
             'models\ppocrv5\PP-OCRv5_mobile_det_infer.onnx',
             'models\ppocrv5\PP-OCRv5_mobile_rec_infer.onnx',

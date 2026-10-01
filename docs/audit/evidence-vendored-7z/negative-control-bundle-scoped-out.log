@@ -1,0 +1,25 @@
+********* Start testing of TestSevenZipBundle *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSevenZipBundle::initTestCase()
+FAIL!  : TestSevenZipBundle::vendoredBinariesAreCommittedAndHashPinned() 'QFileInfo::exists(exe)' returned FALSE. (vendored 7z.exe missing from third_party/7zip/bin)
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp(88) : failure location
+PASS   : TestSevenZipBundle::resolverPrefersAppOwnedBinary()
+PASS   : TestSevenZipBundle::resolverDisclosesAbsenceHonestly()
+SKIP   : TestSevenZipBundle::bundledBinaryEndToEndStdinPassword() vendored 7-Zip bundle not present — pins 2/3 still ran
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp(160) : failure location
+PASS   : TestSevenZipBundle::cleanupTestCase()
+Totals: 4 passed, 1 failed, 1 skipped, 0 blacklisted, 23ms
+********* Finished testing of TestSevenZipBundle *********
+
+--- NC interpretation (recorded 2026-10-01) ---
+Procedure: `mv third_party/7zip/bin third_party/7zip/bin.NC-aside` (committed
+SOURCE bundle scoped out; the build-dir staged copy deliberately remains, since
+the NC isolates the bundle-commit property, not build staging). Rerun
+TestSevenZipBundle, then restore.
+Expected split, observed: pin 1 FAIL (detects the missing committed bundle —
+the property it exists to guard), pins 2/3 PASS (resolver semantics are
+bundle-independent), pin 4 SKIP (honest absent-capability skip). The pins
+therefore fail for exactly the right reason and nothing else.
+Restored hashes (must match the pins):
+83967f1b02b43c4efeda302795722c809e0e81b8307de73558d10484d5676a7d *third_party/7zip/bin/7z.exe
+69fd4df057985c40e510e2fac182881c7f85e90aa13ec703f763a8fdb2ce61f8 *third_party/7zip/bin/7z.dll

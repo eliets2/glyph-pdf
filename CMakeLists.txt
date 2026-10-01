@@ -826,6 +826,48 @@ if(GLYPHPDF_RELEASE_BUILD)
     endif()
 endif()
 
+# ── Vendored 7-Zip (PARITY-SCORECARD-2026-09-30 §4 row 14) ──────────────────
+# The encrypted-package feature resolves its 7z.exe from the application-owned
+# directory FIRST (HomeController::locateSevenZip): the binaries are COMMITTED
+# at third_party/7zip/bin/ and staged beside the app/test executables below.
+# This configure-time check pins their bytes (same discipline as the quickjs-ng
+# version pin): a swapped, corrupted or re-downloaded binary without updating
+# third_party/7zip/PROVENANCE.md fails the build here, not in the field.
+# Policy: on Windows the bundle is REQUIRED (it carries the offline-pitch
+# capability); on non-Windows it is recorded-but-unstaged (L05 — the Windows
+# binaries are meaningless to the Linux loader and 7z falls back to PATH).
+set(GLYPHPDF_7ZIP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/7zip/bin")
+set(GLYPHPDF_7ZIP_EXE_SHA256 "83967f1b02b43c4efeda302795722c809e0e81b8307de73558d10484d5676a7d")
+set(GLYPHPDF_7ZIP_DLL_SHA256 "69fd4df057985c40e510e2fac182881c7f85e90aa13ec703f763a8fdb2ce61f8")
+if(EXISTS "${GLYPHPDF_7ZIP_DIR}/7z.exe")
+    file(SHA256 "${GLYPHPDF_7ZIP_DIR}/7z.exe" _7z_exe_actual)
+    if(NOT _7z_exe_actual STREQUAL GLYPHPDF_7ZIP_EXE_SHA256)
+        message(FATAL_ERROR
+            "Vendored 7-Zip pin violated: third_party/7zip/bin/7z.exe hashes to ${_7z_exe_actual}, "
+            "the enforced pin is ${GLYPHPDF_7ZIP_EXE_SHA256}. The vendored bytes are part of the "
+            "supply chain (PARITY scorecard §4 row 14) — upgrade deliberately: verify the new "
+            "artifact against the official source, re-record SHA-256 + provenance in "
+            "third_party/7zip/PROVENANCE.md, bump this pin, and re-run the encrypted-package suites.")
+    endif()
+    file(SHA256 "${GLYPHPDF_7ZIP_DIR}/7z.dll" _7z_dll_actual)
+    if(NOT _7z_dll_actual STREQUAL GLYPHPDF_7ZIP_DLL_SHA256)
+        message(FATAL_ERROR
+            "Vendored 7-Zip pin violated: third_party/7zip/bin/7z.dll hashes to ${_7z_dll_actual}, "
+            "the enforced pin is ${GLYPHPDF_7ZIP_DLL_SHA256}. See third_party/7zip/PROVENANCE.md.")
+    endif()
+    set(GLYPHPDF_7ZIP_STAGED TRUE)
+    message(STATUS "Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)")
+else()
+    if(WIN32)
+        message(FATAL_ERROR
+            "Vendored 7-Zip bundle missing (third_party/7zip/bin/7z.exe). Windows builds carry "
+            "the encrypted-package capability — restore the committed binaries (git checkout "
+            "third_party/7zip) instead of downloading ad-hoc. See third_party/7zip/PROVENANCE.md.")
+    endif()
+    message(STATUS "Vendored 7-Zip: not present — encrypted package falls back to system 7z (non-Windows)")
+    set(GLYPHPDF_7ZIP_STAGED FALSE)
+endif()
+
 # ── Stage runtime DLLs beside test/app binaries (WINDOWS ONLY) ──────────────
 # L05 (NATIVE-LINUX-READINESS-2026-09-10): this whole staging step is a
 # Windows-loader workaround (exe-dir DLL resolution, MinGW toolchain PATH
@@ -849,6 +891,14 @@ if(TARGET onnxruntime)
 endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
     list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
+endif()
+# Vendored 7-Zip beside the executables: HomeController::locateSevenZip
+# resolves the app-owned copy FIRST, so this staging is what makes the
+# encrypted-package capability work offline (no system 7z.exe needed).
+if(GLYPHPDF_7ZIP_STAGED)
+    list(APPEND _runtime_dlls
+        "${GLYPHPDF_7ZIP_DIR}/7z.exe"
+        "${GLYPHPDF_7ZIP_DIR}/7z.dll")
 endif()
 if(_runtime_dlls)
     add_custom_target(stage_runtime_dlls ALL

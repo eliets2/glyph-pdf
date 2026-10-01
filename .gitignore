@@ -6,6 +6,11 @@ build/
 *.lib
 *.dll
 *.exe
+# Vendored 7-Zip binaries are committed deliberately (pinned SHA-256, see
+# third_party/7zip/PROVENANCE.md) — the encrypted-package feature must not
+# depend on a system-installed 7z.exe (PARITY-SCORECARD-2026-09-30 §4 row 14).
+!third_party/7zip/bin/7z.exe
+!third_party/7zip/bin/7z.dll
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake

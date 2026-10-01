@@ -129,7 +129,9 @@ private slots:
 
         const QString resolved =
             HomeController::locateSevenZip(appDir.path());
-        QCOMPARE(resolved, QDir(appDir.path()).filePath(QStringLiteral("7z.exe")));
+        QCOMPARE(resolved,
+                 QDir::toNativeSeparators(
+                     QDir(appDir.path()).filePath(QStringLiteral("7z.exe"))));
     }
 
     // Pin 3 — honest absence: a location without the tool pair must never be
@@ -164,7 +166,9 @@ private slots:
         QVERIFY(QFile::copy(srcDll, appDirPath + QStringLiteral("/7z.dll")));
 
         const QString sevenZip = HomeController::locateSevenZip(appDirPath);
-        QCOMPARE(sevenZip, QDir(appDirPath).filePath(QStringLiteral("7z.exe")));
+        QCOMPARE(sevenZip,
+                 QDir::toNativeSeparators(
+                     QDir(appDirPath).filePath(QStringLiteral("7z.exe"))));
 
         // The bundled binary IS the pinned 26.02 version.
         QProcess banner;
