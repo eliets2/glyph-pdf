@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accessibility Checker — GlyphPDF Guides</title>
+  <meta name="description" content="Reading-order and structure checks with jump-to-issue rows, plus Tag Document for untagged PDFs.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">Accessibility Checker</h1>
+      <p class="lede">The accessibility checker analyzes reading order (honoring ISO 32000-2 §14.7.2 /Pg inheritance), runs off the UI thread, and lists issues with jump buttons that take you to the page. Tag Document builds a structure tree for untagged documents while preserving images and marked content, and PDF/A validation uses veraPDF (as a subprocess) with per-issue rows in the same panel.</p>
+      <p class="status-line">Status: parity scorecard §9.14 verified 8.5/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: open the Accessibility / PDF-A panel (entry point to be confirmed from the redesigned UI)]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: run the accessibility checker on an untagged document and read the issue rows]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: use a JUMP button and confirm it lands on the flagged page]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: run Tag Document and reopen the file to confirm the structure tree was written]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: run a PDF/A validation pass (veraPDF is offered for download on first use)]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the accessibility/validation panel with checker rows and JUMP buttons</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>Reading-order tolerance is a named, documented constant — a displacement of two positions is not flagged, three is.</li>
+        <li>The checker runs asynchronously, so the UI stays responsive on large documents.</li>
+        <li>Known gaps, tracked in the scorecard: MCID-span extraction and an exportable results panel are still open.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#accessibility">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>E-Signatures — GlyphPDF Guides</title>
+  <meta name="description" content="PAdES B-LT/B-LTA signing with visible appearances, validity badges, Validate-All and Prepare Request in GlyphPDF.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">E-Signatures</h1>
+      <p class="lede">Sign documents digitally with PAdES B-LT/B-LTA signatures (DSS/VRI embedding, TSA timestamps, a certify selector) and a visible ETSI-layout signature appearance with identity, date, reason and location lines that auto-fits the box. A Draw/Type/Upload/Initials picker places each signature as a real PDF annotation. On-page validity badges anchor to the actual signature fields — including in Two-Page mode — and Validate-All summarizes every signature's state. Protect > Sign > Prepare Request packages a document for other signers.</p>
+      <p class="status-line">Status: parity scorecard §9.7 verified 9.0/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: open the Sign flow from the Protect surface (exact ribbon path to be confirmed from the redesigned UI)]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: create a signature with the picker: Draw, Type, Upload and Initials tabs]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: place the signature and fill the visible-appearance fields (reason, location); confirm it lands inside the signed revision]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: choose the signature level (B-LT/B-LTA) and certify or approve; note the consent gate for network (OCSP) checks]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: validate: read the on-page badges and run Validate-All for the summary]</li>
+        <li><strong>Step 6</strong> &mdash; [to be captured from the redesigned UI: try Protect > Sign > Prepare Request to stage a signing request for another signer]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the signature picker (Draw/Type/Upload/Initials) and a signed page with validity badges</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>SHA-256 is the only signature hash; keys below 2048 bits are rejected before signing.</li>
+        <li>OCSP/CRL network access is consent-gated: a never-network policy still signs, and refusals are named honestly.</li>
+        <li>The session signature cache follows document switches, so a second placement reuses your signature.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#esignatures">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

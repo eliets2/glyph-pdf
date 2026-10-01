@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Security & Encryption — GlyphPDF Guides</title>
+  <meta name="description" content="AES-256 and certificate encryption, sanitization, expiry dates and admin machine policy in GlyphPDF.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">Security & Encryption</h1>
+      <p class="lede">Protect documents with AES-256 password encryption or certificate-based encryption with a multi-recipient picker. Sanitize Document removes 15+ metadata and hidden-data vectors. Set Expiry Date writes an expiry marker through a SafeSave transaction (with XMP survival) and, once expired, the whole mutating tool set — encrypt, sign, sanitize, redact-apply, permissions — flips to read-only, while Save-As/export/print stay available as a deliberate escape hatch. Administrator machine policy shows managed settings as “Managed by policy”.</p>
+      <p class="status-line">Status: parity scorecard §9.11 verified 8.5/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: open a PDF and apply password encryption (AES-256) from the Protect surface (entry point to be confirmed from the redesigned UI)]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: apply certificate-based encryption and use the recipient picker for multiple recipients]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: run Sanitize Document and reopen the output to see what was removed]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: set an expiry date, save, reopen after the date, and confirm the mutating tools are gated read-only]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: check Preferences for a policy-managed setting if your machine has one]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the Protect ribbon with Encryption, Sanitize and Set Expiry Date entries</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>Sanitize is all-or-nothing today; a selective mode with a pre-commit summary is a named open item in the scorecard.</li>
+        <li>Expiry writes are transactional — a second expiry write can no longer corrupt the file (v1.5.0 fix, pinned by tests).</li>
+        <li>See the Security page on this site for the offline posture and how to verify downloads.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#security-signing">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

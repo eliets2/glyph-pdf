@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Conversion & Export — GlyphPDF Guides</title>
+  <meta name="description" content="PDF to Word, Excel, HTML, images, CSV and text — plus PDF/A, Web Optimized and Legal Archive export presets.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">Conversion & Export</h1>
+      <p class="lede">Convert PDFs to Word (.docx), Excel (.xlsx with real table columns), HTML, images, CSV and text using real OOXML writers, with a runtime badge of which engine actually ran and an honest fallback warning if a format degrades. Export presets cover High Quality PDF/A, Web Optimized (linearized via qpdf and verified) and Legal Archive. Every export carries a local-processing notice: no internet, no upload.</p>
+      <p class="status-line">Status: parity scorecard §9.5 + §9.16 verified 8.5/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: open a PDF and open the Convert surface (tab location to be confirmed from the redesigned UI)]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: export to Word and open the .docx in an Office application to check the result]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: export to Excel and confirm table columns arrive as columns]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: export to HTML, images, CSV and text]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: open the Export presets panel; create or edit a preset and save with High Quality PDF/A and Web Optimized to compare]</li>
+        <li><strong>Step 6</strong> &mdash; [to be captured from the redesigned UI: note the local-processing notice and the export-engine badge in the completion message]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the Convert panel with format choices and the export-presets panel beside it</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>Office documents (.docx/.xlsx/.pptx/.odt) can be opened or dropped directly — optional LibreOffice import is auto-detected with an in-app download prompt if absent.</li>
+        <li>PDF/A validation uses veraPDF as a subprocess (never linked in-process); the app prompts to fetch it on first use.</li>
+        <li>Batch conversion covers Word/Excel/HTML/Image/Csv today — Text and PowerPoint in batch are a named open item.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#conversion">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

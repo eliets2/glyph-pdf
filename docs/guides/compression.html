@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compression — GlyphPDF Guides</title>
+  <meta name="description" content="JPEG re-encoding, image dedup, object sweep, MRC layered compression and measured before/after readouts.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">Compression</h1>
+      <p class="lede">Compress does real work and reports real numbers: JPEG images are decoded and re-encoded honoring your quality and DPI settings, duplicate images are deduplicated (SMask-aware) and rewired to one canonical object, unused objects are swept, and metadata stripping runs the full sanitize logic. The completion dialog reads both sizes from disk and shows the measured delta — estimates are labeled as estimates and never claim passes that did not run. The MRC layered pipeline (JBIG2 foreground + JPEG2000 background + invisible OCR text) measured 30.4× on an A4 scanned test page.</p>
+      <p class="status-line">Status: parity scorecard §9.13 verified 8.0/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: open Compress on a large PDF (entry point to be confirmed from the redesigned UI)]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: choose a DPI preset and quality level, then run compression]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: read the measured before/after sizes and delta in the completion report]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: re-run with metadata strip enabled and confirm the sanitize behavior]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: run the MRC pipeline on a scanned page (Off / Lossless / Balanced / Aggressive modes in the dialog)]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the Compress dialog with quality/DPI controls and the measured before/after report</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>If the result is not smaller, the dialog says so instead of hiding it.</li>
+        <li>Font subsetting is deliberately disabled with an explanation — no subsetter exists in this build yet.</li>
+        <li>Signed documents refuse compression edits, and CMYK JPEGs are deliberately skipped to avoid color shifts.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#compression">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

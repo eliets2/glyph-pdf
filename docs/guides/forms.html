@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forms — GlyphPDF Guides</title>
+  <meta name="description" content="AcroForm fields, fill vs fill-and-lock, auto-detect with review, and sandboxed form JavaScript in GlyphPDF.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">Forms</h1>
+      <p class="lede">GlyphPDF builds and fills AcroForm fields: text, checkboxes, radio buttons, dropdowns and date/numeric/calculated fields. Fill can leave fields editable or lock them; unsupported fields are reported in an explicit Import Incomplete dialog rather than dropped silently. Auto-detect proposes field placements from label patterns with a disclosed heuristic and review-before-commit. AcroForm Calculate, Format, Keystroke and Validate scripts run in a sandboxed quickjs-ng runtime with a CPU deadline.</p>
+      <p class="status-line">Status: parity scorecard §9.6 verified 8.0/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: open a PDF and enter the Forms builder (entry point to be confirmed from the redesigned UI)]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: place a text field, set its tooltip and Required flag, and confirm they persist after save/reopen]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: use Detect (auto-detect) on a label-style page; review the disclosed heuristic suggestions and commit (or undo) them]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: fill a form from imported data, first without lock and then with fill-and-lock, and check the Import Incomplete report for unsupported fields]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: open a form with scripts and confirm Calculate/Format behave inside the sandbox]</li>
+        <li><strong>Step 6</strong> &mdash; [to be captured from the redesigned UI: set tab order across fields]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the Forms ribbon with field tools and the auto-detect preview dialog</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>A failed form write leaves the source PDF byte-identical, and field edits undo to the original value/tooltip/required state.</li>
+        <li>Auto-detected fields join one compound undo — one Ctrl+Z removes a whole detection run.</li>
+        <li>Known gap, tracked in the scorecard: a Digital Signature field still maps to a Text field; CSV/FDF import parsing is basic.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#forms">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>

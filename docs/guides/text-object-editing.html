@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Text & Object Editing — GlyphPDF Guides</title>
+  <meta name="description" content="Inline text edits with spacing and opacity, image move/resize/rotate/restack, clipboard editing and the eraser in GlyphPDF.">
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="../index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="../index.html">Home</a></li>
+          <li><a href="../features/">Features</a></li>
+          <li><a href="index.html" aria-current="page">Guides</a></li>
+          <li><a href="../download/">Download</a></li>
+          <li><a href="../security/">Security</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+  <main id="main">
+    <div class="wrap page">
+      <div class="notice" role="note"><strong>Work in progress.</strong> This guide is being prepared for the upcoming redesigned interface. The steps below are placeholders and will be completed when the new UI ships.</div>
+      <h1 class="page-title">Text & Object Editing</h1>
+      <p class="lede">The Edit tools change the document itself: inline text editing with letter spacing, line spacing and opacity controls, plus image manipulation — move, resize, rotate by any angle, replace, delete, restack (bring to front / send to back) and opacity — all written into the PDF as real content-stream changes, with undo.</p>
+      <p class="status-line">Status: parity scorecard §9.2 verified 8.5/10. Claims sourced from README.md, CHANGELOG.md and docs/audit/PARITY-SCORECARD-2026-09-30.md.</p>
+
+      <h2>How to</h2>
+      <ol class="steps" role="list">
+        <li><strong>Step 1</strong> &mdash; [to be captured from the redesigned UI: enter text-edit mode on a page and change a text run's letter spacing, line spacing and opacity]</li>
+        <li><strong>Step 2</strong> &mdash; [to be captured from the redesigned UI: select an image and move, resize, and rotate it by a custom angle]</li>
+        <li><strong>Step 3</strong> &mdash; [to be captured from the redesigned UI: use the image context menu to replace an image, delete one, and restack another to front/back]</li>
+        <li><strong>Step 4</strong> &mdash; [to be captured from the redesigned UI: set image opacity from the context menu]</li>
+        <li><strong>Step 5</strong> &mdash; [to be captured from the redesigned UI: try Cut / Copy / Delete on a selection and the eraser tool on an object (in-document paste is scoped out; Copy places a snapshot on the clipboard)]</li>
+        <li><strong>Step 6</strong> &mdash; [to be captured from the redesigned UI: undo the edits with Ctrl+Z and confirm the page returns to its prior state]</li>
+      </ol>
+
+      <figure class="shot pending">
+        <div class="shot-box" aria-hidden="true">Screenshot placeholder &mdash; the Edit toolbar with the inline text style controls (spacing, opacity) in use</div>
+        <figcaption>Screenshot pending &mdash; will be captured from the redesigned interface.</figcaption>
+      </figure>
+
+      <h2>Tips</h2>
+      <ul class="tips" role="list">
+        <li>Every image edit is an undoable command backed by a restorable page backup.</li>
+        <li>The eraser works through the real object-deletion pipeline — it removes content, not pixels.</li>
+        <li>Text edits currently undo via page snapshots; finer-grained undo is a named open item in the scorecard.</li>
+      </ul>
+
+      <p><a href="index.html">&larr; All guides</a> &middot; <a href="../features/#editing">Feature details</a> &middot; <a href="../download/">Download GlyphPDF</a></p>
+    </div>
+  </main>
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> &middot; <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
+</body>
+</html>
