@@ -812,13 +812,8 @@ void BatchMode::onOperationChanged(int index) {
 }
 
 // ── Hot folder (Phase 3) ────────────────────────────────────────────────────────
-
-// static — identity key for a file: name + last-modified time. A file is only
-// auto-ingested once unless it is replaced/modified.
-QString BatchMode::hotFileKey(const QFileInfo& fi) {
-    return fi.fileName() + QLatin1Char('|')
-         + QString::number(fi.lastModified().toMSecsSinceEpoch());
-}
+// (The file-identity key and the whole watch lifecycle now live in
+// HotFolderController — see the extraction per PROG-CONSOL §4.)
 
 void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
     auto* hotLabel = new QLabel(tr("HOT FOLDER"));
@@ -854,6 +849,19 @@ void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
     });
 }
 
+// The hot-folder watch lifecycle (watcher, debounce, processed set, PDF
+// scan) lives in HotFolderController (PROG-CONSOL §4); BatchMode keeps the
+// picker, the path line, the log, and the auto-run reaction.
+HotFolderController* BatchMode::ensureHotFolder() {
+    if (!m_hotFolder) {
+        m_hotFolder = new HotFolderController(this);
+        m_hotFolder->setIngestHandler([this](const QStringList& files) {
+            onHotFolderIngest(files);
+        });
+    }
+    return m_hotFolder;
+}
+
 void BatchMode::onToggleHotFolder() {
     const bool on = m_hotFolderCheck && m_hotFolderCheck->isChecked();
 
@@ -865,43 +873,13 @@ void BatchMode::onToggleHotFolder() {
             m_hotFolderCheck->setChecked(false);
             return;
         }
-        m_hotFolderPath = dir;
         m_hotFolderEdit->setText(dir);
-
-        // Seed the processed set with existing files so only NEW files trigger.
-        m_hotProcessed.clear();
-        const auto seed = QDir(dir).entryInfoList(QStringList() << "*.pdf" << "*.PDF",
-                                                  QDir::Files);
-        for (const QFileInfo& fi : seed)
-            m_hotProcessed.insert(hotFileKey(fi));
-
-        if (!m_hotFolderDebounce) {
-            m_hotFolderDebounce = new QTimer(this);
-            m_hotFolderDebounce->setSingleShot(true);
-            m_hotFolderDebounce->setInterval(500);
-            connect(m_hotFolderDebounce, &QTimer::timeout, this,
-                    [this]() { onHotFolderChanged(m_hotFolderPath); });
-        }
-        if (!m_hotFolderWatcher) {
-            m_hotFolderWatcher = new QFileSystemWatcher(this);
-            connect(m_hotFolderWatcher, &QFileSystemWatcher::directoryChanged, this,
-                    [this](const QString&) { if (m_hotFolderDebounce) m_hotFolderDebounce->start(); });
-        }
-        m_hotFolderWatcher->addPath(dir);
+        ensureHotFolder()->start(dir);  // seeds the processed set + watches
         appendLog(tr("Hot folder watching: %1").arg(dir), "#5b9bd5");
     } else {
         // Toggled off — tear down watcher + debounce and clear state.
-        if (m_hotFolderWatcher) {
-            delete m_hotFolderWatcher;
-            m_hotFolderWatcher = nullptr;
-        }
-        if (m_hotFolderDebounce) {
-            m_hotFolderDebounce->stop();
-            delete m_hotFolderDebounce;
-            m_hotFolderDebounce = nullptr;
-        }
-        m_hotFolderPath.clear();
-        m_hotProcessed.clear();
+        if (m_hotFolder)
+            m_hotFolder->stop();
         if (m_hotFolderEdit) m_hotFolderEdit->clear();
         appendLog(tr("Hot folder watching stopped."), "#71747a");
     }
@@ -911,36 +889,21 @@ void BatchMode::onToggleHotFolder() {
 // checkbox path stays interactive). Same seeding as onToggleHotFolder's ON
 // branch; the auto-run option is switched on so the ingest runs.
 void BatchMode::armHotFolderForTest(const QString& dir) {
-    m_hotFolderPath = dir;
-    m_hotProcessed.clear();
-    const auto seed = QDir(dir).entryInfoList(QStringList() << QStringLiteral("*.pdf")
-                                                            << QStringLiteral("*.PDF"),
-                                              QDir::Files);
-    for (const QFileInfo& fi : seed)
-        m_hotProcessed.insert(hotFileKey(fi));
+    ensureHotFolder()->arm(dir);
     if (m_hotAutoRunCheck)
         m_hotAutoRunCheck->setChecked(true);
 }
 
-void BatchMode::onHotFolderChanged(const QString& path) {
-    if (path.isEmpty()) return;
+// The controller delivered NEW hot-folder files (it owns the scan + dedup —
+// an empty pass never reaches here). Same reactions as the pre-extraction
+// onHotFolderChanged body: add to the batch, log, unattended auto-run.
+void BatchMode::onHotFolderIngest(const QStringList& files) {
+    if (files.isEmpty()) return;
 
-    const auto entries = QDir(path).entryInfoList(QStringList() << "*.pdf" << "*.PDF",
-                                                  QDir::Files, QDir::Name);
-    QStringList newFiles;
-    for (const QFileInfo& fi : entries) {
-        const QString key = hotFileKey(fi);
-        if (!m_hotProcessed.contains(key)) {
-            m_hotProcessed.insert(key);
-            newFiles << fi.absoluteFilePath();
-        }
-    }
-    if (newFiles.isEmpty()) return;
-
-    addFilePaths(newFiles);
+    addFilePaths(files);
     appendLog(tr("Hot folder: ingested %1 new file%2.")
-                  .arg(newFiles.size())
-                  .arg(newFiles.size() == 1 ? QString() : tr("s")),
+                  .arg(files.size())
+                  .arg(files.size() == 1 ? QString() : tr("s")),
               "#5b9bd5");
 
     if (m_hotAutoRunCheck && m_hotAutoRunCheck->isChecked() && !m_watcher.isRunning()) {

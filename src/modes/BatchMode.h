@@ -7,6 +7,7 @@
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult (§9.12 low-confidence seam)
                                      // Safe here: BatchMode.h already requires
                                      // Qt6::Concurrent (QFutureWatcher member).
+#include "modes/HotFolderController.h" // extracted hot-folder watch engine
 
 #include <QWidget>
 #include <QFutureWatcher>
@@ -305,8 +306,8 @@ public:
     // timer's work — list the hot folder, ingest new files, auto-run when the
     // option is on). Tests never wait on QFileSystemWatcher timing.
     void runHotFolderIngestForTest() {
-        if (!m_hotFolderPath.isEmpty())
-            onHotFolderChanged(m_hotFolderPath);
+        if (m_hotFolder && m_hotFolder->hasFolder())
+            m_hotFolder->ingestDeliver();
     }
 
     // R26-P2 U2: arms the hot folder WITHOUT the native directory picker (the
@@ -340,7 +341,9 @@ private slots:
     void onExportLog();
     void onOperationChanged(int index);
     void onToggleHotFolder();
-    void onHotFolderChanged(const QString& path);
+    // HotFolderController ingest delivery (was onHotFolderChanged(path) —
+    // the controller now owns the scan; BatchMode reacts to the new files).
+    void onHotFolderIngest(const QStringList& files);
     // R26 (batch-presets P1)
     void onPresetSelected(int index);
     void onSaveAsPresetClicked();
@@ -521,16 +524,16 @@ private:
     void startMergeWorker(const QStringList& files, const QString& outPath);
 
     // Hot folder (Phase 3) — watch a directory and auto-ingest new PDFs.
+    // The watch lifecycle (QFileSystemWatcher, 500 ms debounce, processed
+    // set, PDF scan) lives in HotFolderController (PROG-CONSOL §4); BatchMode
+    // keeps the UI and reacts to the controller's ingest handler.
     void buildHotFolderSection(QVBoxLayout* btnLay);
-    static QString hotFileKey(const QFileInfo& fi);   // filename + mtime identity
+    HotFolderController* ensureHotFolder();  // lazy create + ingest wiring
 
     QCheckBox*          m_hotFolderCheck   = nullptr;
     QLineEdit*          m_hotFolderEdit    = nullptr;
     QCheckBox*          m_hotAutoRunCheck  = nullptr;
-    QFileSystemWatcher* m_hotFolderWatcher = nullptr;
-    QString             m_hotFolderPath;
-    QTimer*             m_hotFolderDebounce = nullptr;
-    QSet<QString>       m_hotProcessed;     // already-seen files (filename+mtime)
+    HotFolderController* m_hotFolder       = nullptr;  // owned (QObject child)
 
     // §9.12 P1: merge file-boundary hook (test seam; see the setter above).
     std::function<void(int)> m_mergeBoundaryHook;

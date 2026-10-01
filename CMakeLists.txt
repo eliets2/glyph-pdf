@@ -1108,6 +1108,7 @@ add_library(pdfws_ui STATIC
     src/modes/CompareMode.h                 src/modes/CompareMode.cpp
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp
     src/modes/BatchMode.h                   src/modes/BatchMode.cpp
+    src/modes/HotFolderController.h         src/modes/HotFolderController.cpp
     # R26-P2 U7 (plan §4.9): the preset manager + multi-step editor dialogs.
     src/ui/PresetManagerDialog.h            src/ui/PresetManagerDialog.cpp
     src/ui/PresetEditorDialog.h             src/ui/PresetEditorDialog.cpp

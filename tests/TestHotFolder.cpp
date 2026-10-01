@@ -32,6 +32,7 @@
 #include <QTextEdit>
 
 #include "modes/BatchMode.h"
+#include "modes/HotFolderController.h"
 
 using namespace gp;
 
@@ -273,6 +274,123 @@ private slots:
         QDir().mkpath(hotDir());
         bm.armHotFolderForTest(hotDir());
         QVERIFY(autoRun->isChecked());
+    }
+
+    // ── HotFolderController pins (the extracted watch lifecycle) ───────────────
+    //
+    // The fs-watch trigger + debounce were NOT reachable in BatchMode (the
+    // only activation path blocks on QFileDialog). The controller exposes the
+    // lifecycle without a dialog; these pins cover the same debounce/watch
+    // wiring BatchMode has always used, now deterministically.
+
+    // Deterministic wiring pin: the controller watches the folder and a
+    // directory-changed delivery arms the 500 ms debounce — nothing ingests
+    // synchronously, exactly one debounced pass runs after the window.
+    void controllerWatchWiringAndDebounce() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("drop.pdf")).isEmpty());
+        QVERIFY(c.start(hotDir()));
+        QCOMPARE(c.watchedPath(), hotDir());
+        QVERIFY(c.isWatching());
+
+        // Seed at start: the drop that existed BEFORE start is not re-ingested.
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(100);
+        QVERIFY2(ingested.isEmpty(),
+                 "directory-changed ingested synchronously — debounce lost");
+        QTest::qWait(700);  // one full debounce window + margin
+        QVERIFY2(ingested.isEmpty(),
+                 "seeded file re-ingested — seeding contract broken");
+        QCOMPARE(c.debouncePassesForTest(), 1);  // exactly one debounced pass
+
+        // A NEW drop ingests exactly once through the same wiring.
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("drop2.pdf")).isEmpty());
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(100);
+        QVERIFY2(ingested.isEmpty(), "debounce window shorter than 500 ms");
+        QTest::qWait(700);
+        QCOMPARE(ingested.size(), 1);
+        QVERIFY(ingested.first().contains(QStringLiteral("drop2.pdf")));
+
+        c.stop();
+        QVERIFY(!c.isWatching());
+    }
+
+    // Rapid re-triggers coalesce into ONE debounce pass (restart semantics).
+    void controllerDebounceCoalesces() {
+        HotFolderController c;
+        int deliveries = 0;
+        QStringList lastDelivery;
+        c.setIngestHandler([&deliveries, &lastDelivery](const QStringList& files) {
+            ++deliveries;
+            lastDelivery = files;
+        });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("burst1.pdf")).isEmpty());
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(150);  // inside the window — a real watcher would re-fire
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("burst2.pdf")).isEmpty());
+        c.triggerDirectoryChangedForTest();  // restarts the window
+        QTest::qWait(800);                   // ≥ one full window past restart
+        QCOMPARE(deliveries, 1);             // ONE pass carried BOTH drops
+        QCOMPARE(lastDelivery.size(), 2);
+        QCOMPARE(c.debouncePassesForTest(), 1);
+        c.stop();
+    }
+
+    // OS-level fs-watch proof: a drop into the watched folder is delivered
+    // through the real QFileSystemWatcher + debounce and ingested. (Bounded
+    // wait on real OS fs-events — generous ceiling, serial run.)
+    void controllerFlatDropEndToEnd() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("live.pdf")).isEmpty());
+
+        const int ceilingMs = 10000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(),
+                 "flat drop not ingested via OS fs-events within ceiling");
+        QCOMPARE(ingested.size(), 1);
+        QVERIFY(ingested.first().contains(QStringLiteral("live.pdf")));
+        c.stop();
+    }
+
+    // stop() tears down watch + debounce: later triggers do nothing.
+    void controllerStopClearsState() {
+        HotFolderController c;
+        int passes = 0;
+        c.setIngestHandler([&passes](const QStringList&) { ++passes; });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));
+        QVERIFY(c.isWatching());
+        QVERIFY(!c.watchedPath().isEmpty());
+        c.stop();
+        QVERIFY(!c.isWatching());
+        QVERIFY(c.watchedPath().isEmpty());
+
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(700);
+        QCOMPARE(passes, 0);
+        QCOMPARE(c.debouncePassesForTest(), 0);
     }
 };
 
