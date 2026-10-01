@@ -1,0 +1,21 @@
+********* Start testing of TestThumbnailOffGui *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestThumbnailOffGui::initTestCase()
+QWARN  : TestThumbnailOffGui::sidebarFirstPaintIsPlaceholderEvenWithAllWorkersParked() This plugin does not support propagateSizeHints()
+PASS   : TestThumbnailOffGui::sidebarFirstPaintIsPlaceholderEvenWithAllWorkersParked()
+QWARN  : TestThumbnailOffGui::thumbnailsArriveAsynchronouslyAfterRelease() This plugin does not support propagateSizeHints()
+PASS   : TestThumbnailOffGui::thumbnailsArriveAsynchronouslyAfterRelease()
+PASS   : TestThumbnailOffGui::renderPageAsyncRunsOffThreadAndDelivers()
+PASS   : TestThumbnailOffGui::renderPageAsyncCacheHitServedSynchronously()
+PASS   : TestThumbnailOffGui::clearCancelsInFlightRenderJoinsAndDeliversNothing()
+QWARN  : TestThumbnailOffGui::renderPageUncachedMatchesRenderPageAndKeepsGuards() PdfViewerWidget::renderPageUncached: refusing non-finite or degenerate render request (page 0 scale nan pageSize QSizeF(612, 792) )
+QWARN  : TestThumbnailOffGui::renderPageUncachedMatchesRenderPageAndKeepsGuards() PdfViewerWidget::renderPageUncached: refusing non-finite or degenerate render request (page 0 scale 0 pageSize QSizeF(612, 792) )
+QWARN  : TestThumbnailOffGui::renderPageUncachedMatchesRenderPageAndKeepsGuards() PdfViewerWidget::renderPageUncached: request for page 0 at scale 1e+09 exceeds 64 MP — rendering bounded QSize(7032, 9100) instead
+PASS   : TestThumbnailOffGui::renderPageUncachedMatchesRenderPageAndKeepsGuards()
+QWARN  : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe() This plugin does not support propagateSizeHints()
+QWARN  : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe() This plugin does not support propagateSizeHints()
+QWARN  : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe() This plugin does not support propagateSizeHints()
+PASS   : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe()
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 9362ms
+********* Finished testing of TestThumbnailOffGui *********

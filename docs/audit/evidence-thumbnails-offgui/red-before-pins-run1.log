@@ -1,0 +1,15 @@
+********* Start testing of TestThumbnailOffGui *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestThumbnailOffGui::initTestCase()
+QWARN  : TestThumbnailOffGui::sidebarFirstPaintIsPlaceholderEvenWithAllWorkersParked() This plugin does not support propagateSizeHints()
+FAIL!  : TestThumbnailOffGui::sidebarFirstPaintIsPlaceholderEvenWithAllWorkersParked() 'placeholderHeld' returned FALSE. (thumbnail pixmap rendered synchronously on the GUI thread during first paint)
+D:/pdf/pdf-w2b-thumbnails/tests/TestThumbnailOffGui.cpp(170) : failure location
+QWARN  : TestThumbnailOffGui::thumbnailsArriveAsynchronouslyAfterRelease() This plugin does not support propagateSizeHints()
+PASS   : TestThumbnailOffGui::thumbnailsArriveAsynchronouslyAfterRelease()
+QWARN  : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe() This plugin does not support propagateSizeHints()
+QWARN  : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe() This plugin does not support propagateSizeHints()
+QWARN  : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe() This plugin does not support propagateSizeHints()
+PASS   : TestThumbnailOffGui::sidebarDestructionWithRendersInFlightIsSafe()
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 4 passed, 1 failed, 0 skipped, 0 blacklisted, 520ms
+********* Finished testing of TestThumbnailOffGui *********
