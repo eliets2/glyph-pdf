@@ -63,6 +63,22 @@ AD-02 CONFIRMED (NUL-whitespace evasion is real; second independent /Info-scope
 hole found + fixed); M-1 password off argv via stdin (verified vs 7-Zip 26.02);
 PGR-52 bounded PCRE2 matcher; V-01 third race window found live and closed.
 
+## Feature-fleet wave 2 — 4 of 6 lanes FOLDED (2026-10-01, main @ aee57f47)
+
+Lineage: 02d1a898 -> 38102a23 (real /FT /Sig form field + M-3 OCSP consent gate,
+fail-closed) -> 181247b2 (MCID-level reading order + named depth cap w/ override)
+-> 805e84c4 (FOLD-2 B1-B15 port: triage table + 5 ported units w/ provenance,
+7 covered-already, 6 deferred/obsolete documented; TestOcrVerifyPort) ->
+65bd4a4f (selective sanitize: ONE classify/remove traversal + summary dialog)
+-> aee57f47 (Pages site: 20 pages, guides/ skeletons w/ placeholder steps +
+pending-screenshot blocks for the redesigned UI, all claims repo-sourced).
+Per-lane gates green; wave-closing full serial PENDING (last full: 191/191 at
+805e84c4 by the port lane; suite count now 191 targets).
+IN FLIGHT: feat/quadpoints-markup (scorecard #1), feat/ui-polish (glitch/QSS
+sweep + dead AnnotationToolBar delete). Fold per the standard protocol.
+NOTE: GitHub Pages serves main:/docs -> the guides site is LIVE at
+https://eliets2.github.io/glyph-pdf/ and rebuilds on every main push.
+
 ## OPEN ITEMS (owner)
 
 1. **djot depth budget — CLOSED `505295f4`** (was IN FLIGHT) — the CX-13 gate's first catch: genuine
