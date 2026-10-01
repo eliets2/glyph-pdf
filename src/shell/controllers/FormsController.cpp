@@ -5,6 +5,7 @@
 #include "core/interfaces/ISignatureManager.h"
 
 #include "core/AppContext.h"
+#include "core/ErrorInfo.h"
 #include "core/FormStaleFieldTracker.h"
 #include "core/interfaces/IPdfEditorEngine.h"   // releaseResidentFile (V01 swap)
 #include "GpMainWindow.h"
@@ -167,7 +168,10 @@ void FormsController::onImportDataRequested() {
     const QString outputPath = originalPath + ".tmp";
     QStringList unsupported;
     QList<FormJsFailure> jsFailures;
-    if (_ctx->forms->importFormData(originalPath, dataPath, outputPath, &unsupported, &jsFailures)) {
+    // Row 8: the parser's typed refusal says WHY (truncated FDF, non-UTF-8,
+    // over-cap, malformed record) — surfaced below instead of a generic text.
+    ErrorInfo importErr;
+    if (_ctx->forms->importFormData(originalPath, dataPath, outputPath, &unsupported, &jsFailures, &importErr)) {
         // Commit the imported bytes onto the real path through the shared
         // checked-commit boundary: the original is never destroyed unless the
         // replacement actually succeeded, and the viewer's held handle is
@@ -234,7 +238,17 @@ void FormsController::onImportDataRequested() {
         }
     } else {
         QFile::remove(outputPath);   // never leave a half-written temp behind
-        QMessageBox::warning(_mainWindow, tr("Import Failed"), tr("Could not import form data."));
+        // Row 8: fail-closed refusals carry a typed reason (truncated FDF,
+        // non-UTF-8 bytes, over-cap input, malformed record). Show it — the
+        // old generic "Could not import form data." hid the cause. Plain
+        // text: the details quote file-derived content (PGR-35 class).
+        const QString why = importErr.userMessage.isEmpty()
+            ? tr("Could not import form data.")
+            : importErr.userMessage;
+        QMessageBox box(QMessageBox::Warning, tr("Import Failed"), why,
+                        QMessageBox::Ok, _mainWindow);
+        box.setTextFormat(Qt::PlainText);
+        box.exec();
     }
 }
 

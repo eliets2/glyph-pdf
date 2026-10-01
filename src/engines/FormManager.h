@@ -84,7 +84,7 @@ public:
     bool setTabOrder(const QString &pdfFilePath, const QStringList &orderedNames, const QString &outputPath) override;
 
     bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) override;
-    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) override;
+    bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr, ErrorInfo *err = nullptr) override;
     bool flattenForm(const QString &pdfFilePath, const QString &outputPath) override;
 
 private:

@@ -3,6 +3,7 @@
 #include "engines/SafeSave.h"
 #include "engines/formjs/FormJsRunner.h"
 #include "engines/podofo/PdfStringEscape.h"
+#include "core/ErrorInfo.h"
 #include "core/ItemSpaceTransform.h"
 #include "core/PageSpaceTransform.h"
 #include <memory>
@@ -11,12 +12,13 @@
 #include <QDebug>
 #include <podofo/podofo.h>
 #include <QString>
+#include <QByteArray>
 #include <QDir>
 #include <QFile>
 #include <QSaveFile>
 #include <QTemporaryFile>
 #include <QTextStream>
-#include <QRegularExpression>
+#include <QStringDecoder>
 
 class FormManager::Private {
 public:
@@ -1489,46 +1491,511 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
     }
 }
 
-bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields, QList<FormJsFailure> *jsFailures)
+// ── PARITY-SCORECARD-2026-09-30 §4 row 8 (July §3 row 38, P1): bounded, ────
+// fail-closed FDF/CSV import parsers ─────────────────────────────────────────
+// importFormData is attacker-reachable: an FDF/CSV file is untrusted input
+// whose parse failures used to be SILENT — the `(.*?)` regex truncated values
+// at the first unescaped ')', split("\",\"") corrupted cells holding embedded
+// delimiters/newlines, and malformed records were dropped while the rest of
+// the file still imported (a half-import that read as success). The parsers
+// below replace both regex and split:
+//   * resource caps — 16 MiB whole-file, 10 000 fields, 1 MiB per string,
+//     nesting depth 64 — hostile sizes refuse instead of allocating;
+//   * strict UTF-8 decode — non-UTF-8 bytes refuse instead of silently
+//     becoming U+FFFD mojibake;
+//   * full PDF literal-string semantics (balanced parens, \( \) \\ \n \r \t
+//     \b \f, octal) decoded through the canonical pdfUnescapeLiteralString —
+//     the exact inverse of exportFormData's escaper (the A-04 export fix's
+//     counterpart on the import side), so export→import is lossless;
+//   * every malformed construct refuses the WHOLE import with a typed
+//     ErrorInfo — never a half-import, never an output file.
+namespace {
+
+constexpr qint64 kImportMaxFileBytes   = 16 * 1024 * 1024;  // 16 MiB
+constexpr int    kImportMaxFields      = 10000;
+constexpr int    kImportMaxStringChars = 1024 * 1024;       // per name/value
+constexpr int    kImportMaxNesting     = 64;
+
+// Populates the typed refusal (when `err` is given), logs it, and returns
+// false so callers can `return importErr(...)`.
+bool importErr(ErrorInfo* err, const QString& msg, const QString& tech) {
+    if (err) *err = ErrorInfo::error(msg, tech);
+    qWarning() << "Form data import refused:" << msg << "|" << tech;
+    return false;
+}
+
+inline bool isPdfWs(QChar c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\0';
+}
+inline bool isPdfDelim(QChar c) {
+    return c == '(' || c == ')' || c == '<' || c == '>' || c == '[' || c == ']'
+        || c == '/' || c == '%';
+}
+
+// Strict UTF-8: invalid sequences refuse (the old QTextStream decode silently
+// substituted U+FFFD, importing mojibake).
+bool decodeUtf8Strict(const QByteArray& bytes, const QString& what, QString& out, ErrorInfo* err) {
+    QStringDecoder dec(QStringConverter::Utf8);
+    out = dec.decode(bytes);
+    if (dec.hasError()) {
+        return importErr(err,
+            QObject::tr("The form data file is not valid UTF-8 text and was not imported."),
+            what + QStringLiteral(": invalid UTF-8 byte sequence"));
+    }
+    return true;
+}
+
+// Bounded string-aware FDF scanner. Every branch advances `i`, so a scan is
+// O(n) in the (capped) input — no regex backtracking on hostile content.
+struct FdfCursor {
+    const QString& s;
+    int i = 0;
+    const int n;
+    explicit FdfCursor(const QString& str) : s(str), i(0), n(str.size()) {}
+    bool atEnd() const { return i >= n; }
+    QChar peek() const { return s.at(i); }
+    void skipWs() { while (i < n && isPdfWs(s.at(i))) ++i; }
+    void skipToken() { while (i < n && !isPdfWs(s.at(i)) && !isPdfDelim(s.at(i))) ++i; }
+};
+
+// Collects the RAW (still-escaped) body of a literal (...) string with full
+// PDF nesting/escape semantics. Decoding goes through
+// pdfUnescapeLiteralString so import shares one lossless contract with
+// exportFormData's escaper.
+bool parseLiteralRaw(FdfCursor& c, QString& raw, QString& why) {
+    ++c.i;  // consume '('
+    int depth = 1;
+    raw.clear();
+    while (true) {
+        if (c.atEnd()) {
+            why = QObject::tr("literal string still open at end of file (truncated input)");
+            return false;
+        }
+        const QChar ch = c.s.at(c.i);
+        if (ch == '\\') {
+            if (c.i + 1 >= c.n) {
+                why = QObject::tr("escape sequence cut off at end of file (truncated input)");
+                return false;
+            }
+            raw += ch;
+            raw += c.s.at(c.i + 1);
+            c.i += 2;
+            continue;
+        }
+        ++c.i;
+        if (ch == '(') {
+            ++depth;
+            if (depth > kImportMaxNesting) {
+                why = QObject::tr("string nesting exceeds the import cap (%1)").arg(kImportMaxNesting);
+                return false;
+            }
+        } else if (ch == ')') {
+            --depth;
+            if (depth == 0) return true;  // closing paren is not part of the body
+        }
+        raw += ch;
+        if (raw.size() > kImportMaxStringChars) {
+            why = QObject::tr("literal string exceeds the 1 MiB per-string import cap");
+            return false;
+        }
+    }
+}
+
+// Collects hex digits of a <...> string (whitespace tolerated inside).
+bool parseHexBody(FdfCursor& c, QByteArray& hex, QString& why) {
+    ++c.i;  // consume '<'
+    hex.clear();
+    while (true) {
+        if (c.atEnd()) {
+            why = QObject::tr("hex string still open at end of file (truncated input)");
+            return false;
+        }
+        const QChar ch = c.s.at(c.i++);
+        if (ch == '>') return true;
+        if (isPdfWs(ch)) continue;
+        const char lc = ch.toLatin1();
+        if ((lc >= '0' && lc <= '9') || (lc >= 'a' && lc <= 'f') || (lc >= 'A' && lc <= 'F')) {
+            hex += lc;
+        } else {
+            why = QObject::tr("invalid character in hex string");
+            return false;
+        }
+    }
+}
+
+// Skips a balanced <<dict>> or [array] construct, string-aware and
+// depth-capped, so delimiter characters inside strings cannot desync it.
+bool skipCompound(FdfCursor& c, QString& why) {
+    const bool dict = (c.peek() == '<');
+    const QString what = dict ? QObject::tr("dictionary") : QObject::tr("array");
+    if (dict) c.i += 2;  // '<<'
+    else ++c.i;          // '['
+    int depth = 1;
+    QByteArray hexScratch;
+    while (true) {
+        c.skipWs();
+        if (c.atEnd()) {
+            why = QObject::tr("%1 still open at end of file (truncated input)").arg(what);
+            return false;
+        }
+        const QChar ch = c.peek();
+        if (ch == '(') {
+            QString raw;
+            if (!parseLiteralRaw(c, raw, why)) return false;
+            continue;
+        }
+        if (ch == '<') {
+            if (c.i + 1 < c.n && c.s.at(c.i + 1) == '<') {
+                ++depth;
+                if (depth > kImportMaxNesting) {
+                    why = QObject::tr("structure nesting exceeds the import cap (%1)").arg(kImportMaxNesting);
+                    return false;
+                }
+                c.i += 2;
+            } else {
+                if (!parseHexBody(c, hexScratch, why)) return false;
+            }
+            continue;
+        }
+        if (ch == '>') {
+            if (c.i + 1 < c.n && c.s.at(c.i + 1) == '>') {
+                --depth;
+                c.i += 2;
+                if (depth == 0) return true;
+                continue;
+            }
+            why = QObject::tr("malformed '>' token inside %1").arg(what);
+            return false;
+        }
+        if (ch == '[') {
+            ++depth;
+            if (depth > kImportMaxNesting) {
+                why = QObject::tr("structure nesting exceeds the import cap (%1)").arg(kImportMaxNesting);
+                return false;
+            }
+            ++c.i;
+            continue;
+        }
+        if (ch == ']') {
+            --depth;
+            ++c.i;
+            if (depth == 0) return true;
+            continue;
+        }
+        ++c.i;  // keyword/number byte — progress guaranteed
+    }
+}
+
+// pdfUnescapeLiteralString + strict UTF-8: the canonical inverse of the
+// export-side escaper, then a refuse-don't-mojibake decode.
+bool decodePdfString(const QString& rawEscaped, QString& out, ErrorInfo* err) {
+    const QByteArray utf8 = rawEscaped.toUtf8();
+    const std::string bytes = pdfUnescapeLiteralString(
+        std::string(utf8.constData(), static_cast<size_t>(utf8.size())));
+    return decodeUtf8Strict(QByteArray(bytes.data(), static_cast<int>(bytes.size())),
+                            QStringLiteral("FDF string value"), out, err);
+}
+
+bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
+    const QString kRefused =
+        QObject::tr("The FDF file is malformed and was not imported.");
+    FdfCursor c(content);
+
+    // String-aware scan for the /Fields array opener. A substring search for
+    // "/Fields" would match inside a hostile string token; token scanning
+    // keeps the cursor honest.
+    bool inFields = false;
+    while (!c.atEnd() && !inFields) {
+        c.skipWs();
+        if (c.atEnd()) break;
+        const QChar ch = c.peek();
+        if (ch == '(') {
+            QString raw, why;
+            if (!parseLiteralRaw(c, raw, why)) return importErr(err, kRefused, why);
+        } else if (ch == '<') {
+            if (c.i + 1 < c.n && c.s.at(c.i + 1) == '<') c.i += 2;
+            else {
+                QString why;
+                QByteArray hex;
+                if (!parseHexBody(c, hex, why)) return importErr(err, kRefused, why);
+            }
+        } else if (ch == '/') {
+            const int start = c.i;
+            ++c.i;  // '/' is itself a delimiter — consume it or skipToken won't move
+            c.skipToken();
+            if (c.s.mid(start, c.i - start) == QLatin1String("/Fields")) {
+                c.skipWs();
+                if (c.atEnd() || c.peek() != '[') {
+                    return importErr(err, kRefused,
+                        QObject::tr("/Fields key is not followed by a field array"));
+                }
+                ++c.i;
+                inFields = true;
+            }
+        } else {
+            ++c.i;  // keyword, number, or single delimiter
+        }
+    }
+    if (!inFields) {
+        return importErr(err,
+            QObject::tr("The FDF file contains no /Fields array and was not imported."),
+            QObject::tr("no /Fields [...] structure found after the %FDF header"));
+    }
+
+    int fields = 0;
+    while (true) {
+        c.skipWs();
+        if (c.atEnd())
+            return importErr(err, kRefused, QObject::tr("/Fields array not closed (truncated input)"));
+        if (c.peek() == ']') { ++c.i; break; }
+        if (c.peek() != '<' || c.i + 1 >= c.n || c.s.at(c.i + 1) != '<') {
+            return importErr(err, kRefused,
+                QObject::tr("unexpected token in /Fields array at offset %1").arg(c.i));
+        }
+        c.i += 2;  // consume '<<'
+        QString name, value;
+        bool haveName = false, haveValue = false;
+        while (true) {
+            c.skipWs();
+            if (c.atEnd())
+                return importErr(err, kRefused, QObject::tr("field dictionary not closed (truncated input)"));
+            if (c.peek() == '>') {
+                if (c.i + 1 < c.n && c.s.at(c.i + 1) == '>') { c.i += 2; break; }
+                return importErr(err, kRefused, QObject::tr("malformed '>' in field dictionary"));
+            }
+            if (c.peek() != '/') {
+                return importErr(err, kRefused,
+                    QObject::tr("expected a /Key at offset %1 in field dictionary").arg(c.i));
+            }
+            const int ks = c.i;
+            ++c.i;  // consume '/' — it is itself a delimiter
+            c.skipToken();
+            const QString key = c.s.mid(ks, c.i - ks);
+            c.skipWs();
+            if (c.atEnd())
+                return importErr(err, kRefused, QObject::tr("input ends after key %1 (truncated input)").arg(key));
+            const QChar v = c.peek();
+            QString why;
+            if (v == '(') {
+                QString raw;
+                if (!parseLiteralRaw(c, raw, why)) return importErr(err, kRefused, why);
+                QString decoded;
+                if (!decodePdfString(raw, decoded, err)) return false;
+                if (key == QLatin1String("/T"))      { name = decoded;  haveName = true; }
+                else if (key == QLatin1String("/V")) { value = decoded; haveValue = true; }
+            } else if (v == '<' && !(c.i + 1 < c.n && c.s.at(c.i + 1) == '<')) {
+                QByteArray hex;
+                if (!parseHexBody(c, hex, why)) return importErr(err, kRefused, why);
+                if (hex.size() % 2 != 0)
+                    return importErr(err, kRefused, QObject::tr("hex string has an odd digit count"));
+                QString decoded;
+                if (!decodeUtf8Strict(QByteArray::fromHex(hex), QStringLiteral("FDF hex string value"), decoded, err))
+                    return false;
+                if (key == QLatin1String("/T"))      { name = decoded;  haveName = true; }
+                else if (key == QLatin1String("/V")) { value = decoded; haveValue = true; }
+            } else if (v == '<' || v == '[') {
+                // nested dict/array value (e.g. /AP appearance streams) — skip as a unit
+                if (!skipCompound(c, why)) return importErr(err, kRefused, why);
+            } else {
+                // name, number, or keyword value (e.g. /V /Yes button states, null)
+                const int vs = c.i;
+                if (v == '/') ++c.i;  // '/' is itself a delimiter
+                c.skipToken();
+                if (c.i == vs)
+                    return importErr(err, kRefused,
+                        QObject::tr("unexpected character after key %1 at offset %2").arg(key).arg(c.i));
+                if (key == QLatin1String("/V") && !haveValue) {
+                    value = c.s.mid(vs + 1, c.i - vs - 1);  // name value: text after '/'
+                    haveValue = true;
+                }
+            }
+        }
+        if (haveName && !name.isEmpty()) {
+            if (++fields > kImportMaxFields)
+                return importErr(err,
+                    QObject::tr("The FDF file exceeds the import field-count cap (%1) and was not imported.").arg(kImportMaxFields),
+                    QObject::tr("field %1 over cap %2").arg(fields).arg(kImportMaxFields));
+            out.insert(name, value);
+        }
+        // Dicts without /T (the root /FDF dict, /Kids branch nodes) are skipped.
+    }
+    if (out.isEmpty())
+        return importErr(err,
+            QObject::tr("The form data file contains no form fields and nothing was imported."),
+            QObject::tr("/Fields array parsed cleanly but held no named field values"));
+    return true;
+}
+
+// RFC-4180 state machine: quoted cells may hold commas, doubled quotes and
+// raw newlines. Any quote violation refuses the WHOLE file — the old
+// split("\",\"") scanner half-imported around malformed records.
+bool parseCsvFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
+    QList<QStringList> records;
+    QStringList current;
+    QString field;
+    enum class St { FieldStart, Unquoted, InQuotes, AfterQuote };
+    St st = St::FieldStart;
+
+    auto endField = [&current, &field]() {
+        current << field;
+        field.clear();
+    };
+    auto endRecord = [&]() {
+        endField();
+        if (!(current.size() == 1 && current.at(0).isEmpty()))  // blank line — not a record
+            records << current;
+        current.clear();
+    };
+
+    const int n = content.size();
+    int i = 0;
+    while (i < n) {
+        const QChar ch = content.at(i);
+        switch (st) {
+        case St::FieldStart:
+            if (ch == '"')            { st = St::InQuotes; ++i; }
+            else if (ch == ',')       { endField(); ++i; }
+            else if (ch == '\n')      { endRecord(); ++i; }
+            else if (ch == '\r')      { if (i + 1 < n && content.at(i + 1) == '\n') ++i; endRecord(); ++i; }
+            else                      { field += ch; st = St::Unquoted; ++i; }
+            break;
+        case St::Unquoted:
+            if (ch == ',')            { endField(); st = St::FieldStart; ++i; }
+            else if (ch == '\n')      { endRecord(); st = St::FieldStart; ++i; }
+            else if (ch == '\r')      { if (i + 1 < n && content.at(i + 1) == '\n') ++i; endRecord(); st = St::FieldStart; ++i; }
+            else if (ch == '"')
+                return importErr(err,
+                    QObject::tr("The CSV file is malformed (unexpected quote inside a cell) and was not imported."),
+                    QObject::tr("quote at offset %1 inside an unquoted cell").arg(i));
+            else {
+                field += ch;
+                ++i;
+            }
+            break;
+        case St::InQuotes:
+            if (ch == '"') {
+                if (i + 1 < n && content.at(i + 1) == '"') { field += '"'; i += 2; }
+                else { st = St::AfterQuote; ++i; }
+            } else {
+                field += ch;
+                ++i;
+            }
+            break;
+        case St::AfterQuote:
+            if (ch == ',')            { endField(); st = St::FieldStart; ++i; }
+            else if (ch == '\n')      { endRecord(); st = St::FieldStart; ++i; }
+            else if (ch == '\r')      { if (i + 1 < n && content.at(i + 1) == '\n') ++i; endRecord(); st = St::FieldStart; ++i; }
+            else
+                return importErr(err,
+                    QObject::tr("The CSV file is malformed (unexpected character after a closing quote) and was not imported."),
+                    QObject::tr("character %1 at offset %2 directly after closing quote").arg(ch).arg(i));
+            break;
+        }
+        if (field.size() > kImportMaxStringChars)
+            return importErr(err,
+                QObject::tr("The form data file exceeds the 1 MiB per-cell import cap and was not imported."),
+                QObject::tr("cell value at offset %1 over cap").arg(i));
+        if (records.size() > kImportMaxFields)
+            return importErr(err,
+                QObject::tr("The form data file exceeds the import row-count cap (%1) and was not imported.").arg(kImportMaxFields),
+                QObject::tr("more than %1 data rows").arg(kImportMaxFields));
+    }
+    if (st == St::InQuotes)
+        return importErr(err,
+            QObject::tr("The CSV file is malformed (unterminated quoted cell) and was not imported."),
+            QObject::tr("quoted cell open at end of file (truncated input)"));
+    // Flush a final record written without a trailing newline (and a trailing
+    // comma's empty last field).
+    if (st != St::FieldStart || !field.isEmpty() || !current.isEmpty())
+        endRecord();
+
+    if (records.isEmpty())
+        return importErr(err,
+            QObject::tr("The form data file contains no form data and nothing was imported."),
+            QStringLiteral("no records parsed (empty or whitespace-only input)"));
+
+    // Header honesty: this is the file format exportFormData writes; a file
+    // without the header is not form data and must not import as garbage
+    // field names.
+    const QStringList& header = records.first();
+    if (header.size() != 2
+        || header.at(0).compare(QLatin1String("FieldName"), Qt::CaseInsensitive) != 0
+        || header.at(1).compare(QLatin1String("FieldValue"), Qt::CaseInsensitive) != 0) {
+        return importErr(err,
+            QObject::tr("The CSV file is missing the required \"FieldName,FieldValue\" header row and was not imported."),
+            QObject::tr("first row: \"%1\",\"%2\"")
+                .arg(header.value(0).left(80), header.value(1).left(80)));
+    }
+
+    for (int r = 1; r < records.size(); ++r) {
+        const QStringList& rec = records.at(r);
+        const int row = r + 1;
+        if (rec.size() < 2)
+            return importErr(err,
+                QObject::tr("The CSV file is malformed at row %1 and was not imported (no partial import was performed).").arg(row),
+                QObject::tr("row %1: expected 2 columns, found %2").arg(row).arg(rec.size()));
+        for (int col = 2; col < rec.size(); ++col) {
+            if (!rec.at(col).isEmpty())
+                return importErr(err,
+                    QObject::tr("The CSV file is malformed at row %1 and was not imported (no partial import was performed).").arg(row),
+                    QObject::tr("row %1: unexpected non-empty column %2").arg(row).arg(col + 1));
+        }
+        const QString& name = rec.at(0);
+        if (name.isEmpty())
+            return importErr(err,
+                QObject::tr("The CSV file is malformed at row %1 and was not imported (no partial import was performed).").arg(row),
+                QObject::tr("row %1: empty field name").arg(row));
+        if (out.size() >= kImportMaxFields)
+            return importErr(err,
+                QObject::tr("The form data file exceeds the import field-count cap (%1) and was not imported.").arg(kImportMaxFields),
+                QObject::tr("row %1 pushes past the %2-field cap").arg(row).arg(kImportMaxFields));
+        out.insert(name, rec.at(1));
+    }
+    if (out.isEmpty())
+        return importErr(err,
+            QObject::tr("The form data file contains no form data and nothing was imported."),
+            QObject::tr("header present but no data rows followed it"));
+    return true;
+}
+
+}  // namespace
+
+bool FormManager::importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields, QList<FormJsFailure> *jsFailures, ErrorInfo *err)
 {
     qDebug() << "Importing form data from" << dataFilePath << "into" << pdfFilePath << "saving to" << outputPath;
 
+    // Row 8: bounded, fail-closed input handling. Nothing below writes to
+    // outputPath until the ENTIRE data file has parsed cleanly.
     QFile inFile(dataFilePath);
-    if (!inFile.open(QIODevice::ReadOnly | QIODevice::Text)) return false;
-    QTextStream in(&inFile);
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-    in.setCodec("UTF-8");
-#endif
-    QString content = in.readAll();
+    if (!inFile.open(QIODevice::ReadOnly)) {
+        return importErr(err,
+            QObject::tr("The form data file could not be opened and nothing was imported."),
+            dataFilePath + QStringLiteral(": ") + inFile.errorString());
+    }
+    const qint64 fsize = inFile.size();
+    if (fsize > kImportMaxFileBytes) {
+        return importErr(err,
+            QObject::tr("The form data file is too large to import (limit is 16 MB) and was not imported."),
+            QStringLiteral("%1: %2 bytes > %3 byte cap").arg(dataFilePath).arg(fsize).arg(kImportMaxFileBytes));
+    }
+    // Read one byte past the cap so a file grown between size() and read()
+    // still trips the cap instead of allocating unbounded.
+    const QByteArray raw = inFile.read(kImportMaxFileBytes + 1);
+    if (raw.size() > int(kImportMaxFileBytes)) {
+        return importErr(err,
+            QObject::tr("The form data file is too large to import (limit is 16 MB) and was not imported."),
+            QStringLiteral("%1: file grew past the %2 byte read cap").arg(dataFilePath).arg(kImportMaxFileBytes));
+    }
+
+    QString content;
+    if (!decodeUtf8Strict(raw, dataFilePath, content, err)) return false;
+    if (content.startsWith(QChar(0xFEFF))) content.remove(0, 1);  // UTF-8 BOM
 
     QVariantMap data;
-    if (content.startsWith("%FDF")) {
-        QRegularExpression re("<<\\s*/T\\s*\\((.*?)\\)\\s*/V\\s*\\((.*?)\\)\\s*>>");
-        QRegularExpressionMatchIterator i = re.globalMatch(content);
-        while (i.hasNext()) {
-            QRegularExpressionMatch match = i.next();
-            QString k = match.captured(1);
-            QString v = match.captured(2);
-            k.replace("\\)", ")").replace("\\(", "(");
-            v.replace("\\)", ")").replace("\\(", "(");
-            data.insert(k, v);
-        }
+    if (content.startsWith(QStringLiteral("%FDF"))) {
+        if (!parseFdfFields(content, data, err)) return false;
     } else {
-        // Simple CSV parser
-        QStringList lines = content.split('\n', Qt::SkipEmptyParts);
-        for (int i = 1; i < lines.size(); ++i) {
-            QString line = lines[i].trimmed();
-            if (line.isEmpty()) continue;
-            QStringList parts = line.split("\",\"");
-            if (parts.size() >= 2) {
-                QString k = parts[0];
-                if (k.startsWith("\"")) k = k.mid(1);
-                QString v = parts[1];
-                if (v.endsWith("\"")) v = v.mid(0, v.length() - 1);
-                v.replace("\"\"", "\"");
-                data.insert(k, v);
-            }
-        }
+        if (!parseCsvFields(content, data, err)) return false;
     }
 
     // R01: import lands on the same transactional boundary via fillForm

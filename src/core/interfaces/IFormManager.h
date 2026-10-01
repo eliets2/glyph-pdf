@@ -7,6 +7,8 @@
 #include <QRectF>
 #include <QList>
 
+struct ErrorInfo;  // core/ErrorInfo.h — typed refusal detail (row 8), pointer-only here
+
 struct FieldSuggestion {
     QRectF rect;
     QString type;
@@ -190,7 +192,13 @@ public:
     virtual bool exportFormData(const QString &pdfFilePath, const QString &outputPath, const QString &format) = 0; // format: "FDF" or "CSV"
     /// Import lands on fillForm (and therefore on the in-transaction calculate
     /// cascade); `jsFailures` (optional) reports calculated-field script failures.
-    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr) = 0;
+    /// PARITY-SCORECARD-2026-09-30 §4 row 8: the data-file parsers are bounded
+    /// and fail-closed — truncated/malformed FDF, malformed CSV records,
+    /// non-UTF-8 bytes, and over-cap inputs (file size, field count, per-string
+    /// size) refuse the WHOLE import with no output written. When `err` is
+    /// non-null it receives a typed ErrorInfo explaining the refusal; true
+    /// means every parsed field was handed to fillForm — never a half-import.
+    virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr, ErrorInfo *err = nullptr) = 0;
     virtual bool flattenForm(const QString &pdfFilePath, const QString &outputPath) = 0;
 protected:
     IFormManager() = default;

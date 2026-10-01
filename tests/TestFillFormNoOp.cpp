@@ -16,6 +16,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include "engines/FormManager.h"
+#include "core/ErrorInfo.h"
 
 class TestFillFormNoOp : public QObject {
     Q_OBJECT
@@ -124,8 +125,12 @@ void TestFillFormNoOp::truncatedFdfIsRefused() {
         "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n<< /T (known) /V (va"));
     FormManager fm;
     QStringList unsupported;
-    QVERIFY2(!fm.importFormData(pdf, data, out, &unsupported),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
              "a truncated FDF must be refused, not silently imported");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
+    QVERIFY2(!err.userMessage.isEmpty(), "the typed refusal must say WHY");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -143,8 +148,11 @@ void TestFillFormNoOp::unterminatedFdfStringIsRefused() {
     QVERIFY(writeBytes(data,
         "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n<< /T (known) /V (a(b"));
     FormManager fm;
-    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
              "an FDF string open at EOF must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -164,8 +172,11 @@ void TestFillFormNoOp::overLargeFieldCountIsRefused() {
     fdf += "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
     QVERIFY(writeBytes(data, fdf));
     FormManager fm;
-    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
              "an FDF over the field-count cap must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -184,8 +195,11 @@ void TestFillFormNoOp::overLargeValueIsRefused() {
     fdf += ") >>\n] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
     QVERIFY(writeBytes(data, fdf));
     FormManager fm;
-    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
              "a value over the per-string cap must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -203,8 +217,11 @@ void TestFillFormNoOp::oversizedInputFileIsRefused() {
     big += QByteArray(16 * 1024 * 1024 + 1, 'x');  // no '<<' in padding: old regex scans it all, matches none
     QVERIFY(writeBytes(data, big));
     FormManager fm;
-    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
              "a data file over the input-size cap must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -223,8 +240,13 @@ void TestFillFormNoOp::nonUtf8BytesAreRefused() {
     raw += "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
     QVERIFY(writeBytes(data, raw));
     FormManager fm;
-    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
              "a data file that is not valid UTF-8 must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
+    QVERIFY2(err.userMessage.contains(QStringLiteral("UTF-8"), Qt::CaseInsensitive),
+             "the non-UTF-8 refusal must name the encoding problem");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -238,22 +260,25 @@ void TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() {
     QVERIFY(!pdf.isEmpty());
     FormManager fm;
     const QString out = tmp.path() + "/out.pdf";
+    ErrorInfo err;
 
     const QString empty = tmp.path() + "/empty.csv";
     QVERIFY(writeBytes(empty, QByteArray()));
-    QVERIFY2(!fm.importFormData(pdf, empty, out, nullptr),
+    QVERIFY2(!fm.importFormData(pdf, empty, out, nullptr, nullptr, &err),
              "an empty data file must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
     QVERIFY2(!QFileInfo::exists(out), "no output for a refused import");
 
     const QString blank = tmp.path() + "/blank.csv";
     QVERIFY(writeBytes(blank, " \n\t \n"));
-    QVERIFY2(!fm.importFormData(pdf, blank, out, nullptr),
+    QVERIFY2(!fm.importFormData(pdf, blank, out, nullptr, nullptr, &err),
              "a whitespace-only data file must be refused");
     QVERIFY2(!QFileInfo::exists(out), "no output for a refused import");
 
     const QString headerOnly = tmp.path() + "/header.csv";
     QVERIFY(writeBytes(headerOnly, "FieldName,FieldValue\n"));
-    QVERIFY2(!fm.importFormData(pdf, headerOnly, out, nullptr),
+    QVERIFY2(!fm.importFormData(pdf, headerOnly, out, nullptr, nullptr, &err),
              "a header-only CSV holds no data and must be refused");
     QVERIFY2(!QFileInfo::exists(out), "no output for a refused import");
 }
@@ -268,8 +293,11 @@ void TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() {
     const QString out = tmp.path() + "/out.pdf";
     QVERIFY(writeBytes(data, "%FDF-1.2\ngarbage with no fields array\n"));
     FormManager fm;
-    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
              "an FDF without /Fields must be refused");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -290,8 +318,13 @@ void TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() {
         "\"nocomma\"\n"));
     FormManager fm;
     QStringList unsupported;
-    QVERIFY2(!fm.importFormData(pdf, data, out, &unsupported),
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
              "a CSV with a malformed record must be refused entirely, not half-imported");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
+    QVERIFY2(err.userMessage.contains(QStringLiteral("row 3")),
+             "the refusal must point at the malformed row, not half-import around it");
     QVERIFY2(!QFileInfo::exists(out),
              "a refused import must not write an output file (fail-closed)");
 }
@@ -313,9 +346,11 @@ void TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() {
         QByteArray("FieldName,FieldValue\n\"known\",\"x,y \"\"q\"\" \nz\"\n")));
     FormManager fm;
     QStringList unsupported;
-    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported),
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
              "a legal quoted-CSV cell with embedded delimiters must import");
     QVERIFY(unsupported.isEmpty());
+    QVERIFY2(err.isOk(), "a successful import must not record an error-level condition");
     QVERIFY(QFileInfo::exists(out));
 
     const QString exported = tmp.path() + "/back.csv";
@@ -341,9 +376,11 @@ void TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() {
         "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"));
     FormManager fm;
     QStringList unsupported;
-    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported),
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
              "a legal FDF value with escaped parens/backslash must import");
     QVERIFY(unsupported.isEmpty());
+    QVERIFY2(err.isOk(), "a successful import must not record an error-level condition");
     QVERIFY(QFileInfo::exists(out));
 
     const QString exported = tmp.path() + "/back.csv";
@@ -368,9 +405,11 @@ void TestFillFormNoOp::validFdfRoundTrip() {
     QVERIFY(fm.exportFormData(pdf, fdf, "fdf"));
     const QString out = tmp.path() + "/out.pdf";
     QStringList unsupported;
-    QVERIFY2(fm.importFormData(pdf, fdf, out, &unsupported),
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, fdf, out, &unsupported, nullptr, &err),
              "the app's own FDF export must re-import");
     QVERIFY(unsupported.isEmpty());
+    QVERIFY2(err.isOk(), "a successful import must not record an error-level condition");
     const QString back = tmp.path() + "/back.csv";
     QVERIFY(fm.exportFormData(out, back, "csv"));
     QCOMPARE(readNormalized(back), QByteArray("FieldName,FieldValue\n\"known\",\"hello\"\n"));
@@ -389,9 +428,11 @@ void TestFillFormNoOp::validCsvRoundTrip() {
     QVERIFY(fm.exportFormData(pdf, csv, "csv"));
     const QString out = tmp.path() + "/out.pdf";
     QStringList unsupported;
-    QVERIFY2(fm.importFormData(pdf, csv, out, &unsupported),
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, csv, out, &unsupported, nullptr, &err),
              "the app's own CSV export must re-import");
     QVERIFY(unsupported.isEmpty());
+    QVERIFY2(err.isOk(), "a successful import must not record an error-level condition");
     const QString back = tmp.path() + "/back.csv";
     QVERIFY(fm.exportFormData(out, back, "csv"));
     QCOMPARE(readNormalized(back), QByteArray("FieldName,FieldValue\n\"known\",\"v1\"\n"));
