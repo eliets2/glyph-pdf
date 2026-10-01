@@ -3,51 +3,106 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GlyphPDF — privacy-first PDF workstation</title>
-  <meta name="description" content="GlyphPDF is an open-source, privacy-first PDF workstation for Windows. No telemetry, no cloud, fully offline.">
-  <style>
-    :root { color-scheme: dark; }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0; min-height: 100vh;
-      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-      background: radial-gradient(1200px 600px at 50% -10%, #1c2230 0%, #0f1115 60%);
-      color: #e6e8ec; display: flex; align-items: center; justify-content: center;
-    }
-    .card { max-width: 640px; padding: 48px 28px; text-align: center; }
-    .logo { font-size: 40px; font-weight: 800; letter-spacing: -0.5px; margin: 0 0 6px; }
-    .logo .g { color: #ff8c42; }
-    .tag { color: #9aa0aa; font-size: 16px; margin: 0 0 28px; }
-    .badges { color: #6f7681; font-size: 13px; margin-bottom: 28px; }
-    .badges span { display: inline-block; margin: 0 8px; }
-    .btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
-    a.btn {
-      text-decoration: none; padding: 11px 20px; border-radius: 8px; font-weight: 600; font-size: 14px;
-      border: 1px solid #2c3340;
-    }
-    a.primary { background: #ff8c42; color: #15171c; border-color: #ff8c42; }
-    a.ghost { color: #cdd2da; background: #171a21; }
-    a.btn:hover { filter: brightness(1.08); }
-    .foot { margin-top: 30px; font-size: 12px; color: #6f7681; line-height: 1.7; }
-    .foot a { color: #8aa6d8; text-decoration: none; }
-    code { background: #171a21; padding: 2px 6px; border-radius: 4px; font-size: 12px; color: #b9c0cc; }
-  </style>
+  <title>GlyphPDF — privacy-first PDF workstation for Windows</title>
+  <meta name="description" content="GlyphPDF is an open-source, privacy-first PDF workstation for Windows: OCR, redaction, forms, PAdES e-signatures, batch and PDF/A archival. No telemetry, no cloud, fully offline.">
+  <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-  <main class="card">
-    <h1 class="logo"><span class="g">Glyph</span>PDF</h1>
-    <p class="tag">A privacy-first PDF workstation for Windows — no telemetry, no cloud, fully offline.</p>
-    <p class="badges">
-      <span>Apache-2.0</span>·<span>OCR · Redaction · Forms · Compare</span>·<span>PAdES signatures</span>
-    </p>
-    <div class="btns">
-      <a class="btn primary" href="https://github.com/eliets2/glyph-pdf/releases/latest">Download latest release</a>
-      <a class="btn ghost" href="https://github.com/eliets2/glyph-pdf">View on GitHub</a>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="wrap header-row">
+      <a class="brand" href="index.html"><span class="g">Glyph</span>PDF</a>
+      <nav class="site-nav" aria-label="Main">
+        <ul>
+          <li><a href="index.html" aria-current="page">Home</a></li>
+          <li><a href="features/">Features</a></li>
+          <li><a href="guides/">Guides</a></li>
+          <li><a href="download/">Download</a></li>
+          <li><a href="security/">Security</a></li>
+        </ul>
+      </nav>
     </div>
-    <p class="foot">
-      In-app updates read <a href="updates/latest.json">updates/latest.json</a>.<br>
-      Verify any download with its <code>.sha256</code> sidecar before installing.
-    </p>
+  </header>
+
+  <main id="main">
+    <section class="hero">
+      <h1><span class="g">Glyph</span>PDF</h1>
+      <p class="tagline">A privacy-first PDF workstation for Windows — no telemetry, no cloud, fully offline.</p>
+      <p class="badges">
+        <span>Apache-2.0</span>·<span>Current release: v1.5.0</span>·<span>Windows 10/11, 64-bit</span>
+      </p>
+      <div class="btns">
+        <a class="btn primary" href="https://github.com/eliets2/glyph-pdf/releases/latest">Download latest release</a>
+        <a class="btn ghost" href="https://github.com/eliets2/glyph-pdf">View on GitHub</a>
+      </div>
+    </section>
+
+    <div class="wrap">
+      <section aria-labelledby="highlights">
+        <h2 id="highlights">What it does</h2>
+        <div class="grid">
+          <section class="card">
+            <h3><a href="features/#security-signing">Security &amp; signing</a></h3>
+            <p>PAdES B-LT/B-LTA digital signatures with visible appearances, AES-256 and certificate-based encryption, SHA-256 only.</p>
+            <a class="more" href="features/#security-signing">Learn more →</a>
+          </section>
+          <section class="card">
+            <h3><a href="features/#redaction">Redaction you can trust</a></h3>
+            <p>Content-stream excision — never black rectangles — with an optional sanitize pass, overlay text and word-list pattern marking.</p>
+            <a class="more" href="features/#redaction">Learn more →</a>
+          </section>
+          <section class="card">
+            <h3><a href="features/#ocr">OCR ensemble</a></h3>
+            <p>Tesseract and RapidOCR PP-OCRv5 run in parallel with word-level ROVER fusion, preprocessing and a word-level review screen.</p>
+            <a class="more" href="features/#ocr">Learn more →</a>
+          </section>
+          <section class="card">
+            <h3><a href="features/#editing">Real editing</a></h3>
+            <p>Inline text edits with spacing and opacity, image move/resize/rotate/restack, a 13-tool annotation surface, forms and page operations.</p>
+            <a class="more" href="features/#editing">Learn more →</a>
+          </section>
+          <section class="card">
+            <h3><a href="features/#batch">Batch &amp; hot-folder</a></h3>
+            <p>Multi-step presets: Bates numbering, redaction, OCR, merge, compression, export — plus hot-folder ingest. All with inline error reporting.</p>
+            <a class="more" href="features/#batch">Learn more →</a>
+          </section>
+          <section class="card">
+            <h3><a href="features/#accessibility">Accessibility</a></h3>
+            <p>An accessibility checker with jump-to-issue rows, Tag Document for untagged files, and full keyboard access (F6 region cycling, F1 help).</p>
+            <a class="more" href="features/#accessibility">Learn more →</a>
+          </section>
+        </div>
+      </section>
+
+      <section aria-labelledby="why">
+        <h2 id="why">Why GlyphPDF</h2>
+        <ul class="tips" role="list">
+          <li><strong>Nothing to install first.</strong> Qt 6, the PDF and OCR engines, runtimes and OCR models are all bundled inside the download — installer or portable ZIP.</li>
+          <li><strong>Processed 100% locally.</strong> Every export carries a local-processing notice; document content never leaves the machine (the optional AI panel talks to a local Ollama only).</li>
+          <li><strong>Open source, Apache-2.0.</strong> No subscription, no account, no cloud dependency — the whole source is on GitHub.</li>
+          <li><strong>Honest by design.</strong> Unsupported capabilities are disabled with an explanation instead of pretending; a verified parity scorecard tracks every feature domain.</li>
+        </ul>
+      </section>
+
+      <section aria-labelledby="parity">
+        <h2 id="parity">Verified feature parity</h2>
+        <p>The repository carries a code-level parity scorecard that reconciled the July competitive audit against <code>main</code> — every claim backed by the producing function and a pinning test. Verified average: <strong>8.6/10</strong> across 16 feature domains (September 2026).</p>
+        <p><a href="features/">Browse the full feature list →</a></p>
+      </section>
+
+      <section aria-labelledby="updates">
+        <h2 id="updates">Updates</h2>
+        <p>In-app updates read a small JSON manifest — <a href="updates/latest.json">updates/latest.json</a> — and require your consent at every stage. Verify any download with its <code>.sha256</code> sidecar before installing.</p>
+        <p><a href="download/">Download page →</a></p>
+      </section>
+    </div>
   </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <p>GlyphPDF is open source under <a href="https://github.com/eliets2/glyph-pdf/blob/main/LICENSE">Apache-2.0</a> · <a href="https://github.com/eliets2/glyph-pdf">github.com/eliets2/glyph-pdf</a></p>
+      <p class="fine">No telemetry. No cloud. Everything runs on your machine.</p>
+    </div>
+  </footer>
 </body>
 </html>
