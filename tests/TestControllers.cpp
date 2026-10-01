@@ -304,7 +304,7 @@ private slots:
         // it. Resolution via the shared app-owned-first locator — the bundled
         // copy staged beside this test binary wins (PARITY-SCORECARD
         // §4 row 14); a system install is only a fallback.
-        const QString sevenZip = gp::HomeController::locateSevenZip();
+        const QString sevenZip = gp::SafeSave::locateSevenZip();
         if (sevenZip.isEmpty())
             QSKIP("no 7-Zip anywhere (no bundled copy beside the test binary, no system install) — argv-shape assertions above still ran");
 

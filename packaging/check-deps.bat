@@ -91,6 +91,25 @@ for %%F in (
     )
 )
 
+REM ── Required: Vendored 7-Zip (PARITY-SCORECARD-2026-09-30 §4 row 14) ──
+REM  The encrypted-package feature resolves its 7z.exe from the app dir FIRST;
+REM  an official install without the bundled pair depends on a system 7-Zip
+REM  again, which is the dependency this vendoring removed.
+echo.
+echo --- Vendored 7-Zip ---
+for %%F in (
+    7z.exe
+    7z.dll
+) do (
+    if exist "%DEPLOY_DIR%\%%F" (
+        set /a FOUND+=1
+        echo   [OK]   %%F
+    ) else (
+        set /a MISSING+=1
+        echo   [MISS] %%F
+    )
+)
+
 REM ── Optional: PDFium, ONNX, qpdf ──
 echo.
 echo --- Optional ---

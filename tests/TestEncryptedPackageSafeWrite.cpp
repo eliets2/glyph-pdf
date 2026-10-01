@@ -38,7 +38,6 @@
 #include <thread>
 
 #include "engines/SafeSave.h"
-#include "shell/controllers/HomeController.h"
 
 using gp::SafeSave::ExternalWriteResult;
 using gp::SafeSave::runExternalWriterCommit;
@@ -366,7 +365,7 @@ private slots:
         // app-owned-first locator — the bundled copy staged beside this test
         // binary wins, a system install is only a fallback. QSKIP now means
         // "no 7-Zip anywhere", not merely "not on PATH".
-        const QString sevenZip = gp::HomeController::locateSevenZip();
+        const QString sevenZip = gp::SafeSave::locateSevenZip();
         if (sevenZip.isEmpty())
             QSKIP("no 7-Zip anywhere (no bundled copy beside the test binary, no system install) — the lifecycle legs above carry the regression");
 

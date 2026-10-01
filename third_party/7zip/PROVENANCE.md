@@ -63,7 +63,7 @@ this file.
   `bin/7z.dll` next to the application binary (`stage_runtime_dlls`).
 - `packaging/deploy.ps1` stages the same files (plus `License.txt`) into the
   deploy layout for MSI/portable artifacts.
-- Runtime resolution order (`HomeController::locateSevenZip`):
+- Runtime resolution order (`SafeSave::locateSevenZip`):
   application-owned directory first (the bundled copy), then `PATH`, then the
   conventional `C:/Program Files/7-Zip/` install locations; empty result is
   disclosed honestly by the encrypted-package dialog.

@@ -485,7 +485,9 @@ void HomeController::shareViaEmail(const QString& filePath) {
 // committed atomically over the destination. The existing file is never
 // touched before commit; Cancel kills the 7-Zip process we own.
 void HomeController::createEncryptedPackage(const QString& filePath) {
-    const QString sevenZip = locateSevenZip();
+    // Resolved via SafeSave::locateSevenZip (the transaction layer owns "which
+    // 7-Zip"): the vendored app-owned copy first, then PATH/install dirs.
+    const QString sevenZip = gp::SafeSave::locateSevenZip();
     if (sevenZip.isEmpty()) {
         // PARITY-SCORECARD-2026-09-30 §4 row 14: official installs carry a
         // vendored 7-Zip (third_party/7zip/, staged beside the app), so this
@@ -783,41 +785,6 @@ QStringList HomeController::encryptedPackageCreateArgs(const QString& candidate,
 QStringList HomeController::encryptedPackageValidateArgs(const QString& candidate) {
     return QStringList{ QStringLiteral("t"),
                         QDir::toNativeSeparators(candidate) };
-}
-
-// PARITY-SCORECARD-2026-09-30 §4 row 14 (July audit §3 row 75) — locate the
-// 7-Zip console tool, APP-OWNED COPY FIRST. Official GlyphPDF installs carry a
-// vendored 7-Zip 26.02 (third_party/7zip/, pinned SHA-256 in
-// third_party/7zip/PROVENANCE.md, staged beside the executable by CMake and
-// packaging/deploy.ps1): preferring it removes the last external-binary
-// dependency — the encrypted-package capability no longer requires a
-// system-installed 7z.exe — and pins the exact binary the M-1 stdin-prompt
-// contract was verified against (the `-p` prompt behavior is version-
-// sensitive; see the header note). Fallbacks keep dev/stripped trees working:
-// PATH, then the conventional 7-Zip install dirs. An empty return means "no
-// 7-Zip anywhere" — the caller must disclose that honestly, never guess.
-// Pure lookup (no side effects), same test-seam status as the argv builders;
-// `appDirOverride` exists purely for tests (empty = the real app directory).
-// The app-owned branch requires BOTH 7z.exe and 7z.dll (7z.exe is only a
-// launcher — without its format engine it fails at process start), so a
-// half-copied bundle degrades to the fallbacks instead of a launch error.
-QString HomeController::locateSevenZip(const QString& appDirOverride) {
-    const QString appDir = appDirOverride.isEmpty()
-        ? QCoreApplication::applicationDirPath() : appDirOverride;
-    if (!appDir.isEmpty()) {
-        const QString bundled = appDir + QStringLiteral("/7z.exe");
-        if (QFileInfo::exists(bundled)
-            && QFileInfo::exists(appDir + QStringLiteral("/7z.dll")))
-            return QDir::toNativeSeparators(bundled);
-    }
-    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("7z"));
-    if (!onPath.isEmpty()) return QDir::toNativeSeparators(onPath);
-    for (const QString& c : {
-             QStringLiteral("C:/Program Files/7-Zip/7z.exe"),
-             QStringLiteral("C:/Program Files (x86)/7-Zip/7z.exe") }) {
-        if (QFileInfo::exists(c)) return QDir::toNativeSeparators(c);
-    }
-    return {};
 }
 
 // ── Recent files ────────────────────────────────────────────────────────
