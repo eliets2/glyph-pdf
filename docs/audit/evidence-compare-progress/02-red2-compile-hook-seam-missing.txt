@@ -1,0 +1,19 @@
+# RED-2 (fail-before pin, compile): hook-driven tests reference CompareMode::setPairBoundaryHookForTest, which does not exist on the unfixed src/
+# command: cmake --build build-rel --config Release --target TestCompareIntegration
+# (full ninja stderr follows)
+[1/4] Automatic MOC and UIC for target TestCompareIntegration
+[2/3] Building CXX object CMakeFiles/TestCompareIntegration.dir/tests/TestCompareIntegration.cpp.obj
+FAILED: [code=1] CMakeFiles/TestCompareIntegration.dir/tests/TestCompareIntegration.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DGLYPHPDF_QUICKJS_VERSION=\"0.15.1\" -DHAS_OPENJPEG2 -DHAS_PDFIUM -DHAS_QPDF -DHAS_QUICKJS -DHAS_TESSERACT -DMINGW_HAS_SECURE_API=1 -DQT_CONCURRENT_LIB -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_PDFWIDGETS_LIB -DQT_PDF_LIB -DQT_TESTCASE_BUILDDIR=\"D:/pdf/pdf-w2b-compare/build-rel\" -DQT_TESTCASE_SOURCEDIR=\"D:/pdf/pdf-w2b-compare\" -DQT_TESTLIB_LIB -DQT_WIDGETS_LIB -DUNICODE -DUSING_QJS_SHARED -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -ID:/pdf/pdf-w2b-compare/build-rel/TestCompareIntegration_autogen/include -ID:/pdf/pdf-w2b-compare/src -ID:/pdf/pdf-w2b-compare/tests -IC:/msys64/ucrt64/include/leptonica -IC:/msys64/ucrt64/include/libpng16 -IC:/msys64/ucrt64/include/webp -isystem C:/msys64/ucrt64/include/qt6/QtCore -isystem C:/msys64/ucrt64/include/qt6 -isystem C:/msys64/ucrt64/share/qt6/mkspecs/win32-g++ -isystem C:/msys64/ucrt64/include/qt6/QtGui -isystem C:/msys64/ucrt64/include/qt6/QtWidgets -isystem C:/msys64/ucrt64/include/openjpeg-2.5 -isystem D:/pdf/pdf-w2b-compare/third_party/pdfium/include -isystem D:/pdf/pdf-w2b-compare/third_party/podofo/install/include -isystem C:/msys64/ucrt64/include/qt6/QtTest -isystem C:/msys64/ucrt64/include/qt6/QtConcurrent -isystem C:/msys64/ucrt64/include/qt6/QtPdf -isystem C:/msys64/ucrt64/include/qt6/QtPdfWidgets -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=unused-result -Werror=shadow -fstack-protector-strong -D_FORTIFY_SOURCE=2 -flto=auto -MD -MT CMakeFiles/TestCompareIntegration.dir/tests/TestCompareIntegration.cpp.obj -MF CMakeFiles\TestCompareIntegration.dir\tests\TestCompareIntegration.cpp.obj.d -o CMakeFiles/TestCompareIntegration.dir/tests/TestCompareIntegration.cpp.obj -c D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp
+D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp: In member function 'void TestCompareIntegration::progressDialogTracksStagesDuringDiff()':
+D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp:190:14: error: 'class gp::CompareMode' has no member named 'setPairBoundaryHookForTest'
+  190 |         mode.setPairBoundaryHookForTest([&](int done) {
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp: In member function 'void TestCompareIntegration::cancelMidDiffStopsWorkerAndKeepsStateClean()':
+D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp:249:14: error: 'class gp::CompareMode' has no member named 'setPairBoundaryHookForTest'
+  249 |         mode.setPairBoundaryHookForTest([&](int done) {
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp:307:14: error: 'class gp::CompareMode' has no member named 'setPairBoundaryHookForTest'
+  307 |         mode.setPairBoundaryHookForTest({});
+      |              ^~~~~~~~~~~~~~~~~~~~~~~~~~
+ninja: build stopped: subcommand failed.

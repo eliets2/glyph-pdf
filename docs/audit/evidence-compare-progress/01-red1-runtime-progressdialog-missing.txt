@@ -1,0 +1,11 @@
+# RED-1 (fail-before pin, runtime): hook-free test progressDialogExistsDuringCompareRun on UNFIXED src/ (base fe6ca6f2 + RED tests)
+# command: QT_QPA_PLATFORM=offscreen ./TestCompareIntegration.exe progressDialogExistsDuringCompareRun
+********* Start testing of TestCompareIntegration *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestCompareIntegration::initTestCase()
+FAIL!  : TestCompareIntegration::progressDialogExistsDuringCompareRun() 'dialog' returned FALSE. (compareFiles() must surface a QProgressDialog (objectName cmpProgressDialog) while the diff runs)
+D:/pdf/pdf-w2b-compare/tests/TestCompareIntegration.cpp(156) : failure location
+PASS   : TestCompareIntegration::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 133ms
+********* Finished testing of TestCompareIntegration *********
+# exit=1

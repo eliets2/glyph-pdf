@@ -23,6 +23,8 @@
 // words with any existing page (a clean PageAdded).
 #include <QtTest>
 #include <QLabel>
+#include <QProgressDialog>
+#include <QSemaphore>
 #include <QSplitter>
 #include <QTemporaryDir>
 #include <QTextBrowser>
@@ -129,6 +131,187 @@ class TestCompareIntegration : public QObject
 
 private slots:
     void initTestCase() { QVERIFY2(m_dir.isValid(), "temporary dir must be valid"); }
+
+    // ── §4 row 7 (wave 2b): compare progress + cancel ─────────────────────────
+    // compareFiles() must surface a cancelable progress dialog for the
+    // duration of the diff (the MainWindow::runConversion idiom). Hook-free
+    // probe: the dialog is constructed synchronously inside compareFiles()
+    // BEFORE the worker's finish can be delivered, so its existence right
+    // after the call is deterministic. Pre-fix there is no dialog at all —
+    // the RED pin for the parity row.
+    void progressDialogExistsDuringCompareRun()
+    {
+        const QStringList texts = {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot"),
+            QStringLiteral("second page")};
+        const QString a = pagePdf("prog_a.pdf", texts);
+        const QString b = pagePdf("prog_b.pdf", texts);
+        QVERIFY(!a.isEmpty() && !b.isEmpty());
+
+        gp::CompareMode mode;
+        mode.compareFiles(a, b);
+
+        auto* dialog = mode.findChild<QProgressDialog*>(
+            QStringLiteral("cmpProgressDialog"));
+        QVERIFY2(dialog,
+                 "compareFiles() must surface a QProgressDialog (objectName "
+                 "cmpProgressDialog) while the diff runs");
+
+        // Completion path unchanged: the identical pair still resolves
+        // identically and leaves the dialog closed behind it.
+        waitForDiffFinished(mode);
+        auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QVERIFY(status);
+        QVERIFY2(status->text().contains(QStringLiteral("FILES ARE IDENTICAL")),
+                 qPrintable(QStringLiteral("status: %1").arg(status->text())));
+        QVERIFY(mode.lastResult().isIdentical);
+    }
+
+    // ── §4 row 7 (wave 2b): progress stages observed ──────────────────────────
+    // The dialog tracks the engine's per-stage progress (extraction → page
+    // pairs) through the watcher. Deterministic via the pair-boundary test
+    // seam (BatchMode's setPresetBoundaryHookForTest idiom): the worker parks
+    // at a boundary so the GUI thread can read the dialog mid-run.
+    void progressDialogTracksStagesDuringDiff()
+    {
+        const QString base = pagePdf("stage_base.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot gulf hotel india juliet"),
+            QStringLiteral("second page")});
+        const QString revised = pagePdf("stage_rev.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot golf hotel india juliet"),
+            QStringLiteral("second page")});
+        QVERIFY(!base.isEmpty() && !revised.isEmpty());
+
+        gp::CompareMode mode;
+        // Park the worker before pair 0 (to read the extraction stage) and
+        // before pair 1 (to read the pairs stage) — semaphores bound the
+        // worker's wait by the test's own timeouts.
+        QSemaphore reachedPair0, reachedPair1, releasePair1;
+        mode.setPairBoundaryHookForTest([&](int done) {
+            if (done == 0) reachedPair0.release();
+            else if (done == 1) { reachedPair1.release(); releasePair1.acquire(); }
+        });
+        mode.compareFiles(base, revised);
+
+        auto* dialog = mode.findChild<QProgressDialog*>(
+            QStringLiteral("cmpProgressDialog"));
+        QVERIFY2(dialog, "progress dialog must exist during a compare run");
+
+        // Worker parked before pair 0: extraction (2+2 pages) has been
+        // reported; the dialog shows the extraction stage.
+        QVERIFY2(reachedPair0.tryAcquire(1, 30000),
+                 "worker never reached the first page-pair boundary");
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->maximum(), 4, 30000);
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->value(), 4, 30000);
+        QVERIFY2(dialog->labelText().contains(QStringLiteral("Extracting")),
+                 qPrintable(QStringLiteral("extraction stage label: %1")
+                                .arg(dialog->labelText())));
+
+        // Worker parked before pair 1: the pairs stage (2 pairs) has been
+        // reported with pair 0 done.
+        QVERIFY2(reachedPair1.tryAcquire(1, 30000),
+                 "worker never reached the second page-pair boundary");
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->maximum(), 2, 30000);
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->value(), 1, 30000);
+        QVERIFY2(dialog->labelText().contains(QStringLiteral("Comparing")),
+                 qPrintable(QStringLiteral("pairs stage label: %1")
+                                .arg(dialog->labelText())));
+
+        // Completion path unchanged: the dialog closes, the result lands.
+        releasePair1.release();
+        waitForDiffFinished(mode);
+        auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QVERIFY(status);
+        QVERIFY2(status->text().contains(QStringLiteral("1 CHANGES")),
+                 qPrintable(QStringLiteral("status: %1").arg(status->text())));
+        QVERIFY2(!dialog->isVisible(),
+                 "progress dialog must be closed after completion");
+    }
+
+    // ── §4 row 7 (wave 2b): cancel mid-diff honored, no partial state ─────────
+    // The worker stops at the next boundary probe (the QPromise::isCanceled
+    // poll DiffEngine already honours); the partial result is discarded
+    // (never read into the widget/tree/lastResult); the UI leaves the
+    // COMPARING state with nav/export off and swap re-enabled; a re-run of
+    // the same pair afterwards completes normally (idempotent after cancel).
+    void cancelMidDiffStopsWorkerAndKeepsStateClean()
+    {
+        const QString base = pagePdf("cxl_base.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot gulf hotel india juliet"),
+            QStringLiteral("second page")});
+        const QString revised = pagePdf("cxl_rev.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot golf hotel india juliet"),
+            QStringLiteral("second page")});
+        QVERIFY(!base.isEmpty() && !revised.isEmpty());
+
+        gp::CompareMode mode;
+        QSemaphore reachedPair0, releasePair0;
+        mode.setPairBoundaryHookForTest([&](int done) {
+            if (done == 0) { reachedPair0.release(); releasePair0.acquire(); }
+        });
+        mode.compareFiles(base, revised);
+
+        auto* dialog = mode.findChild<QProgressDialog*>(
+            QStringLiteral("cmpProgressDialog"));
+        QVERIFY2(dialog, "progress dialog must exist during a compare run");
+        QVERIFY2(reachedPair0.tryAcquire(1, 30000),
+                 "worker never reached the first page-pair boundary");
+        QVERIFY2(mode.isBusy(),
+                 "the diff must still be running while the worker is parked");
+
+        // The Cancel path: QProgressDialog::cancel() is exactly what the
+        // Cancel button drives (canceled() → watcher cancel → the worker's
+        // boundary poll observes it at the next probe).
+        dialog->cancel();
+        releasePair0.release();   // worker wakes and abandons the diff
+
+        auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QTRY_VERIFY2_WITH_TIMEOUT(
+            status->text().contains(QStringLiteral("COMPARISON CANCELLED")),
+            qPrintable(QStringLiteral("status after cancel: %1").arg(status->text())),
+            30000);
+        QVERIFY2(!mode.isBusy(), "the watcher must not report busy after cancel");
+        QVERIFY2(!dialog->isVisible(),
+                 "progress dialog must be closed after cancel");
+
+        // No leaked partial results: the engine's partial DiffResult was
+        // never read into the widget, the tree or lastResult().
+        auto* tree = mode.findChild<QTreeWidget*>(QStringLiteral("cmpChangesTree"));
+        QVERIFY(tree);
+        QCOMPARE(tree->topLevelItemCount(), 0);
+        auto* widget = mode.findChild<CompareWidget*>();
+        QVERIFY(widget);
+        QCOMPARE(widget->changeCount(), 0);
+        QVERIFY(mode.lastResult().pages.isEmpty());
+        QVERIFY(mode.lastResult().pageChanges.isEmpty());
+
+        // UI re-enabled cleanly: PREV/NEXT stay off (nothing is displayed),
+        // export stays off (there is no completed diff to export), swap is
+        // safe again (the same pair can be re-run).
+        QToolButton* prev = nullptr; QToolButton* next = nullptr;
+        QToolButton* exportBtn = nullptr; QToolButton* swap = nullptr;
+        const auto buttons = mode.findChildren<QToolButton*>();
+        for (auto* btn : buttons) {
+            if (btn->text().contains(QStringLiteral("PREV"))) prev = btn;
+            if (btn->text().contains(QStringLiteral("NEXT"))) next = btn;
+            if (btn->text().contains(QStringLiteral("Export"))) exportBtn = btn;
+            if (btn->text().contains(QStringLiteral("Swap"))) swap = btn;
+        }
+        QVERIFY2(prev && next && exportBtn && swap, "toolbar buttons must exist");
+        QVERIFY2(!prev->isEnabled(), "PREV must stay disabled after cancel");
+        QVERIFY2(!next->isEnabled(), "NEXT must stay disabled after cancel");
+        QVERIFY2(!exportBtn->isEnabled(), "export must stay disabled after cancel");
+        QVERIFY2(swap->isEnabled(), "swap must be re-enabled after cancel");
+
+        // Idempotent re-run after cancel: same pair, no hook → completes.
+        mode.setPairBoundaryHookForTest({});
+        mode.compareFiles(base, revised);
+        waitForDiffFinished(mode);
+        QVERIFY2(status->text().contains(QStringLiteral("1 CHANGES")),
+                 qPrintable(QStringLiteral("status after re-run: %1").arg(status->text())));
+        QCOMPARE(mode.lastResult().pages.size(), 2);
+        QCOMPARE(widget->changeCount(), 1);
+    }
 
     // ── (a) two identical documents → no changes, isIdentical ────────────────
 
