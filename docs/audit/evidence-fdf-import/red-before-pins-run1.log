@@ -1,0 +1,104 @@
+Test project D:/pdf/pdf-w2b-fdf/build-rel
+    Start 106: TestFillFormNoOp
+1/1 Test #106: TestFillFormNoOp .................***Failed   13.51 sec
+********* Start testing of TestFillFormNoOp *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFillFormNoOp::initTestCase()
+QDEBUG : TestFillFormNoOp::unknownFieldNameIsReported() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::unknownFieldNameIsReported() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-MwvJIu/noop.pdf"
+PASS   : TestFillFormNoOp::unknownFieldNameIsReported()
+QDEBUG : TestFillFormNoOp::truncatedFdfIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::truncatedFdfIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-kUeVrf/cut.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-kUeVrf/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-kUeVrf/out.pdf"
+QDEBUG : TestFillFormNoOp::truncatedFdfIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-kUeVrf/out.pdf"
+FAIL!  : TestFillFormNoOp::truncatedFdfIsRefused() '!fm.importFormData(pdf, data, out, &unsupported)' returned FALSE. (a truncated FDF must be refused, not silently imported)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(127) : failure location
+QDEBUG : TestFillFormNoOp::unterminatedFdfStringIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::unterminatedFdfStringIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sVisZj/unterm.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sVisZj/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sVisZj/out.pdf"
+QDEBUG : TestFillFormNoOp::unterminatedFdfStringIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sVisZj/out.pdf"
+FAIL!  : TestFillFormNoOp::unterminatedFdfStringIsRefused() '!fm.importFormData(pdf, data, out, nullptr)' returned FALSE. (an FDF string open at EOF must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(146) : failure location
+QDEBUG : TestFillFormNoOp::overLargeFieldCountIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::overLargeFieldCountIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-mgupRX/many.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-mgupRX/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-mgupRX/out.pdf"
+QDEBUG : TestFillFormNoOp::overLargeFieldCountIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-mgupRX/out.pdf"
+FAIL!  : TestFillFormNoOp::overLargeFieldCountIsRefused() '!fm.importFormData(pdf, data, out, nullptr)' returned FALSE. (an FDF over the field-count cap must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(167) : failure location
+QDEBUG : TestFillFormNoOp::overLargeValueIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::overLargeValueIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-RNrxkQ/big.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-RNrxkQ/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-RNrxkQ/out.pdf"
+QDEBUG : TestFillFormNoOp::overLargeValueIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-RNrxkQ/out.pdf"
+FAIL!  : TestFillFormNoOp::overLargeValueIsRefused() '!fm.importFormData(pdf, data, out, nullptr)' returned FALSE. (a value over the per-string cap must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(187) : failure location
+QDEBUG : TestFillFormNoOp::oversizedInputFileIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::oversizedInputFileIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-uUwxLX/huge.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-uUwxLX/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-uUwxLX/out.pdf"
+QDEBUG : TestFillFormNoOp::oversizedInputFileIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-uUwxLX/out.pdf"
+FAIL!  : TestFillFormNoOp::oversizedInputFileIsRefused() '!fm.importFormData(pdf, data, out, nullptr)' returned FALSE. (a data file over the input-size cap must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(206) : failure location
+QDEBUG : TestFillFormNoOp::nonUtf8BytesAreRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::nonUtf8BytesAreRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-YUgoSs/latin1.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-YUgoSs/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-YUgoSs/out.pdf"
+QDEBUG : TestFillFormNoOp::nonUtf8BytesAreRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-YUgoSs/out.pdf"
+FAIL!  : TestFillFormNoOp::nonUtf8BytesAreRefused() '!fm.importFormData(pdf, data, out, nullptr)' returned FALSE. (a data file that is not valid UTF-8 must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(226) : failure location
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-gCBHyU/empty.csv" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-gCBHyU/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-gCBHyU/out.pdf"
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-gCBHyU/out.pdf"
+FAIL!  : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() '!fm.importFormData(pdf, empty, out, nullptr)' returned FALSE. (an empty data file must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(244) : failure location
+QDEBUG : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OVDiku/nofields.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OVDiku/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OVDiku/out.pdf"
+QDEBUG : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OVDiku/out.pdf"
+FAIL!  : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() '!fm.importFormData(pdf, data, out, nullptr)' returned FALSE. (an FDF without /Fields must be refused)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(271) : failure location
+QDEBUG : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sYzxve/broken.csv" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sYzxve/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sYzxve/out.pdf"
+QDEBUG : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-sYzxve/out.pdf"
+FAIL!  : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() '!fm.importFormData(pdf, data, out, &unsupported)' returned FALSE. (a CSV with a malformed record must be refused entirely, not half-imported)
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(293) : failure location
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aBjUoO/tricky.csv" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aBjUoO/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aBjUoO/out.pdf"
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aBjUoO/out.pdf"
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Exporting form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aBjUoO/out.pdf" to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aBjUoO/back.csv" in format "csv"
+FAIL!  : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Compared values are not the same
+   Actual   (readNormalized(exported)): "FieldName,FieldValue\n\"known\",\"x,y \"\"q\"\"\"\n"
+   Expected (expected)                : "FieldName,FieldValue\n\"known\",\"x,y \"\"q\"\" \nz\"\n"
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(325) : failure location
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QnVAYr/parens.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QnVAYr/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QnVAYr/out.pdf"
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QnVAYr/out.pdf"
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Exporting form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QnVAYr/out.pdf" to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QnVAYr/back.csv" in format "csv"
+FAIL!  : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Compared values are not the same
+   Actual   (readNormalized(exported)): "FieldName,FieldValue\n\"known\",\"a(b)c\\\\d\\ne\"\n"
+   Expected (expected)                : "FieldName,FieldValue\n\"known\",\"a(b)c\\d\ne\"\n"
+D:/pdf/pdf-w2b-fdf/tests/TestFillFormNoOp.cpp(355) : failure location
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/form.pdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Exporting form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/form.pdf" to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/export.fdf" in format "fdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/export.fdf" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/out.pdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/out.pdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Exporting form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/out.pdf" to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-WsptIR/back.csv" in format "csv"
+PASS   : TestFillFormNoOp::validFdfRoundTrip()
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/form.pdf"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Exporting form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/form.pdf" to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/export.csv" in format "csv"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Importing form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/export.csv" into "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/form.pdf" saving to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/out.pdf"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Filling form data at: "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/out.pdf"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Exporting form data from "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/out.pdf" to "D:/pdf/pdf-w2b-fdf/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-hhexgv/back.csv" in format "csv"
+PASS   : TestFillFormNoOp::validCsvRoundTrip()
+PASS   : TestFillFormNoOp::cleanupTestCase()
+Totals: 5 passed, 11 failed, 0 skipped, 0 blacklisted, 12626ms
+********* Finished testing of TestFillFormNoOp *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+form-fields    =  13.51 sec*proc (1 test)
+forms          =  13.51 sec*proc (1 test)
+headless       =  13.51 sec*proc (1 test)
+persistence    =  13.51 sec*proc (1 test)
+qt             =  13.51 sec*proc (1 test)
+unit           =  13.51 sec*proc (1 test)
+
+Total Test time (real) =  13.52 sec
+
+The following tests FAILED:
+	106 - TestFillFormNoOp (Failed)                         form-fields forms headless persistence qt unit
+Errors while running CTest
