@@ -1,88 +1,88 @@
 Test project D:/pdf/pdf-w2-quad/build
       Start  13: TestSidecarReopenState
- 1/19 Test  #13: TestSidecarReopenState ...........   Passed    7.61 sec
+ 1/19 Test  #13: TestSidecarReopenState ...........   Passed   10.15 sec
       Start  39: TestControllers
- 2/19 Test  #39: TestControllers ..................   Passed   25.62 sec
+ 2/19 Test  #39: TestControllers ..................   Passed   22.53 sec
       Start  85: TestCommentsReview
- 3/19 Test  #85: TestCommentsReview ...............   Passed    4.18 sec
+ 3/19 Test  #85: TestCommentsReview ...............   Passed    4.86 sec
       Start  89: TestInspector
- 4/19 Test  #89: TestInspector ....................   Passed    4.26 sec
+ 4/19 Test  #89: TestInspector ....................   Passed    3.70 sec
       Start  91: TestFindReplace
- 5/19 Test  #91: TestFindReplace ..................   Passed    4.36 sec
+ 5/19 Test  #91: TestFindReplace ..................   Passed    6.49 sec
       Start 108: TestShapeInkPersistence
- 6/19 Test #108: TestShapeInkPersistence ..........   Passed    1.08 sec
+ 6/19 Test #108: TestShapeInkPersistence ..........   Passed    1.49 sec
       Start 109: TestQuadPointsMarkup
- 7/19 Test #109: TestQuadPointsMarkup .............   Passed    1.33 sec
+ 7/19 Test #109: TestQuadPointsMarkup .............   Passed    2.28 sec
       Start 110: TestMeasurePanelHonesty
- 8/19 Test #110: TestMeasurePanelHonesty ..........   Passed    1.20 sec
+ 8/19 Test #110: TestMeasurePanelHonesty ..........   Passed    2.92 sec
       Start 113: TestLegacyOriginSpace
- 9/19 Test #113: TestLegacyOriginSpace ............   Passed    2.35 sec
+ 9/19 Test #113: TestLegacyOriginSpace ............   Passed    1.22 sec
       Start 138: TestTextExtractionCoords
-10/19 Test #138: TestTextExtractionCoords .........   Passed    2.11 sec
+10/19 Test #138: TestTextExtractionCoords .........   Passed    1.96 sec
       Start 141: TestViewerRotation
-11/19 Test #141: TestViewerRotation ...............   Passed    1.70 sec
+11/19 Test #141: TestViewerRotation ...............   Passed    3.04 sec
       Start 142: TestTwoPageOverlay
-12/19 Test #142: TestTwoPageOverlay ...............   Passed    3.79 sec
+12/19 Test #142: TestTwoPageOverlay ...............   Passed    5.41 sec
       Start 143: TestViewingModes
-13/19 Test #143: TestViewingModes .................   Passed    4.37 sec
+13/19 Test #143: TestViewingModes .................   Passed    5.84 sec
       Start 144: TestViewParity
-14/19 Test #144: TestViewParity ...................   Passed   44.26 sec
+14/19 Test #144: TestViewParity ...................   Passed   52.63 sec
       Start 161: TestAnnotationDjot
-15/19 Test #161: TestAnnotationDjot ...............   Passed    1.88 sec
+15/19 Test #161: TestAnnotationDjot ...............   Passed    2.62 sec
       Start 171: TestTextEditStyle
-16/19 Test #171: TestTextEditStyle ................   Passed    2.42 sec
+16/19 Test #171: TestTextEditStyle ................   Passed    2.01 sec
       Start 173: TestPersistenceOutcomes
-17/19 Test #173: TestPersistenceOutcomes ..........   Passed   11.88 sec
+17/19 Test #173: TestPersistenceOutcomes ..........   Passed   15.29 sec
       Start 187: TestRotate270PageSpace
-18/19 Test #187: TestRotate270PageSpace ...........   Passed    1.74 sec
+18/19 Test #187: TestRotate270PageSpace ...........   Passed    1.61 sec
       Start 190: TestPgr37PageSpaceLaw
-19/19 Test #190: TestPgr37PageSpaceLaw ............   Passed    1.95 sec
+19/19 Test #190: TestPgr37PageSpaceLaw ............   Passed    3.01 sec
 
 100% tests passed, 0 tests failed out of 19
 
 Label Time Summary:
-annot           =   1.88 sec*proc (1 test)
-annotations     =  14.11 sec*proc (5 tests)
-comments        =   4.18 sec*proc (1 test)
-controllers     =  25.62 sec*proc (1 test)
-conversion      =   2.11 sec*proc (1 test)
-djot            =   1.88 sec*proc (1 test)
-edit            =   4.36 sec*proc (1 test)
-editing         =   2.42 sec*proc (1 test)
-eyecare         =   4.37 sec*proc (1 test)
-find-replace    =   4.36 sec*proc (1 test)
-forms           =   4.09 sec*proc (2 tests)
-headless        = 128.09 sec*proc (19 tests)
-identity        =  11.88 sec*proc (1 test)
-inspector       =   4.26 sec*proc (1 test)
-integration     =  19.49 sec*proc (2 tests)
-measure         =   1.20 sec*proc (1 test)
-nightmode       =   4.37 sec*proc (1 test)
-opacity         =   2.42 sec*proc (1 test)
-pagespace       =   1.95 sec*proc (1 test)
-parity          =  44.26 sec*proc (1 test)
-persistence     =  18.38 sec*proc (5 tests)
-pgr37           =   1.95 sec*proc (1 test)
-pptx            =   2.11 sec*proc (1 test)
-properties      =   4.26 sec*proc (1 test)
-qt              = 128.09 sec*proc (19 tests)
-redaction       =   1.95 sec*proc (1 test)
-redesign        =  44.26 sec*proc (1 test)
-regression      =  52.42 sec*proc (3 tests)
-review          =   4.18 sec*proc (1 test)
-richtext        =   1.88 sec*proc (1 test)
-rotation        =   1.70 sec*proc (1 test)
-roundtrip       =   1.88 sec*proc (1 test)
-security        =   1.95 sec*proc (1 test)
-session         =  11.88 sec*proc (1 test)
-shell           =   7.61 sec*proc (1 test)
-sidecar         =   7.61 sec*proc (1 test)
-spacing         =   2.42 sec*proc (1 test)
-t2-2            =   4.36 sec*proc (1 test)
-text            =   2.42 sec*proc (1 test)
-twopage         =   3.79 sec*proc (1 test)
-ui              =  75.34 sec*proc (4 tests)
-unit            = 128.09 sec*proc (19 tests)
-viewing         =  54.12 sec*proc (4 tests)
+annot           =   2.62 sec*proc (1 test)
+annotations     =  16.76 sec*proc (5 tests)
+comments        =   4.86 sec*proc (1 test)
+controllers     =  22.53 sec*proc (1 test)
+conversion      =   1.96 sec*proc (1 test)
+djot            =   2.62 sec*proc (1 test)
+edit            =   6.49 sec*proc (1 test)
+editing         =   2.01 sec*proc (1 test)
+eyecare         =   5.84 sec*proc (1 test)
+find-replace    =   6.49 sec*proc (1 test)
+forms           =   2.83 sec*proc (2 tests)
+headless        = 149.07 sec*proc (19 tests)
+identity        =  15.29 sec*proc (1 test)
+inspector       =   3.70 sec*proc (1 test)
+integration     =  25.44 sec*proc (2 tests)
+measure         =   2.92 sec*proc (1 test)
+nightmode       =   5.84 sec*proc (1 test)
+opacity         =   2.01 sec*proc (1 test)
+pagespace       =   3.01 sec*proc (1 test)
+parity          =  52.63 sec*proc (1 test)
+persistence     =  21.90 sec*proc (5 tests)
+pgr37           =   3.01 sec*proc (1 test)
+pptx            =   1.96 sec*proc (1 test)
+properties      =   3.70 sec*proc (1 test)
+qt              = 149.07 sec*proc (19 tests)
+redaction       =   3.01 sec*proc (1 test)
+redesign        =  52.63 sec*proc (1 test)
+regression      =  63.88 sec*proc (3 tests)
+review          =   4.86 sec*proc (1 test)
+richtext        =   2.62 sec*proc (1 test)
+rotation        =   3.04 sec*proc (1 test)
+roundtrip       =   2.62 sec*proc (1 test)
+security        =   3.01 sec*proc (1 test)
+session         =  15.29 sec*proc (1 test)
+shell           =  10.15 sec*proc (1 test)
+sidecar         =  10.15 sec*proc (1 test)
+spacing         =   2.01 sec*proc (1 test)
+t2-2            =   6.49 sec*proc (1 test)
+text            =   2.01 sec*proc (1 test)
+twopage         =   5.41 sec*proc (1 test)
+ui              =  81.77 sec*proc (4 tests)
+unit            = 149.07 sec*proc (19 tests)
+viewing         =  66.92 sec*proc (4 tests)
 
-Total Test time (real) = 128.14 sec
+Total Test time (real) = 149.12 sec

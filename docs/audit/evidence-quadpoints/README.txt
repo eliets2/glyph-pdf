@@ -1,11 +1,11 @@
 evidence-quadpoints/ — PARITY-SCORECARD-2026-09-30 §4 row 1 (July audit §9.3
 P1 row 15): QuadPoints text-anchored Highlight/Underline/Strikeout/Squiggly.
-Lane: feat/quadpoints-markup. Original base 02d1a898; rebased twice as main
-advanced mid-lane (181247b2, then df2e7f94 — the 05:27 rebase appears in the
-reflog as an external/integrator action on this branch — final base 7066534c,
-tip 69a02311, FF-ready). Feature commits: 718df532 (pins+data model),
-40d14f48 (writer+reader), 5ec495c9 (seam+rendering+sidecar), 69a02311
-(pin guards + NC).
+Lane: feat/quadpoints-markup. Original base 02d1a898; rebased repeatedly as
+main advanced mid-lane (181247b2, df2e7f94 — the 05:27 rebase appears in the
+reflog as an external/integrator action on this branch — 7066534c, final base
+2b4d0558, tip b507e6e0, FF-ready, insertions-only diff). Feature commits
+(rebased SHAs move with each rebase): pins+data model, writer+reader,
+seam+rendering+sidecar, pin guards + NC, this evidence commit.
 
 fail-before-quadpoints-pins.txt
     Verbatim run of tests/TestQuadPointsMarkup.cpp with the data-model fields
@@ -35,8 +35,10 @@ pass-after-run1.txt / pass-after-run2.txt
     (181247b2 + this lane, rebuilt RC=0): 191/191, 191/191 (334 s / 278 s).
 
 pass-after-touched-run{1,2,3}.txt
-    Three consecutive serial runs of the touched-surface gate on the FINAL
-    FF-ready tree (7066534c + this lane, rebuilt RC=0): 19/19 × 3.
+    Three CONSECUTIVE serial runs of the touched-surface gate on the FINAL
+    FF-ready tree (2b4d0558 + this lane, rebuilt RC=0): 19/19 × 3,
+    captured back-to-back (run 1 landed while the co-tenant load read 100%
+    — the short suites ride through what starves the 5–20 min UI suites).
     Surface: QuadPoints markup, shape/ink persistence, annotation djot,
     annotation toolbar surface, find&replace (TextMatchFinder), text
     extraction coords, view parity/controllers/viewing/rotation/two-page
@@ -66,7 +68,17 @@ pass-after-run3-attempt{2..8}-flakes.txt
     TestSecretStore 25P/0F ×3, TestWelcomeRoutes 20P/0F, TestBatchMode 18P/0F,
     TestLaneScheduler 13P/0F).
 
+pass-after-final-tree-attempt{1,2}-flake.txt
+    Two further full-serial attempts on the final tree (193 tests), each one
+    flake short of green: attempt 1 TestFileHandleCoordination alone (the K4
+    child-process race probe; 7P/0F in isolation immediately after), attempt 2
+    TestWelcomeRoutes + TestLaneScheduler + TestFileHandleCoordination. Same
+    environmental class as the attempt2–8 dossier above.
+
 flake-classification-isolation.txt
     Isolation runs taken WHILE the gate was saturating the machine —
     LaneScheduler/BatchMode fail there too; kept as the concurrency-sensitivity
-    exhibit (the clean isolation numbers are in the README above).
+    exhibit (the clean isolation numbers are in the README above). On the final
+    tree TestLegacyOriginSpace::formFieldCreationLandsAtTheDrawnPosition also
+    flaked once under 100% load ("unhandled exception" mid main-window flow);
+    it is green in pass-after-touched-run{1,2,3} and every full-gate run.
