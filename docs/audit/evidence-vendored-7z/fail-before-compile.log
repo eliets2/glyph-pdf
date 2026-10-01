@@ -1,0 +1,321 @@
+[1/227] Automatic MOC and UIC for target docmodel
+[2/227] Automatic MOC and UIC for target liblua
+[3/227] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/docmodel_autogen/mocs_compilation.cpp.obj
+[4/227] Building CXX object third_party/CMakeFiles/liblua.dir/liblua_autogen/mocs_compilation.cpp.obj
+[5/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lauxlib.c.obj
+[6/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lapi.c.obj
+[7/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lbaselib.c.obj
+[8/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lcode.c.obj
+[9/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lcorolib.c.obj
+[10/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lctype.c.obj
+[11/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldblib.c.obj
+[12/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldebug.c.obj
+[13/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldo.c.obj
+[14/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldump.c.obj
+[15/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lfunc.c.obj
+[16/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/linit.c.obj
+[17/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lgc.c.obj
+[18/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/liolib.c.obj
+[19/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lmathlib.c.obj
+[20/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/llex.c.obj
+[21/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lmem.c.obj
+[22/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lobject.c.obj
+[23/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lopcodes.c.obj
+[24/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/loslib.c.obj
+[25/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/loadlib.c.obj
+[26/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstate.c.obj
+[27/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lparser.c.obj
+[28/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstring.c.obj
+[29/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstrlib.c.obj
+[30/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltable.c.obj
+[31/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltablib.c.obj
+[32/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltm.c.obj
+[33/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lundump.c.obj
+[34/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lutf8lib.c.obj
+[35/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lzio.c.obj
+[36/227] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lvm.c.obj
+[37/227] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/Inline.cpp.obj
+[38/227] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/Block.cpp.obj
+[39/227] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/SemanticDocument.cpp.obj
+[40/227] Linking CXX static library third_party\libliblua.a
+[41/227] Automatic MOC and UIC for target libjbig2enc
+[42/227] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/libjbig2enc_autogen/mocs_compilation.cpp.obj
+[43/227] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/DocumentFuzzer.cpp.obj
+[44/227] Linking CXX static library src\docmodel\libdocmodel.a
+[45/227] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2arith.cc.obj
+D:/pdf/pdf-w2b-7z/third_party/jbig2enc/src/jbig2arith.cc: In function 'void jbig2enc_refine(jbig2enc_ctx*, const uint8_t*, int, int, const uint8_t*, int, int, int, int)':
+D:/pdf/pdf-w2b-7z/third_party/jbig2enc/src/jbig2arith.cc:605:14: warning: variable 'image_counter' set but not used [-Wunused-but-set-variable=]
+  605 |   static int image_counter = 0;
+      |              ^~~~~~~~~~~~~
+[46/227] Automatic MOC and UIC for target pdfws_djot
+[47/227] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/pdfws_djot_autogen/mocs_compilation.cpp.obj
+[48/227] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2comparator.cc.obj
+[49/227] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/ProvenanceGuard.cpp.obj
+[50/227] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/LuaDjotCodec.cpp.obj
+[51/227] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/PdfStructureMapper.cpp.obj
+[52/227] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/DjotToRichTextXhtml.cpp.obj
+[53/227] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2sym.cc.obj
+[54/227] Linking CXX static library src\pdfws_djot\libpdfws_djot.a
+[55/227] Automatic MOC and UIC for target pdfws_commands
+[56/227] Building CXX object CMakeFiles/pdfws_commands.dir/pdfws_commands_autogen/mocs_compilation.cpp.obj
+[57/227] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2enc.cc.obj
+[58/227] Linking CXX static library third_party\jbig2enc\liblibjbig2enc.a
+[59/227] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/ReorderPermutationCommand.cpp.obj
+[60/227] Automatic MOC and UIC for target pdfws_engines
+[61/227] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/CropPageCommand.cpp.obj
+[62/227] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/AutoDetectPlacement.cpp.obj
+[63/227] Linking CXX static library libpdfws_commands.a
+[64/227] Building CXX object CMakeFiles/pdfws_engines.dir/cmake_pch.hxx.gch
+[65/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/AnnotationSerializer.cpp.obj
+[66/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/ErrorInfo.cpp.obj
+[67/227] Building CXX object CMakeFiles/pdfws_engines.dir/pdfws_engines_autogen/mocs_compilation.cpp.obj
+[68/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/PageLabels.cpp.obj
+[69/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/Capability.cpp.obj
+[70/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/FormStaleFieldTracker.cpp.obj
+[71/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/PolicyController.cpp.obj
+[72/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/CredentialManager.cpp.obj
+[73/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/TempFileManager.cpp.obj
+[74/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/VersionedJson.cpp.obj
+[75/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/BatchPreset.cpp.obj
+[76/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/EncryptedFileSecretStore.cpp.obj
+D:/pdf/pdf-w2b-7z/src/core/EncryptedFileSecretStore.cpp:70:6: warning: 'bool {anonymous}::permsAreOwnerOnlyFile(const QString&)' defined but not used [-Wunused-function]
+   70 | bool permsAreOwnerOnlyFile(const QString& path)
+      |      ^~~~~~~~~~~~~~~~~~~~~
+[77/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/OcrEngine.cpp.obj
+[78/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/FormManager.cpp.obj
+[79/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SafeSave.cpp.obj
+[80/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PdfEditorEngine.cpp.obj
+[81/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AccessibilityChecker.cpp.obj
+[82/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AccessibilityFixes.cpp.obj
+[83/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/AFormShim.cpp.obj
+[84/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/FormJsSandbox.cpp.obj
+D:/pdf/pdf-w2b-7z/src/engines/formjs/FormJsSandbox.cpp: In member function 'gp::formjs::JsEvalResult gp::formjs::FormJsSandbox::runScriptedEvent(const QString&, const QString&, const QString&, const QJsonObject&, int)':
+D:/pdf/pdf-w2b-7z/src/engines/formjs/FormJsSandbox.cpp:458:40: warning: comparison of integer expressions of different signedness: 'int64_t' {aka 'long long int'} and 'size_t' {aka 'long long unsigned int'} [-Wsign-compare]
+  458 |                     if (mu.malloc_size >= size_t(m_limits.memoryLimitBytes * 0.9)) {
+      |                         ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[85/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/FormJsRunner.cpp.obj
+D:/pdf/pdf-w2b-7z/src/engines/formjs/FormJsRunner.cpp:40:24: warning: 'PoDoFo::PdfDictionary& gp::formjs::{anonymous}::fieldDict(PoDoFo::PdfField&)' defined but not used [-Wunused-function]
+   40 | PoDoFo::PdfDictionary& fieldDict(PoDoFo::PdfField& f) { return f.GetDictionary(); }
+      |                        ^~~~~~~~~
+[86/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AccessibilityTagger.cpp.obj
+D:/pdf/pdf-w2b-7z/src/engines/AccessibilityTagger.cpp: In function 'std::map<int, std::map<int, gp::{anonymous}::GroupEdge> > gp::{anonymous}::assignGroups(WalkOutput&, QList<ElementRec>&)':
+D:/pdf/pdf-w2b-7z/src/engines/AccessibilityTagger.cpp:1269:18: warning: comparison of integer expressions of different signedness: 'size_t' {aka 'long long unsigned int'} and 'qsizetype' {aka 'long long int'} [-Wsign-compare]
+ 1269 |         while (i < evs.size()) {
+      |                ~~^~~~~~~~~~~~
+D:/pdf/pdf-w2b-7z/src/engines/AccessibilityTagger.cpp:1272:26: warning: comparison of integer expressions of different signedness: 'size_t' {aka 'long long unsigned int'} and 'qsizetype' {aka 'long long int'} [-Wsign-compare]
+ 1272 |             while (j + 1 < evs.size()
+      |                    ~~~~~~^~~~~~~~~~~~
+D:/pdf/pdf-w2b-7z/src/engines/AccessibilityTagger.cpp: At global scope:
+D:/pdf/pdf-w2b-7z/src/engines/AccessibilityTagger.cpp:127:5: warning: 'gp::{anonymous}::Mat gp::{anonymous}::dictMatrix(const PoDoFo::PdfDictionary&, const char*)' defined but not used [-Wunused-function]
+  127 | Mat dictMatrix(const PdfDictionary& dict, const char* key) {
+      |     ^~~~~~~~~~
+[87/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RedactOperation.cpp.obj
+[88/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/RedactionProof.cpp.obj
+D:/pdf/pdf-w2b-7z/src/core/RedactionProof.cpp: In function 'QString gp::RedactionProof::{anonymous}::sha256Hex(const QString&, qint64*)':
+D:/pdf/pdf-w2b-7z/src/core/RedactionProof.cpp:49:21: warning: 'void QCryptographicHash::addData(const char*, qsizetype)' is deprecated: Use the QByteArrayView overload instead [-Wdeprecated-declarations]
+   49 |         hash.addData(buf, int(n));
+      |         ~~~~~~~~~~~~^~~~~~~~~~~~~
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/QCryptographicHash:1,
+                 from D:/pdf/pdf-w2b-7z/src/core/RedactionProof.cpp:4:
+C:/msys64/ucrt64/include/qt6/QtCore/qcryptographichash.h:77:10: note: declared here
+   77 |     void addData(const char *data, qsizetype length);
+      |          ^~~~~~~
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/qstringview.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qchar.h:730,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qstring.h:15,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QString:1,
+                 from D:/pdf/pdf-w2b-7z/build-rel/CMakeFiles/pdfws_engines.dir/cmake_pch.hxx:5,
+                 from <command-line>:
+D:/pdf/pdf-w2b-7z/src/core/RedactionProof.cpp: In function 'bool gp::RedactionProof::{anonymous}::hasCompressedContainerSignature(const QByteArray&)':
+D:/pdf/pdf-w2b-7z/src/core/RedactionProof.cpp:370:27: warning: hex escape sequence out of range
+  370 |         QByteArrayLiteral("\xfd7zXZ\x00"),
+      |                           ^~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-7z/src/core/RedactionProof.cpp:370:27: warning: hex escape sequence out of range
+  370 |         QByteArrayLiteral("\xfd7zXZ\x00"),
+      |                           ^~~~~~~~~~~~~~
+[89/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/SigningRequestModel.cpp.obj
+[90/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SignatureManager.cpp.obj
+[91/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/SigningLabels.cpp.obj
+[92/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/SigningRequestRunner.cpp.obj
+[93/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SignatureFieldCreator.cpp.obj
+[94/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/DocumentSession.cpp.obj
+[95/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ConversionManager.cpp.obj
+[96/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AutosaveManager.cpp.obj
+[97/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/BackendRouter.cpp.obj
+[98/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PatternRedactor.cpp.obj
+[99/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/TextMatchFinder.cpp.obj
+D:/pdf/pdf-w2b-7z/src/engines/TextMatchFinder.cpp: In static member function 'static QList<QRectF> TextMatchFinder::lineRectsInRegion(const QString&, int, const QRectF&, MatchBudget*)':
+D:/pdf/pdf-w2b-7z/src/engines/TextMatchFinder.cpp:294:18: warning: unused variable 'effectiveBudget' [-Wunused-variable]
+  294 |     MatchBudget* effectiveBudget = budget ? budget : &defaultBudget;
+      |                  ^~~~~~~~~~~~~~~
+[100/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ReviewSummaryWriter.cpp.obj
+[101/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/StampLibrary.cpp.obj
+[102/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfStringEscape.cpp.obj
+[103/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/HeadingOutlineDetector.cpp.obj
+[104/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/GlyphAdvanceCalculator.cpp.obj
+[105/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/ContentSpans.cpp.obj
+D:/pdf/pdf-w2b-7z/src/engines/podofo/ContentSpans.cpp:344:5: warning: 'int gp::content::{anonymous}::innermostBlockOpen(const QList<gp::content::Token>&, int)' defined but not used [-Wunused-function]
+  344 | int innermostBlockOpen(const QList<Token> &toks, int at)
+      |     ^~~~~~~~~~~~~~~~~~
+[106/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfEncryptPubSec.cpp.obj
+[107/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfPageOps.cpp.obj
+[108/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/pdfium/PdfiumEnvironment.cpp.obj
+[109/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PoDoFoBackend.cpp.obj
+[110/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/pdfium/PdfiumBackend.cpp.obj
+[111/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/qpdf/QpdfBackend.cpp.obj
+[112/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/DiffEngine.cpp.obj
+[113/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RenderCache.cpp.obj
+[114/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/MyersDiff.cpp.obj
+[115/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/VeraPdfValidator.cpp.obj
+[116/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpDocLayoutDetector.cpp.obj
+D:/pdf/pdf-w2b-7z/src/engines/ocr/PpDocLayoutDetector.cpp:45:12: warning: 'RegionType {anonymous}::classToRegionType(int)' defined but not used [-Wunused-function]
+   45 | RegionType classToRegionType(int classIdx)
+      |            ^~~~~~~~~~~~~~~~~
+[117/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/SuryaDetector.cpp.obj
+[118/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/scheduling/LaneScheduler.cpp.obj
+[119/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPreprocessor.cpp.obj
+[120/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/LayoutEnsemble.cpp.obj
+[121/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPipeline.cpp.obj
+[122/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpOcrDecoder.cpp.obj
+[123/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrDjotMapper.cpp.obj
+[124/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/RapidOcrEngine.cpp.obj
+[125/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/conversion/DjvuImporter.cpp.obj
+[126/227] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/mrc/MrcPageProcessor.cpp.obj
+[127/227] Linking CXX static library libpdfws_engines.a
+[128/227] Automatic MOC and UIC for target pdfws_ui
+[129/227] Automatic RCC for resources/commands.qrc
+[130/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/RibbonModel.cpp.obj
+[131/227] Building CXX object CMakeFiles/pdfws_ui.dir/cmake_pch.hxx.gch
+[132/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OCRMode.cpp.obj
+D:/pdf/pdf-w2b-7z/src/modes/OCRMode.cpp: In member function 'void gp::OCRMode::updateInfoStrip()':
+D:/pdf/pdf-w2b-7z/src/modes/OCRMode.cpp:1528:9: warning: variable 'verifiedCount' set but not used [-Wunused-but-set-variable=]
+ 1528 |     int verifiedCount = 0;
+      |         ^~~~~~~~~~~~~
+[133/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PdfViewerWidget.cpp.obj
+[134/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditAnnotationCommand.cpp.obj
+[135/227] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/mocs_compilation.cpp.obj
+[136/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PrintJob.cpp.obj
+[137/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/FindBar.cpp.obj
+[138/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/WelcomeWidget.cpp.obj
+[139/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/FindReplaceDialog.cpp.obj
+[140/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/StampLibraryDialog.cpp.obj
+[141/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ResizeDialog.cpp.obj
+[142/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/HeaderFooterDialog.cpp.obj
+[143/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AutoBookmarkDialog.cpp.obj
+[144/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BatesNumberingDialog.cpp.obj
+[145/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditToolBar.cpp.obj
+[146/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CompareWidget.cpp.obj
+[147/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/InspectorWidget.cpp.obj
+[148/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BookmarkPanel.cpp.obj
+[149/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/DocumentPropertiesWidget.cpp.obj
+[150/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignaturesWidget.cpp.obj
+[151/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CommentsWidget.cpp.obj
+[152/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PageManagementDialog.cpp.obj
+[153/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EncryptionDialog.cpp.obj
+[154/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PermissionsDialog.cpp.obj
+[155/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignatureDialog.cpp.obj
+[156/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SigningRequestDialog.cpp.obj
+[157/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SigningProgressPanel.cpp.obj
+[158/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/RecipientPickerDialog.cpp.obj
+[159/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignaturePicker.cpp.obj
+[160/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SanitizeSummaryDialog.cpp.obj
+[161/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcspConsentDialog.cpp.obj
+[162/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/MetadataDialog.cpp.obj
+[163/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AnnotationLayer.cpp.obj
+[164/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ThumbnailSidebar.cpp.obj
+[165/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ShortcutHelpDialog.cpp.obj
+[166/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/UpdateDialog.cpp.obj
+[167/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/RecoveryDialog.cpp.obj
+[168/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PreferencesDialog.cpp.obj
+[169/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ErrorDialog.cpp.obj
+[170/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PageSetupDialog.cpp.obj
+[171/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ExportPresetsPanel.cpp.obj
+[172/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/SupportBundle.cpp.obj
+[173/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/UpdateChecker.cpp.obj
+[174/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/NetworkTouchpoints.cpp.obj
+[175/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/ToolId.cpp.obj
+[176/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/CommandRegistry.cpp.obj
+[177/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ToolRegistry.cpp.obj
+[178/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/HomeController.cpp.obj
+[179/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/GpMainWindow.cpp.obj
+[180/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ViewController.cpp.obj
+[181/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/PagesController.cpp.obj
+[182/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ConvertController.cpp.obj
+[183/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/EditController.cpp.obj
+[184/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/FormsController.cpp.obj
+[185/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/CertEncryptController.cpp.obj
+[186/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SendForSigningController.cpp.obj
+[187/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SecurityController.cpp.obj
+[188/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/TaskNavController.cpp.obj
+[189/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Badge.cpp.obj
+[190/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Icons.cpp.obj
+[191/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Slider.cpp.obj
+[192/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Ribbon.cpp.obj
+[193/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/MenuBar.cpp.obj
+[194/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ScreenNav.cpp.obj
+[195/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/FlowToolbarLayout.cpp.obj
+[196/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/StatusBar.cpp.obj
+[197/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ModeStrip.cpp.obj
+[198/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/TaskNav.cpp.obj
+[199/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/TaskStateSync.cpp.obj
+[200/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Sidebar.cpp.obj
+[201/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OcrConfidence.cpp.obj
+[202/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcrScanCanvas.cpp.obj
+D:/pdf/pdf-w2b-7z/src/ui/OcrScanCanvas.cpp:16:13: warning: 'gp::{anonymous}::kPaper' defined but not used [-Wunused-variable]
+   16 | const char* kPaper = "#f4f1ea";
+      |             ^~~~~~
+[203/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcrWordMagnifier.cpp.obj
+[204/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/ModeController.cpp.obj
+[205/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactApplyDialog.cpp.obj
+[206/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactMode.cpp.obj
+[207/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompareMode.cpp.obj
+[208/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PagesMode.cpp.obj
+[209/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PresetManagerDialog.cpp.obj
+[210/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PresetEditorDialog.cpp.obj
+[211/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormBuilderMode.cpp.obj
+[212/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormFieldPropertiesPanel.cpp.obj
+[213/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/AIChatPanel.cpp.obj
+[214/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/BatchMode.cpp.obj
+[215/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/engines/ai/OllamaProvider.cpp.obj
+[216/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/SignaturesPanel.cpp.obj
+[217/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/AccessibilityPanel.cpp.obj
+[218/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PdfAValidationPanel.cpp.obj
+[219/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/MeasureMode.cpp.obj
+[220/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/WatermarkDialog.cpp.obj
+[221/227] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/3YJK5W5UP7/qrc_commands.cpp.obj
+[222/227] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompressDialog.cpp.obj
+[223/227] Linking CXX static library libpdfws_ui.a
+[224/227] Automatic MOC and UIC for target TestSevenZipBundle
+[225/227] Building CXX object CMakeFiles/TestSevenZipBundle.dir/TestSevenZipBundle_autogen/mocs_compilation.cpp.obj
+[226/227] Building CXX object CMakeFiles/TestSevenZipBundle.dir/tests/TestSevenZipBundle.cpp.obj
+FAILED: [code=1] CMakeFiles/TestSevenZipBundle.dir/tests/TestSevenZipBundle.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DGLYPHPDF_QUICKJS_VERSION=\"0.15.1\" -DHAS_OPENJPEG2 -DHAS_PDFIUM -DHAS_QPDF -DHAS_QUICKJS -DHAS_TESSERACT -DMINGW_HAS_SECURE_API=1 -DQT_CONCURRENT_LIB -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_TESTCASE_BUILDDIR=\"D:/pdf/pdf-w2b-7z/build-rel\" -DQT_TESTCASE_SOURCEDIR=\"D:/pdf/pdf-w2b-7z\" -DQT_TESTLIB_LIB -DQT_WIDGETS_LIB -DSOURCE_DIR=\"D:/pdf/pdf-w2b-7z\" -DUNICODE -DUSING_QJS_SHARED -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -ID:/pdf/pdf-w2b-7z/build-rel/TestSevenZipBundle_autogen/include -ID:/pdf/pdf-w2b-7z/src -IC:/msys64/ucrt64/include/leptonica -IC:/msys64/ucrt64/include/libpng16 -IC:/msys64/ucrt64/include/webp -isystem C:/msys64/ucrt64/include/qt6/QtCore -isystem C:/msys64/ucrt64/include/qt6 -isystem C:/msys64/ucrt64/share/qt6/mkspecs/win32-g++ -isystem C:/msys64/ucrt64/include/qt6/QtGui -isystem C:/msys64/ucrt64/include/qt6/QtWidgets -isystem C:/msys64/ucrt64/include/openjpeg-2.5 -isystem D:/pdf/pdf-w2b-7z/third_party/pdfium/include -isystem C:/msys64/ucrt64/include/qt6/QtTest -isystem C:/msys64/ucrt64/include/qt6/QtConcurrent -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=unused-result -Werror=shadow -fstack-protector-strong -D_FORTIFY_SOURCE=2 -flto=auto -MD -MT CMakeFiles/TestSevenZipBundle.dir/tests/TestSevenZipBundle.cpp.obj -MF CMakeFiles\TestSevenZipBundle.dir\tests\TestSevenZipBundle.cpp.obj.d -o CMakeFiles/TestSevenZipBundle.dir/tests/TestSevenZipBundle.cpp.obj -c D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:33:11: error: using-declaration may not name namespace 'gp::SafeSave'
+   33 | using gp::SafeSave;
+      |           ^~~~~~~~
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp: In member function 'void TestSevenZipBundle::resolverPrefersAppOwnedBinary()':
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:130:29: error: 'locateSevenZip' is not a member of 'gp::HomeController'
+  130 |             HomeController::locateSevenZip(appDir.path());
+      |                             ^~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp: In member function 'void TestSevenZipBundle::resolverDisclosesAbsenceHonestly()':
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:142:50: error: 'locateSevenZip' is not a member of 'gp::HomeController'
+  142 |         const QString resolved = HomeController::locateSevenZip(emptyDir.path());
+      |                                                  ^~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp: In member function 'void TestSevenZipBundle::bundledBinaryEndToEndStdinPassword()':
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:165:50: error: 'locateSevenZip' is not a member of 'gp::HomeController'
+  165 |         const QString sevenZip = HomeController::locateSevenZip(appDirPath);
+      |                                                  ^~~~~~~~~~~~~~
+In file included from C:/msys64/ucrt64/include/qt6/QtTest/qtesteventloop.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qsignalspy.h:10,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:10,
+                 from D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:19:
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:193:18: error: 'SafeSave' has not been declared
+  193 |         QVERIFY2(SafeSave::runBoundedProcess(
+      |                  ^~~~~~~~
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:203:18: error: 'SafeSave' has not been declared
+  203 |         QVERIFY2(SafeSave::runBoundedProcess(
+      |                  ^~~~~~~~
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:213:35: error: 'SafeSave' has not been declared
+  213 |             const bool finished = SafeSave::runBoundedProcess(
+      |                                   ^~~~~~~~
+ninja: build stopped: cannot make progress due to previous errors.

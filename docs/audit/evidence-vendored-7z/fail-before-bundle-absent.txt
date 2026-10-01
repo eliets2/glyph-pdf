@@ -1,0 +1,15 @@
+# fail-before: bundle absent at base a4cc1522
+$ git ls-tree a4cc1522 -- third_party/7zip
+(rc=0, empty output = no vendored 7z at base)
+
+$ git ls-tree a4cc1522 -- third_party/pdfium
+040000 tree bbb31416d928dfe6400ccb0c2f8db9bc2b7f106c	third_party/pdfium
+
+$ git status at RED-pin time
+ M .gitignore
+ M CMakeLists.txt
+ M packaging/licenses/README.txt
+?? docs/audit/evidence-vendored-7z/
+?? packaging/licenses/LICENSE-7-Zip.txt
+?? tests/TestSevenZipBundle.cpp
+?? third_party/7zip/

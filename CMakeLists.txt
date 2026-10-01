@@ -2261,6 +2261,31 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestControllers.cpp")
     )
 endif()
 
+# ── TestSevenZipBundle (PARITY-SCORECARD-2026-09-30 §4 row 14) ──────────────
+# Vendored 7-Zip pins: committed binaries match the recorded SHA-256 values,
+# resolution prefers the app-owned copy, absence is disclosed honestly, and
+# the bundled binary performs the real M-1 stdin-password round trip.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSevenZipBundle.cpp")
+    add_executable(TestSevenZipBundle
+        tests/TestSevenZipBundle.cpp
+    )
+    target_include_directories(TestSevenZipBundle PRIVATE src)
+    target_link_libraries(TestSevenZipBundle PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core
+        Qt6::Test Qt6::Widgets Qt6::Concurrent
+    )
+    # The pins read the committed bundle + provenance from the SOURCE tree.
+    target_compile_definitions(TestSevenZipBundle PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
+    )
+    # QTEST_GUILESS_MAIN (QCoreApplication) — no platform plugin deploy needed.
+    add_test(NAME TestSevenZipBundle COMMAND TestSevenZipBundle)
+    set_tests_properties(TestSevenZipBundle PROPERTIES
+        TIMEOUT 300
+        LABELS "unit;controllers;security;qt;headless"
+    )
+endif()
+
 # ── TestRibbonIntegrity (R2-4 D5) ────────────────────────────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRibbonIntegrity.cpp")
     add_executable(TestRibbonIntegrity

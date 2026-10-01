@@ -1,0 +1,6 @@
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:130:29: error: 'locateSevenZip' is not a member of 'gp::HomeController'
+  130 |             HomeController::locateSevenZip(appDir.path());
+      |                             ^~~~~~~~~~~~~~
+--
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp:142:50: error: 'locateSevenZip' is not a member of 'gp::HomeController'
+  142 |         const QString resolved = HomeController::locateSevenZip(emptyDir.path());
