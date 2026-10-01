@@ -1,0 +1,1422 @@
+[1/847] Automatic MOC and UIC for target pdfws_engines
+[2/846] Automatic MOC and UIC for target TestInterfaces
+[3/846] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/PageLabels.cpp.obj
+[4/846] Automatic MOC and UIC for target TestSignatureValidationMock
+[5/846] Linking CXX static library libpdfws_engines.a
+[6/846] Automatic MOC and UIC for target TestChain1
+[7/846] Automatic MOC and UIC for target TestViewParity
+[8/846] Automatic MOC and UIC for target UnitTests
+[9/846] Automatic MOC and UIC for target TestExpiryInterface
+[10/846] Automatic MOC and UIC for target SmokeTest
+[11/846] Automatic MOC and UIC for target TestSanitization
+[12/846] Automatic MOC and UIC for target TestSanitizeSelective
+[13/846] Automatic MOC and UIC for target TestSanitizeTrailerUaf
+[14/846] Automatic MOC and UIC for target TestAutosave
+[15/846] Automatic MOC and UIC for target TestDocumentIdentity
+[16/846] Automatic MOC and UIC for target TestRecoverySave
+[17/846] Automatic MOC and UIC for target TestBatesBatchSafety
+[18/846] Automatic MOC and UIC for target TestSidecarReopenState
+[19/846] Automatic MOC and UIC for target TestReadOnlyGate
+[20/846] Automatic MOC and UIC for target TestSecretStore
+[21/846] Automatic MOC and UIC for target TestRobustness
+[22/846] Automatic MOC and UIC for target TestSignatureValidation
+[23/846] Automatic MOC and UIC for target TestSignatureRealCrypto
+[24/846] Automatic MOC and UIC for target TestSendForSigning
+[25/846] Automatic MOC and UIC for target TestEraseSignedGuard
+[26/846] Automatic MOC and UIC for target TestOptimizeSignedGuard
+[27/846] Automatic MOC and UIC for target TestSignatureAppearance
+[28/846] Automatic MOC and UIC for target TestImageDedup
+[29/846] Automatic MOC and UIC for target TestRedaction
+[30/846] Automatic MOC and UIC for target TestDedupSMask
+[31/846] Automatic MOC and UIC for target TestCompressJpegReencode
+[32/846] Automatic MOC and UIC for target TestOptimizeEstimate
+[33/846] Automatic MOC and UIC for target TestLayoutEnsemble
+[34/846] Automatic MOC and UIC for target TestOcrPipeline
+[35/846] Automatic MOC and UIC for target TestOcrReviewLifecycle
+[36/846] Automatic MOC and UIC for target TestOcrVerifyNavigation
+[37/846] Automatic MOC and UIC for target TestOcrVerifyPort
+[38/846] Automatic MOC and UIC for target TestOcrPreprocessor
+[39/846] Automatic MOC and UIC for target TestOcrDjotMapper
+[40/846] Automatic MOC and UIC for target TestThreadSafety
+[41/846] Automatic MOC and UIC for target TestEncryption
+[42/846] Automatic MOC and UIC for target TestResourceLimits
+[43/846] Automatic MOC and UIC for target TestControllers
+[44/846] Automatic MOC and UIC for target TestRibbonIntegrity
+[45/846] Automatic MOC and UIC for target TestMenuBarIntegrity
+[46/846] Automatic MOC and UIC for target TestCommandBinding
+[47/846] Automatic MOC and UIC for target TestWelcomeRoutes
+[48/846] Automatic MOC and UIC for target TestSweepW3UxFlows
+[49/846] Automatic MOC and UIC for target TestUiAccessibility
+[50/846] Automatic MOC and UIC for target TestIntegration
+[51/846] Automatic MOC and UIC for target TestPerformance
+[52/846] Automatic MOC and UIC for target TestVeraPdf
+[53/846] Automatic MOC and UIC for target TestReadingOrderAsync
+[54/846] Automatic MOC and UIC for target TestAccessibilityChecker
+[55/846] Automatic MOC and UIC for target TestAccessibilityPanel
+[56/846] Automatic MOC and UIC for target TestAccessibilityFixes
+[57/846] Automatic MOC and UIC for target TestLaneScheduler
+[58/846] Automatic MOC and UIC for target TestAccessibilityTagger
+[59/846] Automatic MOC and UIC for target TestFormBuilder
+[60/846] Automatic MOC and UIC for target TestFormPersistence
+[61/846] Automatic MOC and UIC for target TestCompareEntry
+[62/846] Automatic MOC and UIC for target TestCompareIntegration
+[63/846] Automatic MOC and UIC for target TestPagesMode
+[64/846] Automatic MOC and UIC for target TestBatchMode
+[65/846] Automatic MOC and UIC for target TestBatchPresets
+[66/846] Automatic MOC and UIC for target TestBatchPresetsP2
+[67/846] Automatic MOC and UIC for target TestBatchOcrLanguage
+[68/846] Automatic MOC and UIC for target TestBatchOcrSkipText
+[69/846] Automatic MOC and UIC for target TestOcrPreprocessPrefs
+[70/846] Automatic MOC and UIC for target TestBatesCrossDoc
+[71/846] Automatic MOC and UIC for target TestOpenRouting
+[72/846] Automatic MOC and UIC for target TestExcisionCorruption
+[73/846] Automatic MOC and UIC for target TestBatchOpsCoverage
+[74/846] Automatic MOC and UIC for target TestReadingOrderThreshold
+[75/846] Automatic MOC and UIC for target TestPdfACidSetSafety
+[76/846] Automatic MOC and UIC for target TestReadingOrderMcid
+[77/846] Automatic MOC and UIC for target TestReadingOrderDepthCap
+[78/846] Automatic MOC and UIC for target TestLinkBookmarkRoundTrip
+[79/846] Automatic MOC and UIC for target TestSignatureSessionCache
+[80/846] Automatic MOC and UIC for target TestCapabilityRegistry
+[81/846] Automatic MOC and UIC for target TestXfaHonestyBanner
+[82/846] Automatic MOC and UIC for target TestScreenStateSync
+[83/846] Automatic MOC and UIC for target TestTaskNavRegistry
+[84/846] Automatic MOC and UIC for target TestModeStripPins
+[85/846] Automatic MOC and UIC for target TestRibbonCollapse
+[86/846] Automatic MOC and UIC for target TestCommentsReview
+[87/846] Automatic MOC and UIC for target TestStatusBarSlim
+[88/846] Automatic MOC and UIC for target TestWelcomeLayout
+[89/846] Automatic MOC and UIC for target TestSignatureBadges
+[90/846] Automatic MOC and UIC for target TestInspector
+[91/846] Automatic MOC and UIC for target TestBatchOcrConfidence
+[92/846] Automatic MOC and UIC for target TestPatternRedact
+[93/846] Automatic MOC and UIC for target TestFindReplace
+[94/846] Automatic MOC and UIC for target TestReviewSummary
+[95/846] Automatic MOC and UIC for target TestPrintableSummary
+[96/846] Automatic MOC and UIC for target TestDynamicStamps
+[97/846] Automatic MOC and UIC for target TestAutoBookmarks
+[98/846] Automatic MOC and UIC for target TestDjotRoundtrip
+[99/846] Automatic MOC and UIC for target TestDjotFuzz
+[100/846] Automatic MOC and UIC for target TestUpdateChecker
+[101/846] Automatic MOC and UIC for target TestWatermarkFont
+[102/846] Automatic MOC and UIC for target TestOcrLanguage
+[103/846] Automatic MOC and UIC for target TestRedactClearMarks
+[104/846] Automatic MOC and UIC for target TestLinkSchemeSafety
+[105/846] Automatic MOC and UIC for target TestThumbnailZoom
+[106/846] Automatic MOC and UIC for target TestMergeSuccess
+[107/846] Automatic MOC and UIC for target TestFillFormLock
+[108/846] Automatic MOC and UIC for target TestFillFormNoOp
+[109/846] Automatic MOC and UIC for target TestReadingOrderInheritance
+[110/846] Automatic MOC and UIC for target TestShapeInkPersistence
+[111/846] Automatic MOC and UIC for target TestQuadPointsMarkup
+[112/846] Automatic MOC and UIC for target TestMeasurePanelHonesty
+[113/846] Automatic MOC and UIC for target TestMeasureCore
+[114/846] Automatic MOC and UIC for target TestMeasureRoundTrip
+[115/846] Automatic MOC and UIC for target TestLegacyOriginSpace
+[116/846] Automatic MOC and UIC for target TestMeasureCsvExport
+[117/846] Automatic MOC and UIC for target TestCompressStripSanitize
+[118/846] Automatic MOC and UIC for target TestCompressDialogHonesty
+[119/846] Automatic MOC and UIC for target TestFieldMetadata
+[120/846] Automatic MOC and UIC for target TestFormSafety
+[121/846] Automatic MOC and UIC for target TestFormJsCalc
+[122/846] Automatic MOC and UIC for target TestFormJsAdversarial
+[123/846] Automatic MOC and UIC for target TestFormStaleDisclosure
+[124/846] Automatic MOC and UIC for target TestFormKeystroke
+[125/846] Automatic MOC and UIC for target TestEncryptedPackageSafeWrite
+[126/846] Automatic MOC and UIC for target TestEngineSave
+[127/846] Automatic MOC and UIC for target TestPrintJob
+[128/846] Automatic MOC and UIC for target TestTempOwnership
+[129/846] Automatic MOC and UIC for target TestCleanupCli
+[130/846] Automatic MOC and UIC for target TestFormUndo
+[131/846] Automatic MOC and UIC for target TestValidateAllSignatures
+[132/846] Automatic MOC and UIC for target TestExportPathBadge
+[133/846] Automatic MOC and UIC for target TestImageEditWiring
+[134/846] Automatic MOC and UIC for target TestRedactSanitizeBundle
+[135/846] Automatic MOC and UIC for target TestRedactTransaction
+[136/846] Automatic MOC and UIC for target TestRedactionProof
+[137/846] Automatic MOC and UIC for target TestPptxOverlayAlpha
+[138/846] Automatic MOC and UIC for target TestAutoDetectHeuristic
+[139/846] Automatic MOC and UIC for target fake_soffice
+[140/846] Automatic MOC and UIC for target TestConversionExtraction
+[141/846] Automatic MOC and UIC for target TestTextExtractionCoords
+[142/846] Automatic MOC and UIC for target TestEraseWiring
+[143/846] Automatic MOC and UIC for target TestRibbonMarkupTools
+[144/846] Automatic MOC and UIC for target TestViewerRotation
+[145/846] Automatic MOC and UIC for target TestTwoPageOverlay
+[146/846] Automatic MOC and UIC for target TestViewingModes
+[147/846] Automatic MOC and UIC for target TestSignaturePicker
+[148/846] Automatic MOC and UIC for target TestCertEncryptPicker
+[149/846] Automatic MOC and UIC for target TestCertifySelector
+[150/846] Automatic MOC and UIC for target TestPolicyController
+[151/846] Automatic MOC and UIC for target TestPolicyWiring
+[152/846] Automatic MOC and UIC for target TestOcspConsent
+[153/846] Automatic MOC and UIC for target TestSupportBundle
+[154/846] Automatic MOC and UIC for target TestNetworkDisclosure
+[155/846] Automatic MOC and UIC for target TestOcrAcceptSeam
+[156/846] Automatic MOC and UIC for target TestSearchFlags
+[157/846] Automatic MOC and UIC for target TestExportPresets
+[158/846] Automatic MOC and UIC for target TestOcrAcceptScope
+[159/846] Automatic MOC and UIC for target TestViewerLinkSeam
+[160/846] Automatic MOC and UIC for target TestHyperlinkNavigation
+[161/846] Automatic MOC and UIC for target TestRedactApplyMarks
+[162/846] Automatic MOC and UIC for target TestRedactMarkAll
+[163/846] Automatic MOC and UIC for target TestAiProvider
+[164/846] Automatic MOC and UIC for target TestAnnotationDjot
+[165/846] Automatic MOC and UIC for target TestOllamaProvider
+[166/846] Automatic MOC and UIC for target TestDiffEngine
+[167/846] Automatic MOC and UIC for target TestOfficeImport
+[168/846] Automatic MOC and UIC for target TestMrcPipeline
+[169/846] Automatic MOC and UIC for target TestHistoryIntegrity
+[170/846] Automatic MOC and UIC for target TestCheckedMutationCoverage
+[171/846] Automatic MOC and UIC for target TestImageAppearance
+[172/846] Automatic MOC and UIC for target TestOfficeExport
+[173/846] Automatic MOC and UIC for target TestTextEditStyle
+[174/846] Automatic MOC and UIC for target TestEraserEngine
+[175/846] Automatic MOC and UIC for target render_path_profile
+[176/846] Automatic MOC and UIC for target TestPersistenceOutcomes
+[177/846] Automatic MOC and UIC for target TestRenderGuards
+[178/846] Automatic MOC and UIC for target TestSep13LeadCapability
+[179/846] Automatic MOC and UIC for target TestSep13LeadBatchMerge
+[180/846] Automatic MOC and UIC for target TestSep13LeadOcrGuards
+[181/846] Automatic MOC and UIC for target TestSep13LeadConversionExport
+[182/846] Automatic MOC and UIC for target TestSep13LeadRedactionProof
+[183/846] Automatic MOC and UIC for target R14ProbeRedactSpace
+[184/846] Automatic MOC and UIC for target R14ProbeSep13Fixes
+[185/846] Automatic MOC and UIC for target TestSep13LeadBtDowngrade
+[186/846] Automatic MOC and UIC for target TestSep13LeadComparePerf
+[187/846] Automatic MOC and UIC for target TestSweepW1PresetAdversary
+[188/846] Automatic MOC and UIC for target TestSweepW1SigningAdversary
+[189/846] Automatic MOC and UIC for target TestSweepW1SummaryPolicyAdversary
+[190/846] Automatic MOC and UIC for target TestSweepW1SecProbe
+[191/846] Automatic MOC and UIC for target W2BProbeNaming
+[192/846] Automatic MOC and UIC for target W2BProbeSigning
+[193/846] Automatic MOC and UIC for target W2BProbeSummaryPolicy
+[194/846] Automatic MOC and UIC for target W2BProbeA11y
+[195/846] Automatic MOC and UIC for target W2BProbeOfficeSave
+[196/846] Automatic MOC and UIC for target W2BProbeLegacySpace
+[197/846] Automatic MOC and UIC for target TestRotate270PageSpace
+[198/846] Automatic MOC and UIC for target R14ProbeBatchSkip
+[199/846] Automatic MOC and UIC for target W2CProbeRotate270
+[200/846] Automatic MOC and UIC for target TestGsdW2Probe
+[201/846] Automatic MOC and UIC for target TestPgr37PageSpaceLaw
+[202/846] Automatic MOC and UIC for target TestPgr35BatchCollision
+[203/846] Automatic MOC and UIC for target TestPgr36StaleSigningPanel
+[204/846] Automatic MOC and UIC for target TestFileHandleCoordination
+[205/846] Automatic RCC for tests/TestViewParity.qrc
+[206/846] Building CXX object CMakeFiles/TestViewParity.dir/TestViewParity_autogen/mocs_compilation.cpp.obj
+[207/846] Automatic MOC and UIC for target TestCommandRegistry
+[208/846] Building CXX object CMakeFiles/TestViewParity.dir/src/app/Bootstrapper.cpp.obj
+[209/846] Building CXX object CMakeFiles/TestViewParity.dir/tests/TestViewParity.cpp.obj
+[210/846] Building CXX object CMakeFiles/TestViewParity.dir/TestViewParity_autogen/KRHXW7JQHD/qrc_TestViewParity.cpp.obj
+[211/846] Building CXX object CMakeFiles/UnitTests.dir/UnitTests_autogen/mocs_compilation.cpp.obj
+[212/846] Building CXX object CMakeFiles/TestInterfaces.dir/TestInterfaces_autogen/mocs_compilation.cpp.obj
+[213/846] Building CXX object CMakeFiles/UnitTests.dir/tests/UnitTests.cpp.obj
+[214/846] Building CXX object CMakeFiles/TestInterfaces.dir/src/engines/DocumentSession.cpp.obj
+[215/846] Building CXX object CMakeFiles/TestInterfaces.dir/tests/TestPdfEditorInterface.cpp.obj
+[216/846] Building CXX object CMakeFiles/TestExpiryInterface.dir/TestExpiryInterface_autogen/mocs_compilation.cpp.obj
+[217/846] Building CXX object CMakeFiles/SmokeTest.dir/SmokeTest_autogen/mocs_compilation.cpp.obj
+[218/846] Building CXX object CMakeFiles/TestExpiryInterface.dir/tests/TestExpiryInterface.cpp.obj
+[219/846] Building CXX object CMakeFiles/SmokeTest.dir/tests/smoke_test.cpp.obj
+[220/846] Building CXX object CMakeFiles/TestSanitization.dir/TestSanitization_autogen/mocs_compilation.cpp.obj
+[221/846] Building CXX object CMakeFiles/TestSanitization.dir/src/engines/DocumentSession.cpp.obj
+[222/846] Building CXX object CMakeFiles/TestSanitizeSelective.dir/TestSanitizeSelective_autogen/mocs_compilation.cpp.obj
+[223/846] Building CXX object CMakeFiles/TestSanitization.dir/tests/TestSanitization.cpp.obj
+[224/846] Building CXX object CMakeFiles/TestSanitizeTrailerUaf.dir/TestSanitizeTrailerUaf_autogen/mocs_compilation.cpp.obj
+[225/846] Building CXX object CMakeFiles/TestSanitizeSelective.dir/tests/TestSanitizeSelective.cpp.obj
+[226/846] Building CXX object CMakeFiles/TestSanitizeTrailerUaf.dir/src/engines/DocumentSession.cpp.obj
+[227/846] Building CXX object CMakeFiles/TestAutosave.dir/TestAutosave_autogen/mocs_compilation.cpp.obj
+[228/846] Building CXX object CMakeFiles/TestSanitizeTrailerUaf.dir/tests/TestSanitizeTrailerUaf.cpp.obj
+[229/846] Building CXX object CMakeFiles/TestDocumentIdentity.dir/TestDocumentIdentity_autogen/mocs_compilation.cpp.obj
+[230/846] Building CXX object CMakeFiles/TestAutosave.dir/tests/TestAutosave.cpp.obj
+[231/846] Building CXX object CMakeFiles/TestDocumentIdentity.dir/tests/TestDocumentIdentity.cpp.obj
+[232/846] Building CXX object CMakeFiles/TestBatesBatchSafety.dir/TestBatesBatchSafety_autogen/mocs_compilation.cpp.obj
+[233/846] Building CXX object CMakeFiles/TestDocumentIdentity.dir/src/app/Bootstrapper.cpp.obj
+[234/846] Building CXX object CMakeFiles/TestBatesBatchSafety.dir/tests/TestBatesBatchSafety.cpp.obj
+[235/846] Building CXX object CMakeFiles/TestBatesBatchSafety.dir/src/app/Bootstrapper.cpp.obj
+[236/846] Building CXX object CMakeFiles/TestRecoverySave.dir/TestRecoverySave_autogen/mocs_compilation.cpp.obj
+[237/846] Building CXX object CMakeFiles/TestRecoverySave.dir/src/app/Bootstrapper.cpp.obj
+[238/846] Building CXX object CMakeFiles/TestReadOnlyGate.dir/TestReadOnlyGate_autogen/mocs_compilation.cpp.obj
+[239/846] Building CXX object CMakeFiles/TestRecoverySave.dir/tests/TestRecoverySave.cpp.obj
+[240/846] Building CXX object CMakeFiles/TestReadOnlyGate.dir/src/app/Bootstrapper.cpp.obj
+[241/846] Building CXX object CMakeFiles/TestSidecarReopenState.dir/TestSidecarReopenState_autogen/mocs_compilation.cpp.obj
+[242/846] Building CXX object CMakeFiles/TestReadOnlyGate.dir/tests/TestReadOnlyGate.cpp.obj
+[243/846] Building CXX object CMakeFiles/TestSidecarReopenState.dir/tests/TestSidecarReopenState.cpp.obj
+[244/846] Building CXX object CMakeFiles/TestSignatureValidationMock.dir/TestSignatureValidationMock_autogen/mocs_compilation.cpp.obj
+[245/846] Building CXX object CMakeFiles/TestSidecarReopenState.dir/src/app/Bootstrapper.cpp.obj
+[246/846] Building CXX object CMakeFiles/TestRobustness.dir/TestRobustness_autogen/mocs_compilation.cpp.obj
+[247/846] Building CXX object CMakeFiles/TestSignatureValidationMock.dir/tests/TestSignatureValidationMock.cpp.obj
+[248/846] Building CXX object CMakeFiles/TestSecretStore.dir/TestSecretStore_autogen/mocs_compilation.cpp.obj
+[249/846] Building CXX object CMakeFiles/TestRobustness.dir/tests/TestRobustness.cpp.obj
+[250/846] Building CXX object CMakeFiles/TestSignatureValidation.dir/TestSignatureValidation_autogen/mocs_compilation.cpp.obj
+[251/846] Building CXX object CMakeFiles/TestSecretStore.dir/tests/TestSecretStore.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestSecretStore.cpp: In function 'QByteArray {anonymous}::craftLegacyV1Blob(const QByteArray&, const QByteArray&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestSecretStore.cpp:96:9: warning: unused variable 'len' [-Wunused-variable]
+   96 |     int len = 0, cipherLen = 0;
+      |         ^~~
+[252/846] Building CXX object CMakeFiles/TestSignatureRealCrypto.dir/TestSignatureRealCrypto_autogen/mocs_compilation.cpp.obj
+[253/846] Building CXX object CMakeFiles/TestSignatureValidation.dir/tests/TestSignatureValidation.cpp.obj
+[254/846] Building CXX object CMakeFiles/TestSendForSigning.dir/TestSendForSigning_autogen/mocs_compilation.cpp.obj
+[255/846] Building CXX object CMakeFiles/TestSignatureRealCrypto.dir/tests/TestSignatureRealCrypto.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestSignatureRealCrypto.cpp: In member function 'void TestSignatureRealCrypto::testTamperedPdfInvalid()':
+D:/pdf/pdf-w2b-plprefix/tests/TestSignatureRealCrypto.cpp:1028:28: warning: unused variable 'off1' [-Wunused-variable]
+ 1028 |                     qint64 off1 = parts[0].toLongLong();
+      |                            ^~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestSignatureRealCrypto.cpp: In member function 'void TestSignatureRealCrypto::testOwnModDateRefreshNotDowngraded()':
+D:/pdf/pdf-w2b-plprefix/tests/TestSignatureRealCrypto.cpp:1263:90: warning: 'QDateTime::QDateTime(QDate, QTime, Qt::TimeSpec, int)' is deprecated: Pass QTimeZone instead [-Wdeprecated-declarations]
+ 1263 |                 std::chrono::seconds(QDateTime(QDate(2031, 2, 3), QTime(4, 5, 6), Qt::UTC)
+      |                                                                                          ^
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/qcborvalue.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qcborarray.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:55,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestSignatureRealCrypto.cpp:19:
+C:/msys64/ucrt64/include/qt6/QtCore/qdatetime.h:390:5: note: declared here
+  390 |     QDateTime(QDate date, QTime time, Qt::TimeSpec spec, int offsetSeconds = 0);
+      |     ^~~~~~~~~
+[256/846] Building CXX object CMakeFiles/TestEraseSignedGuard.dir/TestEraseSignedGuard_autogen/mocs_compilation.cpp.obj
+[257/846] Building CXX object CMakeFiles/TestSendForSigning.dir/tests/TestSendForSigning.cpp.obj
+[258/846] Building CXX object CMakeFiles/TestSignatureAppearance.dir/TestSignatureAppearance_autogen/mocs_compilation.cpp.obj
+[259/846] Building CXX object CMakeFiles/TestEraseSignedGuard.dir/tests/TestEraseSignedGuard.cpp.obj
+[260/846] Building CXX object CMakeFiles/TestOptimizeSignedGuard.dir/TestOptimizeSignedGuard_autogen/mocs_compilation.cpp.obj
+[261/846] Building CXX object CMakeFiles/TestSignatureAppearance.dir/tests/TestSignatureAppearance.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestSignatureAppearance.cpp: In function 'QDateTime {anonymous}::fixedClaimedTime()':
+D:/pdf/pdf-w2b-plprefix/tests/TestSignatureAppearance.cpp:50:86: warning: 'QDateTime::QDateTime(QDate, QTime, Qt::TimeSpec, int)' is deprecated: Pass QTimeZone instead [-Wdeprecated-declarations]
+   50 |     return QDateTime(QDate(2026, 9, 5), QTime(14, 30, 0), Qt::OffsetFromUTC, 2 * 3600);
+      |                                                                                      ^
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/qcborvalue.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qcborarray.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:55,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestSignatureAppearance.cpp:15:
+C:/msys64/ucrt64/include/qt6/QtCore/qdatetime.h:390:5: note: declared here
+  390 |     QDateTime(QDate date, QTime time, Qt::TimeSpec spec, int offsetSeconds = 0);
+      |     ^~~~~~~~~
+[262/846] Building CXX object CMakeFiles/TestImageDedup.dir/TestImageDedup_autogen/mocs_compilation.cpp.obj
+[263/846] Building CXX object CMakeFiles/TestOptimizeSignedGuard.dir/tests/TestOptimizeSignedGuard.cpp.obj
+[264/846] Building CXX object CMakeFiles/TestChain1.dir/TestChain1_autogen/mocs_compilation.cpp.obj
+[265/846] Building CXX object CMakeFiles/TestImageDedup.dir/tests/TestImageDedup.cpp.obj
+[266/846] Building CXX object CMakeFiles/TestRedaction.dir/TestRedaction_autogen/mocs_compilation.cpp.obj
+[267/846] Building CXX object CMakeFiles/TestChain1.dir/tests/TestChain1.cpp.obj
+[268/846] Building CXX object CMakeFiles/TestDedupSMask.dir/TestDedupSMask_autogen/mocs_compilation.cpp.obj
+[269/846] Building CXX object CMakeFiles/TestRedaction.dir/tests/TestRedaction.cpp.obj
+[270/846] Building CXX object CMakeFiles/TestCompressJpegReencode.dir/TestCompressJpegReencode_autogen/mocs_compilation.cpp.obj
+[271/846] Building CXX object CMakeFiles/TestDedupSMask.dir/tests/TestDedupSMask.cpp.obj
+[272/846] Building CXX object CMakeFiles/TestOptimizeEstimate.dir/TestOptimizeEstimate_autogen/mocs_compilation.cpp.obj
+[273/846] Building CXX object CMakeFiles/TestCompressJpegReencode.dir/tests/TestCompressJpegReencode.cpp.obj
+[274/846] Building CXX object CMakeFiles/TestOptimizeEstimate.dir/tests/TestOptimizeEstimate.cpp.obj
+[275/846] Building CXX object CMakeFiles/TestLayoutEnsemble.dir/TestLayoutEnsemble_autogen/mocs_compilation.cpp.obj
+[276/846] Building CXX object CMakeFiles/TestOcrPipeline.dir/TestOcrPipeline_autogen/mocs_compilation.cpp.obj
+[277/846] Building CXX object CMakeFiles/TestLayoutEnsemble.dir/tests/TestLayoutEnsemble.cpp.obj
+[278/846] Building CXX object CMakeFiles/TestOcrReviewLifecycle.dir/TestOcrReviewLifecycle_autogen/mocs_compilation.cpp.obj
+[279/846] Building CXX object CMakeFiles/TestOcrPipeline.dir/tests/TestOcrPipeline.cpp.obj
+[280/846] Building CXX object CMakeFiles/TestOcrVerifyNavigation.dir/TestOcrVerifyNavigation_autogen/mocs_compilation.cpp.obj
+[281/846] Building CXX object CMakeFiles/TestOcrReviewLifecycle.dir/tests/TestOcrReviewLifecycle.cpp.obj
+[282/846] Building CXX object CMakeFiles/TestOcrVerifyPort.dir/TestOcrVerifyPort_autogen/mocs_compilation.cpp.obj
+[283/846] Building CXX object CMakeFiles/TestOcrVerifyNavigation.dir/tests/TestOcrVerifyNavigation.cpp.obj
+[284/846] Building CXX object CMakeFiles/TestOcrPreprocessor.dir/TestOcrPreprocessor_autogen/mocs_compilation.cpp.obj
+[285/846] Building CXX object CMakeFiles/TestOcrPreprocessor.dir/tests/TestOcrPreprocessor.cpp.obj
+[286/846] Building CXX object CMakeFiles/TestOcrVerifyPort.dir/tests/TestOcrVerifyPort.cpp.obj
+[287/846] Building CXX object CMakeFiles/TestOcrDjotMapper.dir/TestOcrDjotMapper_autogen/mocs_compilation.cpp.obj
+[288/846] Building CXX object CMakeFiles/TestThreadSafety.dir/TestThreadSafety_autogen/mocs_compilation.cpp.obj
+[289/846] Building CXX object CMakeFiles/TestOcrDjotMapper.dir/tests/TestOcrDjotMapper.cpp.obj
+[290/846] Building CXX object CMakeFiles/TestEncryption.dir/TestEncryption_autogen/mocs_compilation.cpp.obj
+[291/846] Building CXX object CMakeFiles/TestThreadSafety.dir/tests/TestThreadSafety.cpp.obj
+[292/846] Building CXX object CMakeFiles/TestResourceLimits.dir/TestResourceLimits_autogen/mocs_compilation.cpp.obj
+[293/846] Building CXX object CMakeFiles/TestEncryption.dir/tests/TestEncryption.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestEncryption.cpp: In static member function 'static QByteArray TestEncryption::aesGcmDecrypt(const QByteArray&, const QByteArray&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestEncryption.cpp:184:23: warning: comparison of integer expressions of different signedness: 'qsizetype' {aka 'long long int'} and 'long long unsigned int' [-Wsign-compare]
+  184 |         if (in.size() < 1 + kNonceLen + kTagLen || in[0] != kVersionGCM) return {};
+      |             ~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestEncryption.cpp: In member function 'void TestEncryption::testCertificateEncryption()':
+D:/pdf/pdf-w2b-plprefix/tests/TestEncryption.cpp:218:27: warning: 'RSA* RSA_new()' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+  218 |         RSA* rsa = RSA_new();
+      |                    ~~~~~~~^~
+In file included from D:/pdf/msys64/ucrt64/include/openssl/x509.h:38,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestEncryption.cpp:6:
+D:/pdf/msys64/ucrt64/include/openssl/rsa.h:212:28: note: declared here
+  212 | OSSL_DEPRECATEDIN_3_0 RSA *RSA_new(void);
+      |                            ^~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestEncryption.cpp:219:28: warning: 'int RSA_generate_key_ex(RSA*, int, BIGNUM*, BN_GENCB*)' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+  219 |         RSA_generate_key_ex(rsa, 2048, bn, nullptr);
+      |         ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/msys64/ucrt64/include/openssl/rsa.h:270:27: note: declared here
+  270 | OSSL_DEPRECATEDIN_3_0 int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e,
+      |                           ^~~~~~~~~~~~~~~~~~~
+[294/846] Building CXX object CMakeFiles/TestControllers.dir/TestControllers_autogen/mocs_compilation.cpp.obj
+[295/846] Building CXX object CMakeFiles/TestResourceLimits.dir/tests/TestResourceLimits.cpp.obj
+[296/846] Building CXX object CMakeFiles/TestRibbonIntegrity.dir/TestRibbonIntegrity_autogen/mocs_compilation.cpp.obj
+[297/846] Building CXX object CMakeFiles/TestControllers.dir/tests/TestControllers.cpp.obj
+[298/846] Building CXX object CMakeFiles/TestMenuBarIntegrity.dir/TestMenuBarIntegrity_autogen/mocs_compilation.cpp.obj
+[299/846] Building CXX object CMakeFiles/TestRibbonIntegrity.dir/tests/TestRibbonIntegrity.cpp.obj
+[300/846] Building CXX object CMakeFiles/TestCommandBinding.dir/TestCommandBinding_autogen/mocs_compilation.cpp.obj
+[301/846] Building CXX object CMakeFiles/TestMenuBarIntegrity.dir/tests/TestMenuBarIntegrity.cpp.obj
+[302/846] Building CXX object CMakeFiles/TestCommandBinding.dir/tests/TestCommandBinding.cpp.obj
+[303/846] Building CXX object CMakeFiles/TestWelcomeRoutes.dir/TestWelcomeRoutes_autogen/mocs_compilation.cpp.obj
+[304/846] Building CXX object CMakeFiles/TestCommandBinding.dir/src/app/Bootstrapper.cpp.obj
+[305/846] Building CXX object CMakeFiles/TestWelcomeRoutes.dir/tests/TestWelcomeRoutes.cpp.obj
+[306/846] Building CXX object CMakeFiles/TestSweepW3UxFlows.dir/TestSweepW3UxFlows_autogen/mocs_compilation.cpp.obj
+[307/846] Building CXX object CMakeFiles/TestWelcomeRoutes.dir/src/app/Bootstrapper.cpp.obj
+[308/846] Building CXX object CMakeFiles/TestSweepW3UxFlows.dir/src/app/Bootstrapper.cpp.obj
+[309/846] Building CXX object CMakeFiles/TestUiAccessibility.dir/TestUiAccessibility_autogen/mocs_compilation.cpp.obj
+[310/846] Building CXX object CMakeFiles/TestSweepW3UxFlows.dir/tests/TestSweepW3UxFlows.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestSweepW3UxFlows.cpp:257:6: warning: 'void {anonymous}::pickMultiFilesByTitle(const QString&, const QStringList&, int)' defined but not used [-Wunused-function]
+  257 | void pickMultiFilesByTitle(const QString &title, const QStringList &paths, int budgetMs = 60000)
+      |      ^~~~~~~~~~~~~~~~~~~~~
+[311/846] Building CXX object CMakeFiles/TestUiAccessibility.dir/tests/TestUiAccessibility.cpp.obj
+[312/846] Building CXX object CMakeFiles/TestIntegration.dir/TestIntegration_autogen/mocs_compilation.cpp.obj
+[313/846] Building CXX object CMakeFiles/TestUiAccessibility.dir/src/app/Bootstrapper.cpp.obj
+[314/846] Building CXX object CMakeFiles/TestPerformance.dir/TestPerformance_autogen/mocs_compilation.cpp.obj
+[315/846] Building CXX object CMakeFiles/TestIntegration.dir/tests/TestIntegration.cpp.obj
+[316/846] Building CXX object CMakeFiles/TestVeraPdf.dir/TestVeraPdf_autogen/mocs_compilation.cpp.obj
+[317/846] Building CXX object CMakeFiles/TestPerformance.dir/tests/TestPerformance.cpp.obj
+[318/846] Building CXX object CMakeFiles/TestReadingOrderAsync.dir/TestReadingOrderAsync_autogen/mocs_compilation.cpp.obj
+[319/846] Building CXX object CMakeFiles/TestVeraPdf.dir/tests/TestVeraPdf.cpp.obj
+[320/846] Building CXX object CMakeFiles/TestAccessibilityChecker.dir/TestAccessibilityChecker_autogen/mocs_compilation.cpp.obj
+[321/846] Building CXX object CMakeFiles/TestReadingOrderAsync.dir/tests/TestReadingOrderAsync.cpp.obj
+[322/846] Building CXX object CMakeFiles/TestAccessibilityPanel.dir/TestAccessibilityPanel_autogen/mocs_compilation.cpp.obj
+[323/846] Building CXX object CMakeFiles/TestAccessibilityChecker.dir/tests/TestAccessibilityChecker.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestAccessibilityChecker.cpp: In function 'bool {anonymous}::buildPdf(const QString&, const FixtureOpts&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestAccessibilityChecker.cpp:83:36: warning: comparison of integer expressions of different signedness: 'unsigned int' and 'const int' [-Wsign-compare]
+   83 |             for (unsigned i = 0; i < o.images; ++i) {
+      |                                  ~~^~~~~~~~~~
+[324/846] Building CXX object CMakeFiles/TestAccessibilityFixes.dir/TestAccessibilityFixes_autogen/mocs_compilation.cpp.obj
+[325/846] Building CXX object CMakeFiles/TestAccessibilityPanel.dir/tests/TestAccessibilityPanel.cpp.obj
+[326/846] Building CXX object CMakeFiles/TestAccessibilityTagger.dir/TestAccessibilityTagger_autogen/mocs_compilation.cpp.obj
+[327/846] Building CXX object CMakeFiles/TestAccessibilityFixes.dir/tests/TestAccessibilityFixes.cpp.obj
+[328/846] Building CXX object CMakeFiles/TestLaneScheduler.dir/TestLaneScheduler_autogen/mocs_compilation.cpp.obj
+[329/846] Building CXX object CMakeFiles/TestAccessibilityTagger.dir/tests/TestAccessibilityTagger.cpp.obj
+[330/846] Building CXX object CMakeFiles/TestLaneScheduler.dir/tests/TestLaneScheduler.cpp.obj
+[331/846] Building CXX object CMakeFiles/TestFormBuilder.dir/TestFormBuilder_autogen/mocs_compilation.cpp.obj
+[332/846] Building CXX object CMakeFiles/TestFormPersistence.dir/TestFormPersistence_autogen/mocs_compilation.cpp.obj
+[333/846] Building CXX object CMakeFiles/TestFormBuilder.dir/tests/TestFormBuilder.cpp.obj
+[334/846] Building CXX object CMakeFiles/TestFormPersistence.dir/tests/TestFormPersistence.cpp.obj
+[335/846] Building CXX object CMakeFiles/TestFormPersistence.dir/src/engines/DocumentSession.cpp.obj
+[336/846] Building CXX object CMakeFiles/TestCompareEntry.dir/TestCompareEntry_autogen/mocs_compilation.cpp.obj
+[337/846] Building CXX object CMakeFiles/TestCompareIntegration.dir/TestCompareIntegration_autogen/mocs_compilation.cpp.obj
+[338/846] Building CXX object CMakeFiles/TestCompareIntegration.dir/tests/TestCompareIntegration.cpp.obj
+[339/846] Building CXX object CMakeFiles/TestPagesMode.dir/TestPagesMode_autogen/mocs_compilation.cpp.obj
+[340/846] Building CXX object CMakeFiles/TestCompareEntry.dir/tests/TestCompareEntry.cpp.obj
+[341/846] Building CXX object CMakeFiles/TestBatchMode.dir/TestBatchMode_autogen/mocs_compilation.cpp.obj
+[342/846] Building CXX object CMakeFiles/TestPagesMode.dir/tests/TestPagesMode.cpp.obj
+[343/846] Building CXX object CMakeFiles/TestBatchMode.dir/tests/TestBatchMode.cpp.obj
+[344/846] Building CXX object CMakeFiles/TestBatchPresets.dir/TestBatchPresets_autogen/mocs_compilation.cpp.obj
+[345/846] Building CXX object CMakeFiles/TestBatchPresetsP2.dir/TestBatchPresetsP2_autogen/mocs_compilation.cpp.obj
+[346/846] Building CXX object CMakeFiles/TestBatchPresets.dir/tests/TestBatchPresets.cpp.obj
+[347/846] Building CXX object CMakeFiles/TestBatchOcrLanguage.dir/TestBatchOcrLanguage_autogen/mocs_compilation.cpp.obj
+[348/846] Building CXX object CMakeFiles/TestBatchPresetsP2.dir/tests/TestBatchPresetsP2.cpp.obj
+[349/846] Building CXX object CMakeFiles/TestBatchOcrSkipText.dir/TestBatchOcrSkipText_autogen/mocs_compilation.cpp.obj
+[350/846] Building CXX object CMakeFiles/TestBatchOcrLanguage.dir/tests/TestBatchOcrLanguage.cpp.obj
+[351/846] Building CXX object CMakeFiles/TestOcrPreprocessPrefs.dir/TestOcrPreprocessPrefs_autogen/mocs_compilation.cpp.obj
+[352/846] Building CXX object CMakeFiles/TestBatchOcrSkipText.dir/tests/TestBatchOcrSkipText.cpp.obj
+[353/846] Building CXX object CMakeFiles/TestBatesCrossDoc.dir/TestBatesCrossDoc_autogen/mocs_compilation.cpp.obj
+[354/846] Building CXX object CMakeFiles/TestOcrPreprocessPrefs.dir/tests/TestOcrPreprocessPrefs.cpp.obj
+[355/846] Building CXX object CMakeFiles/TestOpenRouting.dir/TestOpenRouting_autogen/mocs_compilation.cpp.obj
+[356/846] Building CXX object CMakeFiles/TestOpenRouting.dir/tests/TestOpenRouting.cpp.obj
+[357/846] Building CXX object CMakeFiles/TestBatesCrossDoc.dir/tests/TestBatesCrossDoc.cpp.obj
+[358/846] Building CXX object CMakeFiles/TestExcisionCorruption.dir/TestExcisionCorruption_autogen/mocs_compilation.cpp.obj
+[359/846] Building CXX object CMakeFiles/TestBatchOpsCoverage.dir/TestBatchOpsCoverage_autogen/mocs_compilation.cpp.obj
+[360/846] Building CXX object CMakeFiles/TestExcisionCorruption.dir/tests/TestExcisionCorruption.cpp.obj
+[361/846] Building CXX object CMakeFiles/TestPdfACidSetSafety.dir/TestPdfACidSetSafety_autogen/mocs_compilation.cpp.obj
+[362/846] Building CXX object CMakeFiles/TestBatchOpsCoverage.dir/tests/TestBatchOpsCoverage.cpp.obj
+[363/846] Building CXX object CMakeFiles/TestReadingOrderThreshold.dir/TestReadingOrderThreshold_autogen/mocs_compilation.cpp.obj
+[364/846] Building CXX object CMakeFiles/TestPdfACidSetSafety.dir/tests/TestPdfACidSetSafety.cpp.obj
+[365/846] Building CXX object CMakeFiles/TestReadingOrderMcid.dir/TestReadingOrderMcid_autogen/mocs_compilation.cpp.obj
+[366/846] Building CXX object CMakeFiles/TestReadingOrderThreshold.dir/tests/TestReadingOrderThreshold.cpp.obj
+[367/846] Building CXX object CMakeFiles/TestReadingOrderDepthCap.dir/TestReadingOrderDepthCap_autogen/mocs_compilation.cpp.obj
+[368/846] Building CXX object CMakeFiles/TestReadingOrderMcid.dir/tests/TestReadingOrderMcid.cpp.obj
+[369/846] Building CXX object CMakeFiles/TestLinkBookmarkRoundTrip.dir/TestLinkBookmarkRoundTrip_autogen/mocs_compilation.cpp.obj
+[370/846] Building CXX object CMakeFiles/TestReadingOrderDepthCap.dir/tests/TestReadingOrderDepthCap.cpp.obj
+[371/846] Building CXX object CMakeFiles/TestSignatureSessionCache.dir/TestSignatureSessionCache_autogen/mocs_compilation.cpp.obj
+[372/846] Building CXX object CMakeFiles/TestSignatureSessionCache.dir/tests/TestSignatureSessionCache.cpp.obj
+[373/846] Building CXX object CMakeFiles/TestCapabilityRegistry.dir/TestCapabilityRegistry_autogen/mocs_compilation.cpp.obj
+[374/846] Building CXX object CMakeFiles/TestLinkBookmarkRoundTrip.dir/tests/TestLinkBookmarkRoundTrip.cpp.obj
+[375/846] Building CXX object CMakeFiles/TestXfaHonestyBanner.dir/TestXfaHonestyBanner_autogen/mocs_compilation.cpp.obj
+[376/846] Building CXX object CMakeFiles/TestCapabilityRegistry.dir/tests/TestCapabilityRegistry.cpp.obj
+[377/846] Building CXX object CMakeFiles/TestTaskNavRegistry.dir/TestTaskNavRegistry_autogen/mocs_compilation.cpp.obj
+[378/846] Building CXX object CMakeFiles/TestXfaHonestyBanner.dir/tests/TestXfaHonestyBanner.cpp.obj
+[379/846] Building CXX object CMakeFiles/TestScreenStateSync.dir/TestScreenStateSync_autogen/mocs_compilation.cpp.obj
+[380/846] Building CXX object CMakeFiles/TestTaskNavRegistry.dir/tests/TestTaskNavRegistry.cpp.obj
+[381/846] Building CXX object CMakeFiles/TestRibbonCollapse.dir/TestRibbonCollapse_autogen/mocs_compilation.cpp.obj
+[382/846] Building CXX object CMakeFiles/TestScreenStateSync.dir/tests/TestScreenStateSync.cpp.obj
+[383/846] Building CXX object CMakeFiles/TestModeStripPins.dir/TestModeStripPins_autogen/mocs_compilation.cpp.obj
+[384/846] Building CXX object CMakeFiles/TestRibbonCollapse.dir/tests/TestRibbonCollapse.cpp.obj
+[385/846] Building CXX object CMakeFiles/TestStatusBarSlim.dir/TestStatusBarSlim_autogen/mocs_compilation.cpp.obj
+[386/846] Building CXX object CMakeFiles/TestModeStripPins.dir/tests/TestModeStripPins.cpp.obj
+[387/846] Building CXX object CMakeFiles/TestCommentsReview.dir/TestCommentsReview_autogen/mocs_compilation.cpp.obj
+[388/846] Building CXX object CMakeFiles/TestStatusBarSlim.dir/tests/TestStatusBarSlim.cpp.obj
+[389/846] Building CXX object CMakeFiles/TestWelcomeLayout.dir/TestWelcomeLayout_autogen/mocs_compilation.cpp.obj
+[390/846] Building CXX object CMakeFiles/TestCommentsReview.dir/tests/TestCommentsReview.cpp.obj
+[391/846] Building CXX object CMakeFiles/TestSignatureBadges.dir/TestSignatureBadges_autogen/mocs_compilation.cpp.obj
+[392/846] Building CXX object CMakeFiles/TestWelcomeLayout.dir/tests/TestWelcomeLayout.cpp.obj
+[393/846] Building CXX object CMakeFiles/TestBatchOcrConfidence.dir/TestBatchOcrConfidence_autogen/mocs_compilation.cpp.obj
+[394/846] Building CXX object CMakeFiles/TestSignatureBadges.dir/tests/TestSignatureBadges.cpp.obj
+[395/846] Building CXX object CMakeFiles/TestInspector.dir/TestInspector_autogen/mocs_compilation.cpp.obj
+[396/846] Building CXX object CMakeFiles/TestBatchOcrConfidence.dir/tests/TestBatchOcrConfidence.cpp.obj
+[397/846] Building CXX object CMakeFiles/TestPatternRedact.dir/TestPatternRedact_autogen/mocs_compilation.cpp.obj
+[398/846] Building CXX object CMakeFiles/TestInspector.dir/tests/TestInspector.cpp.obj
+[399/846] Building CXX object CMakeFiles/TestFindReplace.dir/TestFindReplace_autogen/mocs_compilation.cpp.obj
+[400/846] Building CXX object CMakeFiles/TestPatternRedact.dir/tests/TestPatternRedact.cpp.obj
+[401/846] Building CXX object CMakeFiles/TestFindReplace.dir/tests/TestFindReplace.cpp.obj
+[402/846] Building CXX object CMakeFiles/TestReviewSummary.dir/TestReviewSummary_autogen/mocs_compilation.cpp.obj
+[403/846] Building CXX object CMakeFiles/TestFindReplace.dir/src/app/Bootstrapper.cpp.obj
+[404/846] Building CXX object CMakeFiles/TestPrintableSummary.dir/TestPrintableSummary_autogen/mocs_compilation.cpp.obj
+[405/846] Building CXX object CMakeFiles/TestReviewSummary.dir/tests/TestReviewSummary.cpp.obj
+[406/846] Building CXX object CMakeFiles/TestDynamicStamps.dir/TestDynamicStamps_autogen/mocs_compilation.cpp.obj
+[407/846] Building CXX object CMakeFiles/TestPrintableSummary.dir/tests/TestPrintableSummary.cpp.obj
+[408/846] Building CXX object CMakeFiles/TestAutoBookmarks.dir/TestAutoBookmarks_autogen/mocs_compilation.cpp.obj
+[409/846] Building CXX object CMakeFiles/TestDynamicStamps.dir/tests/TestDynamicStamps.cpp.obj
+[410/846] Building CXX object CMakeFiles/TestAutoBookmarks.dir/tests/TestAutoBookmarks.cpp.obj
+[411/846] Building CXX object CMakeFiles/TestDjotRoundtrip.dir/TestDjotRoundtrip_autogen/mocs_compilation.cpp.obj
+[412/846] Building CXX object CMakeFiles/TestAutoBookmarks.dir/src/app/Bootstrapper.cpp.obj
+[413/846] Building CXX object CMakeFiles/TestDjotFuzz.dir/TestDjotFuzz_autogen/mocs_compilation.cpp.obj
+[414/846] Building CXX object CMakeFiles/TestDjotRoundtrip.dir/tests/TestDjotRoundtrip.cpp.obj
+[415/846] Building CXX object CMakeFiles/TestUpdateChecker.dir/TestUpdateChecker_autogen/mocs_compilation.cpp.obj
+[416/846] Building CXX object CMakeFiles/TestDjotFuzz.dir/tests/TestDjotFuzz.cpp.obj
+[417/846] Building CXX object CMakeFiles/TestUpdateChecker.dir/tests/TestUpdateChecker.cpp.obj
+[418/846] Building CXX object CMakeFiles/TestUpdateChecker.dir/src/core/UpdateChecker.cpp.obj
+[419/846] Building CXX object CMakeFiles/TestWatermarkFont.dir/TestWatermarkFont_autogen/mocs_compilation.cpp.obj
+[420/846] Building CXX object CMakeFiles/TestUpdateChecker.dir/src/core/TempFileManager.cpp.obj
+[421/846] Building CXX object CMakeFiles/TestOcrLanguage.dir/TestOcrLanguage_autogen/mocs_compilation.cpp.obj
+[422/846] Building CXX object CMakeFiles/TestOcrLanguage.dir/tests/TestOcrLanguage.cpp.obj
+[423/846] Building CXX object CMakeFiles/TestWatermarkFont.dir/tests/TestWatermarkFont.cpp.obj
+[424/846] Building CXX object CMakeFiles/TestRedactClearMarks.dir/TestRedactClearMarks_autogen/mocs_compilation.cpp.obj
+[425/846] Building CXX object CMakeFiles/TestLinkSchemeSafety.dir/TestLinkSchemeSafety_autogen/mocs_compilation.cpp.obj
+[426/846] Building CXX object CMakeFiles/TestRedactClearMarks.dir/tests/TestRedactClearMarks.cpp.obj
+[427/846] Building CXX object CMakeFiles/TestLinkSchemeSafety.dir/tests/TestLinkSchemeSafety.cpp.obj
+[428/846] Building CXX object CMakeFiles/TestThumbnailZoom.dir/TestThumbnailZoom_autogen/mocs_compilation.cpp.obj
+[429/846] Building CXX object CMakeFiles/TestMergeSuccess.dir/TestMergeSuccess_autogen/mocs_compilation.cpp.obj
+[430/846] Building CXX object CMakeFiles/TestThumbnailZoom.dir/tests/TestThumbnailZoom.cpp.obj
+[431/846] Building CXX object CMakeFiles/TestMergeSuccess.dir/tests/TestMergeSuccess.cpp.obj
+[432/846] Building CXX object CMakeFiles/TestFillFormLock.dir/TestFillFormLock_autogen/mocs_compilation.cpp.obj
+[433/846] Building CXX object CMakeFiles/TestFillFormLock.dir/src/engines/DocumentSession.cpp.obj
+[434/846] Building CXX object CMakeFiles/TestFillFormNoOp.dir/TestFillFormNoOp_autogen/mocs_compilation.cpp.obj
+[435/846] Building CXX object CMakeFiles/TestFillFormLock.dir/tests/TestFillFormLock.cpp.obj
+[436/846] Building CXX object CMakeFiles/TestFillFormNoOp.dir/src/engines/DocumentSession.cpp.obj
+[437/846] Building CXX object CMakeFiles/TestReadingOrderInheritance.dir/TestReadingOrderInheritance_autogen/mocs_compilation.cpp.obj
+[438/846] Building CXX object CMakeFiles/TestFillFormNoOp.dir/tests/TestFillFormNoOp.cpp.obj
+[439/846] Building CXX object CMakeFiles/TestShapeInkPersistence.dir/TestShapeInkPersistence_autogen/mocs_compilation.cpp.obj
+[440/846] Building CXX object CMakeFiles/TestReadingOrderInheritance.dir/tests/TestReadingOrderInheritance.cpp.obj
+[441/846] Building CXX object CMakeFiles/TestQuadPointsMarkup.dir/TestQuadPointsMarkup_autogen/mocs_compilation.cpp.obj
+[442/846] Building CXX object CMakeFiles/TestShapeInkPersistence.dir/tests/TestShapeInkPersistence.cpp.obj
+[443/846] Building CXX object CMakeFiles/TestMeasurePanelHonesty.dir/TestMeasurePanelHonesty_autogen/mocs_compilation.cpp.obj
+[444/846] Building CXX object CMakeFiles/TestQuadPointsMarkup.dir/tests/TestQuadPointsMarkup.cpp.obj
+[445/846] Building CXX object CMakeFiles/TestMeasureCore.dir/TestMeasureCore_autogen/mocs_compilation.cpp.obj
+[446/846] Building CXX object CMakeFiles/TestMeasurePanelHonesty.dir/tests/TestMeasurePanelHonesty.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp: In function 'void {anonymous}::layerClick(AnnotationLayer*, const QPointF&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp:36:53: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+   36 |                       Qt::LeftButton, Qt::NoModifier);
+      |                                                     ^
+In file included from C:/msys64/ucrt64/include/qt6/QtGui/qtestsupport_gui.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qtestsystem.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qtest.h:270,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:11,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp:16:
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp:39:55: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+   39 |                         Qt::LeftButton, Qt::NoModifier);
+      |                                                       ^
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp: In function 'void {anonymous}::layerDoubleClick(AnnotationLayer*, const QPointF&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp:47:51: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+   47 |                     Qt::LeftButton, Qt::NoModifier);
+      |                                                   ^
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestMeasurePanelHonesty.cpp:50:55: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+   50 |                         Qt::LeftButton, Qt::NoModifier);
+      |                                                       ^
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+[447/846] Building CXX object CMakeFiles/TestMeasureRoundTrip.dir/TestMeasureRoundTrip_autogen/mocs_compilation.cpp.obj
+[448/846] Building CXX object CMakeFiles/TestMeasureCore.dir/tests/TestMeasureCore.cpp.obj
+[449/846] Building CXX object CMakeFiles/TestLegacyOriginSpace.dir/TestLegacyOriginSpace_autogen/mocs_compilation.cpp.obj
+[450/846] Building CXX object CMakeFiles/TestMeasureRoundTrip.dir/tests/TestMeasureRoundTrip.cpp.obj
+[451/846] Building CXX object CMakeFiles/TestMeasureCsvExport.dir/TestMeasureCsvExport_autogen/mocs_compilation.cpp.obj
+[452/846] Building CXX object CMakeFiles/TestLegacyOriginSpace.dir/tests/TestLegacyOriginSpace.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestLegacyOriginSpace.cpp: In function 'constexpr bool {anonymous}::rectClose(const QRectF&, const QRectF&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestLegacyOriginSpace.cpp:52:21: warning: call to non-'constexpr' function 'double fabs(double)' [-Winvalid-constexpr]
+   52 |     return std::fabs(a.x() - b.x()) < 0.01 && std::fabs(a.y() - b.y()) < 0.01
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~
+In file included from D:/pdf/msys64/ucrt64/include/c++/16.1.0/cmath:55,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qnumeric.h:19,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qglobal.h:60,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:4,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestLegacyOriginSpace.cpp:27:
+D:/pdf/msys64/ucrt64/include/math.h:229:31: note: 'double fabs(double)' declared here
+  229 |   __CRT_INLINE double __cdecl fabs (double x)
+      |                               ^~~~
+[453/846] Building CXX object CMakeFiles/TestCompressStripSanitize.dir/TestCompressStripSanitize_autogen/mocs_compilation.cpp.obj
+[454/846] Building CXX object CMakeFiles/TestMeasureCsvExport.dir/tests/TestMeasureCsvExport.cpp.obj
+[455/846] Building CXX object CMakeFiles/TestCompressDialogHonesty.dir/TestCompressDialogHonesty_autogen/mocs_compilation.cpp.obj
+[456/846] Building CXX object CMakeFiles/TestCompressStripSanitize.dir/tests/TestCompressStripSanitize.cpp.obj
+[457/846] Building CXX object CMakeFiles/TestCompressDialogHonesty.dir/tests/TestCompressDialogHonesty.cpp.obj
+[458/846] Building CXX object CMakeFiles/TestFieldMetadata.dir/TestFieldMetadata_autogen/mocs_compilation.cpp.obj
+[459/846] Building CXX object CMakeFiles/TestFieldMetadata.dir/src/engines/DocumentSession.cpp.obj
+[460/846] Building CXX object CMakeFiles/TestFormSafety.dir/TestFormSafety_autogen/mocs_compilation.cpp.obj
+[461/846] Building CXX object CMakeFiles/TestFieldMetadata.dir/tests/TestFieldMetadata.cpp.obj
+[462/846] Building CXX object CMakeFiles/TestFormJsCalc.dir/TestFormJsCalc_autogen/mocs_compilation.cpp.obj
+[463/846] Building CXX object CMakeFiles/TestFormSafety.dir/tests/TestFormSafety.cpp.obj
+[464/846] Building CXX object CMakeFiles/TestFormJsAdversarial.dir/TestFormJsAdversarial_autogen/mocs_compilation.cpp.obj
+[465/846] Building CXX object CMakeFiles/TestFormJsCalc.dir/tests/TestFormJsCalc.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'QString TestFormJsCalc::makeOrderForm(const QString&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+  281 |         return makeFormPdf(name,
+      |                ~~~~~~~~~~~^~~~~~
+  282 |         {
+      |         ~                  
+  283 |             { QStringLiteral("qty1"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  284 |             { QStringLiteral("price1"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  285 |             { QStringLiteral("qty2"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  286 |             { QStringLiteral("price2"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  287 |             { QStringLiteral("line1"),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  288 |               QStringLiteral("AFSimple_Calculate('PROD', new Array('qty1','price1'));"), {}, {} },
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  289 |             { QStringLiteral("line2"),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  290 |               QStringLiteral("AFSimple_Calculate('PROD', new Array('qty2','price2'));"), {}, {} },
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  291 |             { QStringLiteral("total"),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  292 |               QStringLiteral("AFSimple_Calculate('SUM', new Array('line1','line2'));"),
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  293 |               QStringLiteral("AFNumber_Format(2, 0, 0, 0, \"$\", true);"), {} },
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  294 |         },
+      |         ~~                 
+  295 |         { QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") });
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:936:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+  936 |     const QString form = makeFormPdf(QStringLiteral("order-endhook.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  937 |     {
+      |     ~                                
+  938 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  939 |         { QStringLiteral("blocker"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+  940 |           QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  941 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+  942 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('qty1'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  943 |     },
+      |     ~~                               
+  944 |     { QStringLiteral("blocker"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:936:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:936:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:936:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:936:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:936:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1051 |     const QString form = makeFormPdf(QStringLiteral("order-syntax.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1052 |     {
+      |     ~                                
+ 1053 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1054 |         { QStringLiteral("price1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1055 |         { QStringLiteral("qty2"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1056 |         { QStringLiteral("price2"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1057 |         { QStringLiteral("line1"), QStringLiteral("AFSimple_Calculate('PROD'"), {}, {} }, // syntax error
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1058 |         { QStringLiteral("line2"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1059 |           QStringLiteral("AFSimple_Calculate('PROD', new Array('qty2','price2'));"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1060 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1061 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('line1','line2'));"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1062 |     },
+      |     ~~                               
+ 1063 |     { QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1051:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1088:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1088 |     const QString form = makeFormPdf(QStringLiteral("order-loop.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1089 |     {
+      |     ~                                
+ 1090 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1091 |         { QStringLiteral("total"), QStringLiteral("while (true) {}"), {}, QStringLiteral("99") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1092 |     },
+      |     ~~                               
+ 1093 |     { QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1088:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1088:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1088:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::cyclicCalculationOrderTerminates()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1120:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1120 |     const QString form = makeFormPdf(QStringLiteral("cyclic-co.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1121 |     {
+      |     ~                                
+ 1122 |         { QStringLiteral("a"), QStringLiteral("event.value = 1;"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1123 |         { QStringLiteral("b"), QStringLiteral("AFSimple_Calculate('SUM', new Array('a'));"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1124 |     },
+      |     ~~                               
+ 1125 |     { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("a") }); // cycle
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1120:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1120:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1120:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1290 |     const QString form = makeFormPdf(QStringLiteral("chain-exception.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1291 |     {
+      |     ~                                
+ 1292 |         { QStringLiteral("input"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1293 |         { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1294 |         { QStringLiteral("b"), QStringLiteral("throw new Error('boom');"), {}, QStringLiteral("7") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1295 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1296 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1297 |     },
+      |     ~~                               
+ 1298 |     { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1290:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1333 |     const QString form = makeFormPdf(QStringLiteral("chain-timeout.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1334 |     {
+      |     ~                                
+ 1335 |         { QStringLiteral("input"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1336 |         { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1337 |         { QStringLiteral("b"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~       
+ 1338 |           QStringLiteral("while (true) {}"), {}, QStringLiteral("7") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1339 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1340 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1341 |     },
+      |     ~~                               
+ 1342 |     { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1333:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1377:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1377 |     const QString form = makeFormPdf(QStringLiteral("chain-precascade.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1378 |     {
+      |     ~                                
+ 1379 |         big,
+      |         ~~~~                         
+ 1380 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1381 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('big'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1382 |     },
+      |     ~~                               
+ 1383 |     { QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1377:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1417:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1417 |     const QString form = makeFormPdf(QStringLiteral("validate-reject.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1418 |     {
+      |     ~                                
+ 1419 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("3"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1420 |           QStringLiteral("if (Number(event.value) > 10) { event.rc = false; }") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1421 |         { QStringLiteral("note"), {}, {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1422 |     },
+      |     ~~                               
+ 1423 |     {});
+      |     ~~~                              
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1417:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::validateTransformsTheValueAcrobatSemantics()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1450:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1450 |     const QString form = makeFormPdf(QStringLiteral("validate-transform.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1451 |     {
+      |     ~                                
+ 1452 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("0"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1453 |           QStringLiteral("event.value = Number(event.value) * 2;") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1454 |     },
+      |     ~~                               
+ 1455 |     {});
+      |     ~~~                              
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1471:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1471 |     const QString form = makeFormPdf(QStringLiteral("validate-timeout.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1472 |     {
+      |     ~                                
+ 1473 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("3"), QStringLiteral("while (true) {}") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1474 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1475 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('qty'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1476 |     },
+      |     ~~                               
+ 1477 |     { QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1471:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1471:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::fillWithoutValidateScriptNeverBlocks()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1519:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1519 |     const QString form = makeFormPdf(QStringLiteral("validate-none.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1520 |     {
+      |     ~                                
+ 1521 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("0") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1522 |     },
+      |     ~~                               
+ 1523 |     {});
+      |     ~~~                              
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1519:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::keystrokeWithoutScriptNeverRunsAndTypingStands()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1721:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1721 |     const QString form = makeFormPdf(QStringLiteral("keystroke-none.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1722 |     {
+      |     ~                                
+ 1723 |         { QStringLiteral("qty"), {}, {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1724 |     },
+      |     ~~                               
+ 1725 |     {});
+      |     ~~~                              
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1831:40: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1831 |     const QString hostile = makeFormPdf(QStringLiteral("closure-hostile.pdf"),
+      |                             ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1832 |     {
+      |     ~                                   
+ 1833 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1834 |         { QStringLiteral("blocker"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~    
+ 1835 |           QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1836 |         { QStringLiteral("fmt"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~        
+ 1837 |           {}, QStringLiteral("AFNumber_Format(2, 0, 0, 0, \"$\", true);"), QStringLiteral("1234.5") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1838 |     },
+      |     ~~                                  
+ 1839 |     { QStringLiteral("blocker") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~      
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1831:40: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1831:40: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1831:40: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1831:40: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsCalc.cpp:1831:40: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+[466/846] Building CXX object CMakeFiles/TestFormStaleDisclosure.dir/TestFormStaleDisclosure_autogen/mocs_compilation.cpp.obj
+[467/846] Building CXX object CMakeFiles/TestFormJsAdversarial.dir/tests/TestFormJsAdversarial.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsAdversarial.cpp: In member function 'void TestFormJsAdversarial::afSimpleCalculateInheritedOpsRefused()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsAdversarial.cpp:732:28: warning: loop variable 'bad' creates a copy from type 'const QString' [-Wrange-loop-construct]
+  732 |         for (const QString bad : { QStringLiteral("toString"),
+      |                            ^~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsAdversarial.cpp:732:28: note: use reference type to prevent copying
+  732 |         for (const QString bad : { QStringLiteral("toString"),
+      |                            ^~~
+      |                            &
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsAdversarial.cpp: In member function 'void TestFormJsAdversarial::nanOrInfinityKeepsTheCommittedValue()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsAdversarial.cpp:768:28: warning: loop variable 'expr' creates a copy from type 'const QString' [-Wrange-loop-construct]
+  768 |         for (const QString expr : { QStringLiteral("0/0"), QStringLiteral("1/0"),
+      |                            ^~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormJsAdversarial.cpp:768:28: note: use reference type to prevent copying
+  768 |         for (const QString expr : { QStringLiteral("0/0"), QStringLiteral("1/0"),
+      |                            ^~~~
+      |                            &
+[468/846] Building CXX object CMakeFiles/TestFormKeystroke.dir/TestFormKeystroke_autogen/mocs_compilation.cpp.obj
+[469/846] Building CXX object CMakeFiles/TestFormStaleDisclosure.dir/tests/TestFormStaleDisclosure.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp: In member function 'void TestFormStaleDisclosure::panelShowsPersistentWarningUntilAcknowledge()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:273:41: warning: missing initializer for member '{anonymous}::FieldSpec::calcScript' [-Wmissing-field-initializers]
+  273 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("panel-stale.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  274 |                                          { { QStringLiteral("total") }, { QStringLiteral("other") } },
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  275 |                                          { QStringLiteral("total") });
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:273:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:273:41: warning: missing initializer for member '{anonymous}::FieldSpec::calcScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:273:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp: In member function 'void TestFormStaleDisclosure::panelWarningClearsWhenTheFieldRecomputes()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:337:41: warning: missing initializer for member '{anonymous}::FieldSpec::calcScript' [-Wmissing-field-initializers]
+  337 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("panel-recompute.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  338 |                                          { { QStringLiteral("total") } },
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  339 |                                          { QStringLiteral("total") });
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:337:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp: In member function 'void TestFormStaleDisclosure::panelApplyRunsCascadeAndFeedsTracker()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:378:41: warning: missing initializer for member '{anonymous}::FieldSpec::calcScript' [-Wmissing-field-initializers]
+  378 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("panel-apply.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  379 |         {
+      |         ~                                
+  380 |             { QStringLiteral("input") },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+  381 |             { QStringLiteral("total"), QStringLiteral("throw new Error('boom');"), QStringLiteral("0") },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  382 |         },
+      |         ~~                               
+  383 |         { QStringLiteral("total") });
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-w2b-plprefix/tests/TestFormStaleDisclosure.cpp:378:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+[470/846] Building CXX object CMakeFiles/TestEngineSave.dir/TestEngineSave_autogen/mocs_compilation.cpp.obj
+[471/846] Building CXX object CMakeFiles/TestFormKeystroke.dir/tests/TestFormKeystroke.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::fieldWithoutKeystrokeScriptTypesUnchanged()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:172:41: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+  172 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("plain.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  173 |                                          { { QStringLiteral("note") } });
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:172:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::keystrokeScriptRejectsTheKeystrokeAndReverts()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:194:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+  194 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("reject.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  195 |                                          { { QStringLiteral("qty"),
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  196 |                                              QStringLiteral("if (AFMergeChange(event).length > 3) { event.rc = false; }") } });
+      |                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::keystrokeScriptTransformsTypedText()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:231:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+  231 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("transform.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  232 |                                          { { QStringLiteral("code"),
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  233 |                                              QStringLiteral("event.value = AFMergeChange(event).toUpperCase();") } });
+      |                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::populateNeverRunsTheKeystrokeScript()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:254:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+  254 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("populate.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  255 |                                          { { QStringLiteral("f"),
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+  256 |                                              QStringLiteral("event.value = 'X';") } });
+      |                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::timeoutFailsClosedAndDiscloses()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:278:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+  278 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("timeout.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  279 |                                          { { QStringLiteral("qty"), QStringLiteral("while (true) {}") } });
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::fieldSwitchResetsTheGate()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:305:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+  305 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("switch.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  306 |                                          { { QStringLiteral("a"),
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+  307 |                                              QStringLiteral("if (AFMergeChange(event).length > 2) { event.rc = false; }") },
+      |                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  308 |                                            { QStringLiteral("b") } });
+      |                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:305:41: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:305:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp: In member function 'void TestFormKeystroke::readOnlyDocumentRefusesKeystrokeAndApply()':
+D:/pdf/pdf-w2b-plprefix/tests/TestFormKeystroke.cpp:332:41: warning: missing initializer for member '{anonymous}::FieldSpec::initial' [-Wmissing-field-initializers]
+  332 |         const QString path = makeFormPdf(m_dir.path(), QStringLiteral("ro.pdf"),
+      |                              ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  333 |                                          { { QStringLiteral("f"),
+      |                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+  334 |                                              QStringLiteral("event.value = 'X';") } });
+      |                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[472/846] Building CXX object CMakeFiles/TestEngineSave.dir/src/engines/DocumentSession.cpp.obj
+[473/846] Building CXX object CMakeFiles/TestEncryptedPackageSafeWrite.dir/TestEncryptedPackageSafeWrite_autogen/mocs_compilation.cpp.obj
+[474/846] Building CXX object CMakeFiles/TestEngineSave.dir/tests/TestEngineSave.cpp.obj
+[475/846] Building CXX object CMakeFiles/TestEncryptedPackageSafeWrite.dir/tests/TestEncryptedPackageSafeWrite.cpp.obj
+[476/846] Building CXX object CMakeFiles/TestEncryptedPackageSafeWrite.dir/src/engines/SafeSave.cpp.obj
+[477/846] Building CXX object CMakeFiles/TestPrintJob.dir/TestPrintJob_autogen/mocs_compilation.cpp.obj
+[478/846] Building CXX object CMakeFiles/TestPrintJob.dir/src/ui/PrintJob.cpp.obj
+[479/846] Building CXX object CMakeFiles/TestTempOwnership.dir/TestTempOwnership_autogen/mocs_compilation.cpp.obj
+[480/846] Building CXX object CMakeFiles/TestPrintJob.dir/tests/TestPrintJob.cpp.obj
+[481/846] Building CXX object CMakeFiles/TestTempOwnership.dir/src/core/TempFileManager.cpp.obj
+[482/846] Building CXX object CMakeFiles/TestCleanupCli.dir/TestCleanupCli_autogen/mocs_compilation.cpp.obj
+[483/846] Building CXX object CMakeFiles/TestTempOwnership.dir/tests/TestTempOwnership.cpp.obj
+[484/846] Building CXX object CMakeFiles/TestFormUndo.dir/TestFormUndo_autogen/mocs_compilation.cpp.obj
+[485/846] Building CXX object CMakeFiles/TestCleanupCli.dir/tests/TestCleanupCli.cpp.obj
+[486/846] Building CXX object CMakeFiles/TestFormUndo.dir/src/engines/DocumentSession.cpp.obj
+[487/846] Building CXX object CMakeFiles/TestValidateAllSignatures.dir/TestValidateAllSignatures_autogen/mocs_compilation.cpp.obj
+[488/846] Building CXX object CMakeFiles/TestFormUndo.dir/tests/TestFormUndo.cpp.obj
+[489/846] Building CXX object CMakeFiles/TestExportPathBadge.dir/TestExportPathBadge_autogen/mocs_compilation.cpp.obj
+[490/846] Building CXX object CMakeFiles/TestValidateAllSignatures.dir/tests/TestValidateAllSignatures.cpp.obj
+[491/846] Building CXX object CMakeFiles/TestImageEditWiring.dir/TestImageEditWiring_autogen/mocs_compilation.cpp.obj
+[492/846] Building CXX object CMakeFiles/TestExportPathBadge.dir/tests/TestExportPathBadge.cpp.obj
+[493/846] Building CXX object CMakeFiles/TestRedactSanitizeBundle.dir/TestRedactSanitizeBundle_autogen/mocs_compilation.cpp.obj
+[494/846] Building CXX object CMakeFiles/TestImageEditWiring.dir/tests/TestImageEditWiring.cpp.obj
+[495/846] Building CXX object CMakeFiles/TestRedactTransaction.dir/TestRedactTransaction_autogen/mocs_compilation.cpp.obj
+[496/846] Building CXX object CMakeFiles/TestRedactSanitizeBundle.dir/tests/TestRedactSanitizeBundle.cpp.obj
+[497/846] Building CXX object CMakeFiles/TestRedactionProof.dir/TestRedactionProof_autogen/mocs_compilation.cpp.obj
+[498/846] Building CXX object CMakeFiles/TestRedactTransaction.dir/tests/TestRedactTransaction.cpp.obj
+[499/846] Building CXX object CMakeFiles/TestPptxOverlayAlpha.dir/TestPptxOverlayAlpha_autogen/mocs_compilation.cpp.obj
+[500/846] Building CXX object CMakeFiles/TestRedactionProof.dir/tests/TestRedactionProof.cpp.obj
+[501/846] Building CXX object CMakeFiles/TestAutoDetectHeuristic.dir/TestAutoDetectHeuristic_autogen/mocs_compilation.cpp.obj
+[502/846] Building CXX object CMakeFiles/TestPptxOverlayAlpha.dir/tests/TestPptxOverlayAlpha.cpp.obj
+[503/846] Building CXX object CMakeFiles/TestAutoDetectHeuristic.dir/src/engines/DocumentSession.cpp.obj
+[504/846] Building CXX object CMakeFiles/TestConversionExtraction.dir/TestConversionExtraction_autogen/mocs_compilation.cpp.obj
+[505/846] Building CXX object CMakeFiles/TestAutoDetectHeuristic.dir/tests/TestAutoDetectHeuristic.cpp.obj
+[506/846] Building CXX object CMakeFiles/fake_soffice.dir/fake_soffice_autogen/mocs_compilation.cpp.obj
+[507/846] Building CXX object CMakeFiles/fake_soffice.dir/tests/fake_soffice.cpp.obj
+[508/846] Building CXX object CMakeFiles/TestTextExtractionCoords.dir/TestTextExtractionCoords_autogen/mocs_compilation.cpp.obj
+[509/846] Building CXX object CMakeFiles/TestConversionExtraction.dir/tests/TestConversionExtraction.cpp.obj
+[510/846] Building CXX object CMakeFiles/TestEraseWiring.dir/TestEraseWiring_autogen/mocs_compilation.cpp.obj
+[511/846] Building CXX object CMakeFiles/TestTextExtractionCoords.dir/tests/TestTextExtractionCoords.cpp.obj
+[512/846] Building CXX object CMakeFiles/TestRibbonMarkupTools.dir/TestRibbonMarkupTools_autogen/mocs_compilation.cpp.obj
+[513/846] Building CXX object CMakeFiles/TestEraseWiring.dir/tests/TestEraseWiring.cpp.obj
+[514/846] Building CXX object CMakeFiles/TestViewerRotation.dir/TestViewerRotation_autogen/mocs_compilation.cpp.obj
+[515/846] Building CXX object CMakeFiles/TestRibbonMarkupTools.dir/tests/TestRibbonMarkupTools.cpp.obj
+[516/846] Building CXX object CMakeFiles/TestTwoPageOverlay.dir/TestTwoPageOverlay_autogen/mocs_compilation.cpp.obj
+[517/846] Building CXX object CMakeFiles/TestViewerRotation.dir/tests/TestViewerRotation.cpp.obj
+[518/846] Building CXX object CMakeFiles/TestViewingModes.dir/TestViewingModes_autogen/mocs_compilation.cpp.obj
+[519/846] Building CXX object CMakeFiles/TestTwoPageOverlay.dir/tests/TestTwoPageOverlay.cpp.obj
+[520/846] Building CXX object CMakeFiles/TestSignaturePicker.dir/TestSignaturePicker_autogen/mocs_compilation.cpp.obj
+[521/846] Building CXX object CMakeFiles/TestViewingModes.dir/tests/TestViewingModes.cpp.obj
+[522/846] Building CXX object CMakeFiles/TestCertEncryptPicker.dir/TestCertEncryptPicker_autogen/mocs_compilation.cpp.obj
+[523/846] Building CXX object CMakeFiles/TestSignaturePicker.dir/tests/TestSignaturePicker.cpp.obj
+[524/846] Building CXX object CMakeFiles/TestCertifySelector.dir/TestCertifySelector_autogen/mocs_compilation.cpp.obj
+[525/846] Building CXX object CMakeFiles/TestCertEncryptPicker.dir/tests/TestCertEncryptPicker.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestCertEncryptPicker.cpp: In function '{anonymous}::RecipientCredential {anonymous}::makeRecipient(const QString&, const QString&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestCertEncryptPicker.cpp:60:23: warning: 'RSA* RSA_new()' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+   60 |     RSA *rsa = RSA_new();
+      |                ~~~~~~~^~
+In file included from D:/pdf/msys64/ucrt64/include/openssl/x509.h:38,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestCertEncryptPicker.cpp:25:
+D:/pdf/msys64/ucrt64/include/openssl/rsa.h:212:28: note: declared here
+  212 | OSSL_DEPRECATEDIN_3_0 RSA *RSA_new(void);
+      |                            ^~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestCertEncryptPicker.cpp:61:24: warning: 'int RSA_generate_key_ex(RSA*, int, BIGNUM*, BN_GENCB*)' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+   61 |     RSA_generate_key_ex(rsa, 2048, bn, nullptr);
+      |     ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/msys64/ucrt64/include/openssl/rsa.h:270:27: note: declared here
+  270 | OSSL_DEPRECATEDIN_3_0 int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e,
+      |                           ^~~~~~~~~~~~~~~~~~~
+[526/846] Building CXX object CMakeFiles/TestPolicyController.dir/TestPolicyController_autogen/mocs_compilation.cpp.obj
+[527/846] Building CXX object CMakeFiles/TestCertifySelector.dir/tests/TestCertifySelector.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestCertifySelector.cpp: In function 'bool {anonymous}::makeSigner(const QString&, SignerCredential&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestCertifySelector.cpp:57:23: warning: 'RSA* RSA_new()' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+   57 |     RSA *rsa = RSA_new();
+      |                ~~~~~~~^~
+In file included from D:/pdf/msys64/ucrt64/include/openssl/x509.h:38,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestCertifySelector.cpp:27:
+D:/pdf/msys64/ucrt64/include/openssl/rsa.h:212:28: note: declared here
+  212 | OSSL_DEPRECATEDIN_3_0 RSA *RSA_new(void);
+      |                            ^~~~~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestCertifySelector.cpp:58:24: warning: 'int RSA_generate_key_ex(RSA*, int, BIGNUM*, BN_GENCB*)' is deprecated: Since OpenSSL 3.0 [-Wdeprecated-declarations]
+   58 |     RSA_generate_key_ex(rsa, 2048, bn, nullptr);
+      |     ~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/msys64/ucrt64/include/openssl/rsa.h:270:27: note: declared here
+  270 | OSSL_DEPRECATEDIN_3_0 int RSA_generate_key_ex(RSA *rsa, int bits, BIGNUM *e,
+      |                           ^~~~~~~~~~~~~~~~~~~
+[528/846] Building CXX object CMakeFiles/TestPolicyWiring.dir/TestPolicyWiring_autogen/mocs_compilation.cpp.obj
+[529/846] Building CXX object CMakeFiles/TestPolicyController.dir/tests/TestPolicyController.cpp.obj
+[530/846] Building CXX object CMakeFiles/TestOcspConsent.dir/TestOcspConsent_autogen/mocs_compilation.cpp.obj
+[531/846] Building CXX object CMakeFiles/TestPolicyWiring.dir/tests/TestPolicyWiring.cpp.obj
+[532/846] Building CXX object CMakeFiles/TestSupportBundle.dir/TestSupportBundle_autogen/mocs_compilation.cpp.obj
+[533/846] Building CXX object CMakeFiles/TestOcspConsent.dir/tests/TestOcspConsent.cpp.obj
+[534/846] Building CXX object CMakeFiles/TestNetworkDisclosure.dir/TestNetworkDisclosure_autogen/mocs_compilation.cpp.obj
+[535/846] Building CXX object CMakeFiles/TestSupportBundle.dir/tests/TestSupportBundle.cpp.obj
+[536/846] Building CXX object CMakeFiles/TestOcrAcceptSeam.dir/TestOcrAcceptSeam_autogen/mocs_compilation.cpp.obj
+[537/846] Building CXX object CMakeFiles/TestNetworkDisclosure.dir/tests/TestNetworkDisclosure.cpp.obj
+[538/846] Building CXX object CMakeFiles/TestSearchFlags.dir/TestSearchFlags_autogen/mocs_compilation.cpp.obj
+[539/846] Building CXX object CMakeFiles/TestOcrAcceptSeam.dir/tests/TestOcrAcceptSeam.cpp.obj
+[540/846] Building CXX object CMakeFiles/TestExportPresets.dir/TestExportPresets_autogen/mocs_compilation.cpp.obj
+[541/846] Building CXX object CMakeFiles/TestSearchFlags.dir/tests/TestSearchFlags.cpp.obj
+[542/846] Building CXX object CMakeFiles/TestOcrAcceptScope.dir/TestOcrAcceptScope_autogen/mocs_compilation.cpp.obj
+[543/846] Building CXX object CMakeFiles/TestExportPresets.dir/tests/TestExportPresets.cpp.obj
+[544/846] Building CXX object CMakeFiles/TestViewerLinkSeam.dir/TestViewerLinkSeam_autogen/mocs_compilation.cpp.obj
+[545/846] Building CXX object CMakeFiles/TestOcrAcceptScope.dir/tests/TestOcrAcceptScope.cpp.obj
+[546/846] Building CXX object CMakeFiles/TestHyperlinkNavigation.dir/TestHyperlinkNavigation_autogen/mocs_compilation.cpp.obj
+[547/846] Building CXX object CMakeFiles/TestViewerLinkSeam.dir/tests/TestViewerLinkSeam.cpp.obj
+[548/846] Building CXX object CMakeFiles/TestRedactMarkAll.dir/TestRedactMarkAll_autogen/mocs_compilation.cpp.obj
+[549/846] Building CXX object CMakeFiles/TestHyperlinkNavigation.dir/tests/TestHyperlinkNavigation.cpp.obj
+[550/846] Building CXX object CMakeFiles/TestRedactApplyMarks.dir/TestRedactApplyMarks_autogen/mocs_compilation.cpp.obj
+[551/846] Building CXX object CMakeFiles/TestRedactApplyMarks.dir/tests/TestRedactApplyMarks.cpp.obj
+[552/846] Building CXX object CMakeFiles/TestAnnotationDjot.dir/TestAnnotationDjot_autogen/mocs_compilation.cpp.obj
+[553/846] Building CXX object CMakeFiles/TestRedactMarkAll.dir/tests/TestRedactMarkAll.cpp.obj
+[554/846] Building CXX object CMakeFiles/TestAiProvider.dir/TestAiProvider_autogen/mocs_compilation.cpp.obj
+[555/846] Building CXX object CMakeFiles/TestAnnotationDjot.dir/tests/TestAnnotationDjot.cpp.obj
+[556/846] Building CXX object CMakeFiles/TestOllamaProvider.dir/TestOllamaProvider_autogen/mocs_compilation.cpp.obj
+[557/846] Building CXX object CMakeFiles/TestAiProvider.dir/tests/TestAiProvider.cpp.obj
+[558/846] Building CXX object CMakeFiles/TestDiffEngine.dir/TestDiffEngine_autogen/mocs_compilation.cpp.obj
+[559/846] Building CXX object CMakeFiles/TestOllamaProvider.dir/tests/TestOllamaProvider.cpp.obj
+[560/846] Building CXX object CMakeFiles/TestOfficeImport.dir/TestOfficeImport_autogen/mocs_compilation.cpp.obj
+[561/846] Building CXX object CMakeFiles/TestDiffEngine.dir/tests/TestDiffEngine.cpp.obj
+[562/846] Building CXX object CMakeFiles/TestMrcPipeline.dir/TestMrcPipeline_autogen/mocs_compilation.cpp.obj
+[563/846] Building CXX object CMakeFiles/TestOfficeImport.dir/tests/TestOfficeImport.cpp.obj
+[564/846] Building CXX object CMakeFiles/TestCheckedMutationCoverage.dir/TestCheckedMutationCoverage_autogen/mocs_compilation.cpp.obj
+[565/846] Building CXX object CMakeFiles/TestMrcPipeline.dir/tests/TestMrcPipeline.cpp.obj
+[566/846] Building CXX object CMakeFiles/TestHistoryIntegrity.dir/TestHistoryIntegrity_autogen/mocs_compilation.cpp.obj
+[567/846] Building CXX object CMakeFiles/TestCheckedMutationCoverage.dir/tests/TestCheckedMutationCoverage.cpp.obj
+[568/846] Building CXX object CMakeFiles/TestHistoryIntegrity.dir/src/engines/DocumentSession.cpp.obj
+[569/846] Building CXX object CMakeFiles/TestHistoryIntegrity.dir/tests/TestHistoryIntegrity.cpp.obj
+[570/846] Building CXX object CMakeFiles/TestImageAppearance.dir/TestImageAppearance_autogen/mocs_compilation.cpp.obj
+[571/846] Building CXX object CMakeFiles/TestImageAppearance.dir/src/engines/DocumentSession.cpp.obj
+[572/846] Building CXX object CMakeFiles/TestOfficeExport.dir/TestOfficeExport_autogen/mocs_compilation.cpp.obj
+[573/846] Building CXX object CMakeFiles/TestImageAppearance.dir/tests/TestImageAppearance.cpp.obj
+[574/846] Building CXX object CMakeFiles/TestTextEditStyle.dir/TestTextEditStyle_autogen/mocs_compilation.cpp.obj
+[575/846] Building CXX object CMakeFiles/TestOfficeExport.dir/tests/TestOfficeExport.cpp.obj
+[576/846] Building CXX object CMakeFiles/TestEraserEngine.dir/TestEraserEngine_autogen/mocs_compilation.cpp.obj
+[577/846] Building CXX object CMakeFiles/TestTextEditStyle.dir/tests/TestTextEditStyle.cpp.obj
+[578/846] Building CXX object CMakeFiles/TestPersistenceOutcomes.dir/TestPersistenceOutcomes_autogen/mocs_compilation.cpp.obj
+[579/846] Building CXX object CMakeFiles/TestEraserEngine.dir/tests/TestEraserEngine.cpp.obj
+[580/846] Building CXX object CMakeFiles/TestPersistenceOutcomes.dir/tests/TestPersistenceOutcomes.cpp.obj
+[581/846] Building CXX object CMakeFiles/render_path_profile.dir/render_path_profile_autogen/mocs_compilation.cpp.obj
+[582/846] Building CXX object CMakeFiles/TestPersistenceOutcomes.dir/src/app/Bootstrapper.cpp.obj
+[583/846] Building CXX object CMakeFiles/TestRenderGuards.dir/TestRenderGuards_autogen/mocs_compilation.cpp.obj
+[584/846] Building CXX object CMakeFiles/render_path_profile.dir/tools/render_path_profile.cpp.obj
+[585/846] Building CXX object CMakeFiles/TestSep13LeadCapability.dir/TestSep13LeadCapability_autogen/mocs_compilation.cpp.obj
+[586/846] Building CXX object CMakeFiles/TestRenderGuards.dir/tests/TestRenderGuards.cpp.obj
+[587/846] Building CXX object CMakeFiles/TestSep13LeadBatchMerge.dir/TestSep13LeadBatchMerge_autogen/mocs_compilation.cpp.obj
+[588/846] Building CXX object CMakeFiles/TestSep13LeadCapability.dir/tests/TestSep13LeadCapability.cpp.obj
+[589/846] Building CXX object CMakeFiles/TestSep13LeadOcrGuards.dir/TestSep13LeadOcrGuards_autogen/mocs_compilation.cpp.obj
+[590/846] Building CXX object CMakeFiles/TestSep13LeadBatchMerge.dir/tests/TestSep13LeadBatchMerge.cpp.obj
+[591/846] Building CXX object CMakeFiles/TestSep13LeadConversionExport.dir/TestSep13LeadConversionExport_autogen/mocs_compilation.cpp.obj
+[592/846] Building CXX object CMakeFiles/TestSep13LeadOcrGuards.dir/tests/TestSep13LeadOcrGuards.cpp.obj
+[593/846] Building CXX object CMakeFiles/TestSep13LeadRedactionProof.dir/TestSep13LeadRedactionProof_autogen/mocs_compilation.cpp.obj
+[594/846] Building CXX object CMakeFiles/TestSep13LeadConversionExport.dir/tests/TestSep13LeadConversionExport.cpp.obj
+[595/846] Building CXX object CMakeFiles/R14ProbeRedactSpace.dir/R14ProbeRedactSpace_autogen/mocs_compilation.cpp.obj
+[596/846] Building CXX object CMakeFiles/TestSep13LeadRedactionProof.dir/tests/TestSep13LeadRedactionProof.cpp.obj
+[597/846] Building CXX object CMakeFiles/R14ProbeSep13Fixes.dir/R14ProbeSep13Fixes_autogen/mocs_compilation.cpp.obj
+[598/846] Building CXX object CMakeFiles/R14ProbeRedactSpace.dir/tests/R14ProbeRedactSpace.cpp.obj
+[599/846] Building CXX object CMakeFiles/TestSep13LeadBtDowngrade.dir/TestSep13LeadBtDowngrade_autogen/mocs_compilation.cpp.obj
+[600/846] Building CXX object CMakeFiles/R14ProbeSep13Fixes.dir/tests/R14ProbeSep13Fixes.cpp.obj
+[601/846] Building CXX object CMakeFiles/TestSep13LeadComparePerf.dir/TestSep13LeadComparePerf_autogen/mocs_compilation.cpp.obj
+[602/846] Building CXX object CMakeFiles/TestSep13LeadBtDowngrade.dir/tests/TestSep13LeadBtDowngrade.cpp.obj
+[603/846] Building CXX object CMakeFiles/TestSweepW1PresetAdversary.dir/TestSweepW1PresetAdversary_autogen/mocs_compilation.cpp.obj
+[604/846] Building CXX object CMakeFiles/TestSep13LeadComparePerf.dir/tests/TestSep13LeadComparePerf.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestSep13LeadComparePerf.cpp: In function 'qint64 {anonymous}::measureToggleWorkMs(CompareWidget&, int, int)':
+D:/pdf/pdf-w2b-plprefix/tests/TestSep13LeadComparePerf.cpp:79:21: warning: variable 'sink' set but not used [-Wunused-but-set-variable=]
+   79 |     volatile qint64 sink = 0;
+      |                     ^~~~
+D:/pdf/pdf-w2b-plprefix/tests/TestSep13LeadComparePerf.cpp: In function 'qint64 {anonymous}::measureStructuralToggleWorkMs(CompareWidget&, int, int)':
+D:/pdf/pdf-w2b-plprefix/tests/TestSep13LeadComparePerf.cpp:91:21: warning: variable 'sink' set but not used [-Wunused-but-set-variable=]
+   91 |     volatile qint64 sink = 0;
+      |                     ^~~~
+[605/846] Building CXX object CMakeFiles/TestSweepW1SigningAdversary.dir/TestSweepW1SigningAdversary_autogen/mocs_compilation.cpp.obj
+[606/846] Building CXX object CMakeFiles/TestSweepW1PresetAdversary.dir/tests/TestSweepW1PresetAdversary.cpp.obj
+[607/846] Building CXX object CMakeFiles/TestSweepW1SummaryPolicyAdversary.dir/TestSweepW1SummaryPolicyAdversary_autogen/mocs_compilation.cpp.obj
+[608/846] Building CXX object CMakeFiles/TestSweepW1SigningAdversary.dir/tests/TestSweepW1SigningAdversary.cpp.obj
+[609/846] Building CXX object CMakeFiles/TestSweepW1SecProbe.dir/TestSweepW1SecProbe_autogen/mocs_compilation.cpp.obj
+[610/846] Building CXX object CMakeFiles/TestSweepW1SummaryPolicyAdversary.dir/tests/TestSweepW1SummaryPolicyAdversary.cpp.obj
+[611/846] Building CXX object CMakeFiles/W2BProbeNaming.dir/W2BProbeNaming_autogen/mocs_compilation.cpp.obj
+[612/846] Building CXX object CMakeFiles/TestSweepW1SecProbe.dir/tests/SweepW1SecProbe.cpp.obj
+[613/846] Building CXX object CMakeFiles/W2BProbeSigning.dir/W2BProbeSigning_autogen/mocs_compilation.cpp.obj
+[614/846] Building CXX object CMakeFiles/W2BProbeNaming.dir/tests/W2BProbeNaming.cpp.obj
+[615/846] Building CXX object CMakeFiles/W2BProbeSummaryPolicy.dir/W2BProbeSummaryPolicy_autogen/mocs_compilation.cpp.obj
+[616/846] Building CXX object CMakeFiles/W2BProbeSigning.dir/tests/W2BProbeSigning.cpp.obj
+[617/846] Building CXX object CMakeFiles/W2BProbeA11y.dir/W2BProbeA11y_autogen/mocs_compilation.cpp.obj
+[618/846] Building CXX object CMakeFiles/W2BProbeSummaryPolicy.dir/tests/W2BProbeSummaryPolicy.cpp.obj
+[619/846] Building CXX object CMakeFiles/W2BProbeLegacySpace.dir/W2BProbeLegacySpace_autogen/mocs_compilation.cpp.obj
+[620/846] Building CXX object CMakeFiles/W2BProbeA11y.dir/tests/W2BProbeA11y.cpp.obj
+[621/846] Building CXX object CMakeFiles/W2BProbeOfficeSave.dir/W2BProbeOfficeSave_autogen/mocs_compilation.cpp.obj
+[622/846] Building CXX object CMakeFiles/W2BProbeLegacySpace.dir/tests/W2BProbeLegacySpace.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/W2BProbeLegacySpace.cpp: In function 'constexpr bool {anonymous}::rectClose(const QRectF&, const QRectF&)':
+D:/pdf/pdf-w2b-plprefix/tests/W2BProbeLegacySpace.cpp:51:21: warning: call to non-'constexpr' function 'double fabs(double)' [-Winvalid-constexpr]
+   51 |     return std::fabs(a.x() - b.x()) < 0.01 && std::fabs(a.y() - b.y()) < 0.01
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~
+In file included from D:/pdf/msys64/ucrt64/include/c++/16.1.0/cmath:55,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qnumeric.h:19,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qglobal.h:60,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:4,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from D:/pdf/pdf-w2b-plprefix/tests/W2BProbeLegacySpace.cpp:32:
+D:/pdf/msys64/ucrt64/include/math.h:229:31: note: 'double fabs(double)' declared here
+  229 |   __CRT_INLINE double __cdecl fabs (double x)
+      |                               ^~~~
+[623/846] Building CXX object CMakeFiles/TestRotate270PageSpace.dir/TestRotate270PageSpace_autogen/mocs_compilation.cpp.obj
+[624/846] Building CXX object CMakeFiles/W2BProbeOfficeSave.dir/tests/W2BProbeOfficeSave.cpp.obj
+[625/846] Building CXX object CMakeFiles/R14ProbeBatchSkip.dir/R14ProbeBatchSkip_autogen/mocs_compilation.cpp.obj
+[626/846] Building CXX object CMakeFiles/TestRotate270PageSpace.dir/tests/TestRotate270PageSpace.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/TestRotate270PageSpace.cpp: In function 'constexpr bool {anonymous}::rectClose(const QRectF&, const QRectF&)':
+D:/pdf/pdf-w2b-plprefix/tests/TestRotate270PageSpace.cpp:44:21: warning: call to non-'constexpr' function 'double fabs(double)' [-Winvalid-constexpr]
+   44 |     return std::fabs(a.x() - b.x()) < 0.01 && std::fabs(a.y() - b.y()) < 0.01
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~
+In file included from D:/pdf/msys64/ucrt64/include/c++/16.1.0/cmath:55,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qnumeric.h:19,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qglobal.h:60,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:4,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from D:/pdf/pdf-w2b-plprefix/tests/TestRotate270PageSpace.cpp:23:
+D:/pdf/msys64/ucrt64/include/math.h:229:31: note: 'double fabs(double)' declared here
+  229 |   __CRT_INLINE double __cdecl fabs (double x)
+      |                               ^~~~
+[627/846] Building CXX object CMakeFiles/TestGsdW2Probe.dir/TestGsdW2Probe_autogen/mocs_compilation.cpp.obj
+[628/846] Building CXX object CMakeFiles/R14ProbeBatchSkip.dir/tests/R14ProbeBatchSkip.cpp.obj
+[629/846] Building CXX object CMakeFiles/W2CProbeRotate270.dir/W2CProbeRotate270_autogen/mocs_compilation.cpp.obj
+[630/846] Building CXX object CMakeFiles/TestGsdW2Probe.dir/tests/TestGsdW2Probe.cpp.obj
+[631/846] Building CXX object CMakeFiles/TestPgr37PageSpaceLaw.dir/TestPgr37PageSpaceLaw_autogen/mocs_compilation.cpp.obj
+[632/846] Building CXX object CMakeFiles/W2CProbeRotate270.dir/tests/W2CProbeRotate270.cpp.obj
+D:/pdf/pdf-w2b-plprefix/tests/W2CProbeRotate270.cpp: In function 'constexpr bool {anonymous}::rectClose(const QRectF&, const QRectF&)':
+D:/pdf/pdf-w2b-plprefix/tests/W2CProbeRotate270.cpp:61:21: warning: call to non-'constexpr' function 'double fabs(double)' [-Winvalid-constexpr]
+   61 |     return std::fabs(a.x() - b.x()) < 0.01 && std::fabs(a.y() - b.y()) < 0.01
+      |            ~~~~~~~~~^~~~~~~~~~~~~~~
+In file included from D:/pdf/msys64/ucrt64/include/c++/16.1.0/cmath:55,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qnumeric.h:19,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qglobal.h:60,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QtCore:4,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTestDepends:3,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:3,
+                 from D:/pdf/pdf-w2b-plprefix/tests/W2CProbeRotate270.cpp:37:
+D:/pdf/msys64/ucrt64/include/math.h:229:31: note: 'double fabs(double)' declared here
+  229 |   __CRT_INLINE double __cdecl fabs (double x)
+      |                               ^~~~
+[633/846] Building CXX object CMakeFiles/TestPgr35BatchCollision.dir/TestPgr35BatchCollision_autogen/mocs_compilation.cpp.obj
+[634/846] Building CXX object CMakeFiles/TestPgr37PageSpaceLaw.dir/tests/TestPgr37PageSpaceLaw.cpp.obj
+[635/846] Building CXX object CMakeFiles/TestPgr36StaleSigningPanel.dir/TestPgr36StaleSigningPanel_autogen/mocs_compilation.cpp.obj
+[636/846] Building CXX object CMakeFiles/TestPgr35BatchCollision.dir/tests/TestPgr35BatchCollision.cpp.obj
+[637/846] Building CXX object CMakeFiles/TestFileHandleCoordination.dir/TestFileHandleCoordination_autogen/mocs_compilation.cpp.obj
+[638/846] Building CXX object CMakeFiles/TestPgr36StaleSigningPanel.dir/tests/TestPgr36StaleSigningPanel.cpp.obj
+[639/846] Building CXX object CMakeFiles/TestFileHandleCoordination.dir/tests/TestFileHandleCoordination.cpp.obj
+[640/846] Building CXX object CMakeFiles/TestCommandRegistry.dir/TestCommandRegistry_autogen/mocs_compilation.cpp.obj
+[641/846] Building CXX object CMakeFiles/TestFileHandleCoordination.dir/src/app/Bootstrapper.cpp.obj
+[642/846] Building CXX object CMakeFiles/TestCommandRegistry.dir/tests/TestCommandRegistry.cpp.obj
+[643/846] Linking CXX executable UnitTests.exe
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[644/846] Linking CXX executable TestInterfaces.exe
+[645/846] Linking CXX executable TestExpiryInterface.exe; Deploying podofo 1.1.0 DLL for TestExpiryInterface
+lto-wrapper.exe: warning: using serial compilation of 18 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[646/846] Linking CXX executable SmokeTest.exe
+lto-wrapper.exe: warning: using serial compilation of 25 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[647/846] Linking CXX executable TestSanitization.exe
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[648/846] Linking CXX executable TestSanitizeSelective.exe; Deploying podofo 1.1.0 DLL for TestSanitizeSelective
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[649/846] Linking CXX executable PdfWorkstation.exe; AR-11 D4: Stripping DWARF paths from Release PdfWorkstation.exe
+lto-wrapper.exe: warning: using serial compilation of 110 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[650/846] Linking CXX executable TestSanitizeTrailerUaf.exe
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[651/846] Linking CXX executable TestAutosave.exe
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[652/846] Linking CXX executable TestDocumentIdentity.exe; Deploying qoffscreen platform plugin for TestDocumentIdentity
+D:/pdf/pdf-w2b-plprefix/src/modes/PdfAValidationPanel.h:68:7: warning: type 'struct PdfAValidationPanel' violates the C++ One Definition Rule [-Wodr]
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-w2b-plprefix/src/modes/PdfAValidationPanel.h:68:7: note: a different type is defined in another translation unit
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-w2b-plprefix/src/modes/PdfAValidationPanel.h:120:24: note: the first difference of corresponding definitions is field 'm_issuesLayout'
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+D:/pdf/pdf-w2b-plprefix/src/modes/PdfAValidationPanel.h:120:24: note: a field of same name but different type is defined in another translation unit
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+D:/pdf/pdf-w2b-plprefix/src/modes/PdfAValidationPanel.h:120:11: note: type name 'gp::QVBoxLayout' should match type name 'QVBoxLayout'
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |           ^
+C:/msys64/ucrt64/include/qt6/QtWidgets/qboxlayout.h:91:24: note: the incompatible type is defined here
+   91 | class Q_WIDGETS_EXPORT QVBoxLayout : public QBoxLayout
+      |                        ^
+lto-wrapper.exe: warning: using serial compilation of 112 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[653/846] Linking CXX executable TestBatesBatchSafety.exe; Deploying qoffscreen platform plugin for TestBatesBatchSafety
+lto-wrapper.exe: warning: using serial compilation of 112 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[654/846] Linking CXX executable TestRecoverySave.exe; Deploying qoffscreen platform plugin for TestRecoverySave
+lto-wrapper.exe: warning: using serial compilation of 111 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[655/846] Linking CXX executable TestReadOnlyGate.exe; Deploying qoffscreen platform plugin for TestReadOnlyGate
+lto-wrapper.exe: warning: using serial compilation of 112 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[656/846] Linking CXX executable TestSignatureValidationMock.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[657/846] Linking CXX executable TestRobustness.exe
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[658/846] Linking CXX executable TestSecretStore.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[659/846] Linking CXX executable TestSignatureValidation.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[660/846] Linking CXX executable TestSignatureRealCrypto.exe; Deploying podofo 1.1.0 DLL for TestSignatureRealCrypto
+lto-wrapper.exe: warning: using serial compilation of 9 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[661/846] Linking CXX executable TestSendForSigning.exe; Deploying podofo 1.1.0 DLL for TestSendForSigning
+lto-wrapper.exe: warning: using serial compilation of 11 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[662/846] Linking CXX executable TestEraseSignedGuard.exe; Deploying podofo 1.1.0 DLL for TestEraseSignedGuard
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[663/846] Linking CXX executable TestSignatureAppearance.exe; Deploying podofo 1.1.0 DLL for TestSignatureAppearance
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[664/846] Linking CXX executable TestOptimizeSignedGuard.exe; Deploying podofo 1.1.0 DLL for TestOptimizeSignedGuard
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[665/846] Linking CXX executable TestSidecarReopenState.exe; Deploying qoffscreen platform plugin for TestSidecarReopenState
+lto-wrapper.exe: warning: using serial compilation of 111 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-plprefix/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[666/846] Linking CXX executable TestChain1.exe
+[667/846] Linking CXX executable TestImageDedup.exe; Deploying podofo 1.1.0 DLL for TestImageDedup
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[668/846] Linking CXX executable TestRedaction.exe
+lto-wrapper.exe: warning: using serial compilation of 18 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[669/846] Linking CXX executable TestDedupSMask.exe; Deploying podofo 1.1.0 DLL for TestDedupSMask
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[670/846] Linking CXX executable TestOptimizeEstimate.exe; Deploying podofo 1.1.0 DLL for TestOptimizeEstimate
+lto-wrapper.exe: warning: using serial compilation of 17 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[671/846] Linking CXX executable TestCompressJpegReencode.exe; Deploying podofo 1.1.0 DLL for TestCompressJpegReencode
+lto-wrapper.exe: warning: using serial compilation of 18 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[672/846] Linking CXX executable TestLayoutEnsemble.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[673/846] Linking CXX executable TestOcrPipeline.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[674/846] Linking CXX executable TestOcrVerifyNavigation.exe; Deploying qoffscreen platform plugin for TestOcrVerifyNavigation
+FAILED: [code=1] TestOcrVerifyNavigation.exe 
+C:\WINDOWS\system32\cmd.exe /C "cd . && C:\msys64\ucrt64\bin\c++.exe -O3 -DNDEBUG -Wl,--dynamicbase,--nxcompat,--high-entropy-va -flto=auto CMakeFiles/TestOcrVerifyNavigation.dir/TestOcrVerifyNavigation_autogen/mocs_compilation.cpp.obj CMakeFiles/TestOcrVerifyNavigation.dir/tests/TestOcrVerifyNavigation.cpp.obj -o TestOcrVerifyNavigation.exe -Wl,--out-implib,libTestOcrVerifyNavigation.dll.a -Wl,--major-image-version,0,--minor-image-version,0  libpdfws_ui.a  libpdfws_engines.a  libpdfws_commands.a  C:/msys64/ucrt64/lib/libQt6Test.dll.a  C:/msys64/ucrt64/lib/libQt6Concurrent.dll.a  C:/msys64/ucrt64/lib/libssl.dll.a  C:/msys64/ucrt64/lib/libzip.dll.a  -lpcre2-16  -lCredui  -lAdvapi32  -lCrypt32  -ltesseract  -lleptonica  third_party/jbig2enc/liblibjbig2enc.a  C:/msys64/ucrt64/lib/libleptonica.dll.a  -lWs2_32  C:/msys64/ucrt64/lib/libopenjp2.dll.a  C:/msys64/ucrt64/lib/libqpdf.dll.a  D:/pdf/pdf-w2b-plprefix/third_party/pdfium/lib/libpdfium.dll.a  C:/msys64/ucrt64/lib/libqjs.dll.a  -lm  C:/msys64/ucrt64/lib/libQt6PdfWidgets.dll.a  C:/msys64/ucrt64/lib/libQt6Pdf.dll.a  C:/msys64/ucrt64/lib/libQt6PrintSupport.dll.a  C:/msys64/ucrt64/lib/libQt6Widgets.dll.a  -lcomdlg32  -lwinspool  C:/msys64/ucrt64/lib/libQt6Svg.dll.a  C:/msys64/ucrt64/lib/libQt6Gui.dll.a  -ld3d11  -ldxgi  -ldxguid  -ld3d12  C:/msys64/ucrt64/lib/libQt6Network.dll.a  -lws2_32  src/pdfws_djot/libpdfws_djot.a  D:/pdf/pdf-w2b-plprefix/third_party/podofo/install/lib/libpodofo.dll.a  third_party/libliblua.a  src/docmodel/libdocmodel.a  C:/msys64/ucrt64/lib/libcrypto.dll.a  -lwintrust  C:/msys64/ucrt64/lib/libQt6Core.dll.a  -lmpr  -luserenv  -lkernel32 -luser32 -lgdi32 -lwinspool -lshell32 -lole32 -loleaut32 -luuid -lcomdlg32 -ladvapi32 && C:\WINDOWS\system32\cmd.exe /C "cd /D D:\pdf\pdf-w2b-plprefix\build-rel && C:\msys64\ucrt64\bin\cmake.exe -E make_directory D:/pdf/pdf-w2b-plprefix/build-rel/platforms && C:\msys64\ucrt64\bin\cmake.exe -E copy_if_different C:/msys64/ucrt64/share/qt6/plugins/platforms/qoffscreen.dll D:/pdf/pdf-w2b-plprefix/build-rel/platforms/qoffscreen.dll""
+lto-wrapper.exe: warning: using serial compilation of 49 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+lto-wrapper.exe: fatal error: C:\msys64\ucrt64\bin\c++.exe returned 1 exit status
+compilation terminated.
+D:/pdf/msys64/ucrt64/bin/../lib/gcc/x86_64-w64-mingw32/16.1.0/../../../../x86_64-w64-mingw32/bin/ld.exe: error: lto-wrapper failed
+collect2.exe: error: ld returned 1 exit status

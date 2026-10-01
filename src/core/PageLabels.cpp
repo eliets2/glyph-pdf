@@ -101,7 +101,8 @@ QStringList labelsFor(int startValue, Style style, int pageCount)
     return labels;
 }
 
-QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int pageCount)
+QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int pageCount,
+                                           const QString& prefix)
 {
     QList<PageLabelNumEntry> entries;
     if (pageCount <= 0 || startValue < 1)
@@ -111,16 +112,17 @@ QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int page
     entry.pageNum    = 0; // the range starts at the first page of the document
     entry.style      = styleName(style);
     entry.startValue = startValue;
+    entry.prefix     = prefix;
     entries.append(entry);
     return entries;
 }
 
 bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
-                     int pageCount)
+                     int pageCount, const QString& prefix)
 {
     // Validate FIRST: an invalid range must leave the catalog untouched.
     const QList<PageLabelNumEntry> entries =
-        numberTreeEntries(startValue, style, pageCount);
+        numberTreeEntries(startValue, style, pageCount, prefix);
     if (entries.isEmpty())
         return false;
 
@@ -146,6 +148,15 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
             // the readback exact (no default-reconstruction in consumers).
             range.GetDictionary().AddKey(
                 "St", PoDoFo::PdfObject(static_cast<std::int64_t>(e.startValue)));
+            // /P (ISO 32000 Table 159): a text string PREPENDED to every
+            // computed label of the range (prefix precedes the number).
+            // Written ONLY for a non-empty prefix — an empty prefix must
+            // never produce a /P key.
+            if (!e.prefix.isEmpty()) {
+                range.GetDictionary().AddKey(
+                    "P", PoDoFo::PdfObject(
+                             PoDoFo::PdfString(e.prefix.toStdString())));
+            }
             nums.Add(range);
         }
         labels.GetDictionary().AddKey("Nums", PoDoFo::PdfObject(nums));
@@ -163,7 +174,8 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
     }
 }
 
-bool writeNumberTree(const QString& pdfPath, int startValue, Style style)
+bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
+                     const QString& prefix)
 {
     // G13 (QUALITY-GATE-2026-09-09): this overload used to Load() and Save()
     // the SAME path. PoDoFo keeps the source device open for lazy object
@@ -192,7 +204,7 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style)
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdfPath.toUtf8().constData());
         const int pageCount = static_cast<int>(doc.GetPages().GetCount());
-        if (writeNumberTree(doc, startValue, style, pageCount)) {
+        if (writeNumberTree(doc, startValue, style, pageCount, prefix)) {
             doc.Save(candidate.toUtf8().constData());
 
             // Validate the candidate: it must re-open (proving no lazy-stream
@@ -200,7 +212,7 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style)
             // write.
             PoDoFo::PdfMemDocument check;
             check.Load(candidate.toUtf8().constData());
-            const auto expected = numberTreeEntries(startValue, style, pageCount);
+            const auto expected = numberTreeEntries(startValue, style, pageCount, prefix);
             const PoDoFo::PdfObject* labels =
                 check.GetCatalog().GetDictionary().FindKey(PoDoFo::PdfName("PageLabels"));
             if (labels && labels->IsReference())
@@ -213,6 +225,23 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style)
                      && static_cast<qsizetype>(nums->GetArray().GetSize())
                             == expected.size() * 2
                      && static_cast<int>(check.GetPages().GetCount()) == pageCount;
+            // The written /P must match the request exactly: present iff the
+            // prefix was non-empty, and byte-equal to it when present.
+            if (ok) {
+                const PoDoFo::PdfObject* range0 = nums->GetArray().FindAt(1);
+                const PoDoFo::PdfObject* p =
+                    range0 && range0->IsDictionary()
+                        ? range0->GetDictionary().FindKey(PoDoFo::PdfName("P"))
+                        : nullptr;
+                ok = prefix.isEmpty()
+                         ? p == nullptr
+                         : p && p->IsString()
+                               && QString::fromUtf8(
+                                      p->GetString().GetString().data(),
+                                      static_cast<qsizetype>(
+                                          p->GetString().GetString().size()))
+                                      == prefix;
+            }
         }
     } catch (const PoDoFo::PdfError& e) {
         qWarning("PageLabels::writeNumberTree(%s): %s",

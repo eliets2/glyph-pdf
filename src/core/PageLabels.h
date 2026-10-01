@@ -14,7 +14,9 @@
  *                            (one entry: page index 0, style name, startValue).
  *   - writeNumberTree()    → §9.9 P1 writer: serializes those entries into a
  *                            document catalog's /PageLabels dictionary (flat
- *                            /Nums tree; replaces any pre-existing tree).
+ *                            /Nums tree; replaces any pre-existing tree),
+ *                            with an optional /P label prefix per range
+ *                            (Table 159; empty = no /P key is written).
  *
  * Scope (S, honest): one uniform labeling range per document — no per-range
  * UI, no /Kids branching, no in-place engine-resident mutation (the path
@@ -45,17 +47,20 @@ namespace gp {
 
 // One /Nums key–value pair of the PDF /PageLabels number tree: the 0-based
 // page index where a labeling range starts, the /S style name in force from
-// that page on, and the /St numeric value of its first label.
+// that page on, the /St numeric value of its first label, and the /P text
+// string prefixed to every computed label of the range (ISO 32000 Table 159;
+// an empty prefix means NO /P key is written for the range).
 struct PageLabelNumEntry {
     int     pageNum    = 0;
     QString style      = QStringLiteral("D");
     int     startValue = 1;
+    QString prefix;     // /P label prefix; empty = no /P key
 
     // Value equality (used by tests to compare written vs. expected trees).
     friend bool operator==(const PageLabelNumEntry& a, const PageLabelNumEntry& b)
     {
         return a.pageNum == b.pageNum && a.style == b.style
-            && a.startValue == b.startValue;
+            && a.startValue == b.startValue && a.prefix == b.prefix;
     }
 };
 
@@ -79,19 +84,23 @@ QString styleName(Style style);
 QStringList labelsFor(int startValue, Style style, int pageCount);
 
 // The minimal /PageLabels number-tree entries covering a whole document
-// labeled uniformly: one {0, styleName(style), startValue} entry for a
-// non-empty valid range; empty for invalid input.
-QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int pageCount);
+// labeled uniformly: one {0, styleName(style), startValue, prefix} entry for
+// a non-empty valid range; empty for invalid input.
+QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int pageCount,
+                                           const QString& prefix = QString());
 
 // §9.9 P1 writer: create (or REPLACE) the document catalog's /PageLabels
 // dictionary in `doc` with a proper /Nums number tree for `numberTreeEntries(
-// startValue, style, pageCount)` — a single flat /Nums array covering all
-// pages (valid per ISO 32000 7.9.3; /Kids is only needed for sparse trees).
-// A pre-existing /PageLabels entry (and its stale /Nums) is removed first.
-// /S and /St are always written explicitly. Returns false — touching nothing
-// — for invalid input (pageCount <= 0 or startValue < 1) or a PoDoFo error.
+// startValue, style, pageCount, prefix)` — a single flat /Nums array covering
+// all pages (valid per ISO 32000 7.9.3; /Kids is only needed for sparse
+// trees). A pre-existing /PageLabels entry (and its stale /Nums) is removed
+// first. /S and /St are always written explicitly. `prefix` is written as the
+// range's /P text string (Table 159: it precedes the computed label number)
+// ONLY when non-empty — an empty prefix must never produce a /P key. Returns
+// false — touching nothing — for invalid input (pageCount <= 0 or
+// startValue < 1) or a PoDoFo error.
 bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
-                     int pageCount);
+                     int pageCount, const QString& prefix = QString());
 
 // File convenience: write the tree for the document at `pdfPath` (the page
 // count is taken from the document itself) and replace `pdfPath` with the
@@ -102,7 +111,8 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
 // and committed through the R01 safe-save primitives (SafeSave): on any
 // failure the destination is byte-identical. Direct API callers cannot lose
 // their file, and the PagesMode staged-candidate flow is itself safe.
-bool writeNumberTree(const QString& pdfPath, int startValue, Style style);
+bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
+                     const QString& prefix = QString());
 
 } // namespace PageLabels
 } // namespace gp

@@ -1,0 +1,28 @@
+********* Start testing of TestPageLabels *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestPageLabels::initTestCase()
+PASS   : TestPageLabels::styleNameMapping()
+PASS   : TestPageLabels::labelsFor_decimal()
+PASS   : TestPageLabels::labelsFor_uppercaseRoman()
+PASS   : TestPageLabels::labelsFor_lowercaseRoman()
+PASS   : TestPageLabels::labelsFor_letters()
+PASS   : TestPageLabels::labelsFor_invalidArgs()
+PASS   : TestPageLabels::labelsFor_romanBeyond3999()
+PASS   : TestPageLabels::numberTreeEntries_singleRange()
+PASS   : TestPageLabels::numberTreeEntries_invalidArgs()
+PASS   : TestPageLabels::writeNumberTree_decimal_readback()
+PASS   : TestPageLabels::writeNumberTree_roman_readback()
+PASS   : TestPageLabels::writeNumberTree_replacesExistingTree()
+PASS   : TestPageLabels::writeNumberTree_startValueOffset()
+PASS   : TestPageLabels::writeNumberTree_invalidArgs()
+PASS   : TestPageLabels::writeNumberTree_prefix_readback()
+PASS   : TestPageLabels::writeNumberTree_emptyPrefixNotWritten()
+PASS   : TestPageLabels::writeNumberTree_prefixStyleComposition()
+PASS   : TestPageLabels::writeNumberTreePrefixSafeSaveRoundTrip()
+PASS   : TestPageLabels::writeNumberTreeContentBearingFileSurvivesAndCarriesTree()
+QWARN  : TestPageLabels::writeNumberTreeFailingCommitLeavesFileByteIdentical() PageLabels::writeNumberTree: commit to C:/Users/User/AppData/Local/Temp/TestPageLabels-DewHmV/g13_fault.pdf failed: injected commit failure (test seam)
+PASS   : TestPageLabels::writeNumberTreeFailingCommitLeavesFileByteIdentical()
+PASS   : TestPageLabels::writeNumberTreePagesModeCandidateFlowEndToEnd()
+PASS   : TestPageLabels::cleanupTestCase()
+Totals: 23 passed, 0 failed, 0 skipped, 0 blacklisted, 820ms
+********* Finished testing of TestPageLabels *********

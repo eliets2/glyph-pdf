@@ -1,0 +1,5 @@
+[1/4] Automatic MOC and UIC for target TestPageLabels
+[2/3] Building CXX object CMakeFiles/TestPageLabels.dir/tests/TestPageLabels.cpp.obj
+[3/3] Linking CXX executable TestPageLabels.exe; Deploying podofo 1.1.0 DLL for TestPageLabels
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information

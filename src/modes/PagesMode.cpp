@@ -1628,6 +1628,15 @@ void PagesMode::onApplyPageLabels()
                    static_cast<int>(PL::Style::UppercaseLetters));
     form->addRow(PagesMode::tr("Style:"), style);
 
+    // /P prefix (ISO 32000 Table 159): optional text before every computed
+    // number. Empty = no /P key is written at all (the writer omits it).
+    auto* prefix = new QLineEdit(&dlg);
+    prefix->setPlaceholderText(PagesMode::tr("none"));
+    prefix->setToolTip(PagesMode::tr("Optional text placed before every computed number "
+                                     "(e.g. “A-” labels the first page “A-1”, “A-2”, …). "
+                                     "Leave empty for no prefix."));
+    form->addRow(PagesMode::tr("Prefix:"), prefix);
+
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
@@ -1636,6 +1645,7 @@ void PagesMode::onApplyPageLabels()
     if (dlg.exec() != QDialog::Accepted)
         return;
     const auto chosenStyle = static_cast<gp::PageLabels::Style>(style->currentData().toInt());
+    const QString prefixText = prefix->text();   // empty = no /P key (writer omits it)
 
     // Same atomic boundary as the split path: candidate → write → commit.
     QString candidate;
@@ -1657,7 +1667,7 @@ void PagesMode::onApplyPageLabels()
                              PagesMode::tr("Could not stage the document for labeling."));
         return;
     }
-    if (!gp::PageLabels::writeNumberTree(candidate, start->value(), chosenStyle)) {
+    if (!gp::PageLabels::writeNumberTree(candidate, start->value(), chosenStyle, prefixText)) {
         QFile::remove(candidate);
         QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
                              PagesMode::tr("Writing the page labels failed (invalid range or unreadable PDF)."));

@@ -75,8 +75,9 @@ Style styleFromName(const QString& name)
 
 // Read back a SAVED document's catalog /PageLabels number tree, decoding the
 // flat /Nums array [pageNum, dict, …] into PageLabelNumEntry values (/St is
-// always written by the writer, but defaults to 1 when absent per the spec).
-// Empty result when /PageLabels is absent or malformed.
+// always written by the writer, but defaults to 1 when absent per the spec;
+// /P is decoded when present and stays empty when absent). Empty result when
+// /PageLabels is absent or malformed.
 QList<PageLabelNumEntry> readNumberTree(const QString& path)
 {
     QList<PageLabelNumEntry> entries;
@@ -103,6 +104,10 @@ QList<PageLabelNumEntry> readNumberTree(const QString& path)
             const PoDoFo::PdfObject* st = value.GetDictionary().FindKey("St");
             e.startValue = (st && st->IsNumber())
                 ? static_cast<int>(st->GetNumber()) : 1;
+            const PoDoFo::PdfObject* p = value.GetDictionary().FindKey("P");
+            if (p && p->IsString())
+                e.prefix = QString::fromUtf8(p->GetString().GetString().data(),
+                                             static_cast<qsizetype>(p->GetString().GetString().size()));
             entries.append(e);
         }
     } catch (const std::exception& e) {
@@ -388,6 +393,140 @@ private slots:
         // Path overload on the same file: still no catalog /PageLabels.
         QVERIFY(!writeNumberTree(path, 0, Style::Decimal));
         QVERIFY(readNumberTree(path).isEmpty());
+    }
+
+    // ── /P prefix (ISO 32000 Table 159): text string before the number ─────
+
+    // Write→re-read with a prefix: a non-empty prefix is stored as the
+    // range's /P text string and round-trips through the saved file; the
+    // computed number part is untouched by it (the prefix precedes it).
+    void writeNumberTree_prefix_readback() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("pfx.pdf"));
+        QVERIFY(makeNPdf(path, 3));
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        QVERIFY(writeNumberTree(doc, 4, Style::UppercaseRoman, 3,
+                                QStringLiteral("Fig.")));
+        doc.Save(path.toUtf8().constData());
+
+        // Structural readback: exactly one entry {page 0, /S (R), /St 4,
+        // /P "Fig."}.
+        const QList<PageLabelNumEntry> tree = readNumberTree(path);
+        QCOMPARE(tree, numberTreeEntries(4, Style::UppercaseRoman, 3,
+                                         QStringLiteral("Fig.")));
+        QCOMPARE(tree.size(), 1);
+        QCOMPARE(tree[0].pageNum, 0);
+        QCOMPARE(tree[0].style, QStringLiteral("R"));
+        QCOMPARE(tree[0].startValue, 4);
+        QCOMPARE(tree[0].prefix, QStringLiteral("Fig."));
+
+        // Consumer readback: the computed part regenerates unchanged; the
+        // prefix precedes it (Table 159), so page 0's full label is "Fig.IV".
+        QCOMPARE(labelsFor(tree[0].startValue, styleFromName(tree[0].style), 3),
+                 QStringList({"IV", "V", "VI"}));
+        QCOMPARE(tree[0].prefix + labelsFor(tree[0].startValue,
+                                            styleFromName(tree[0].style), 3).first(),
+                 QStringLiteral("Fig.IV"));
+    }
+
+    // Empty prefix: NO /P key may appear in the saved range dictionary — an
+    // empty prefix must never be written (key absent, not empty-valued).
+    void writeNumberTree_emptyPrefixNotWritten() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("nopfx.pdf"));
+        QVERIFY(makeNPdf(path, 2));
+
+        QVERIFY(writeNumberTree(path, 4, Style::Decimal));   // no prefix arg
+
+        // Raw structural check: the saved range dictionary carries /S and
+        // /St but no /P key at all.
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::PdfObject* labels =
+            doc.GetCatalog().GetDictionary().FindKey("PageLabels");
+        QVERIFY(labels != nullptr);
+        if (labels->IsReference())   // PoDoFo may hand back the ref or the
+            labels =                 // resolved object depending on load state
+                doc.GetObjects().GetObject(labels->GetReference());
+        QVERIFY(labels && labels->IsDictionary());
+        const PoDoFo::PdfObject* nums =
+            labels->GetDictionary().FindKey("Nums");
+        QVERIFY(nums && nums->IsArray());
+        QVERIFY(nums->GetArray().GetSize() == 2);
+        const PoDoFo::PdfObject* range = nums->GetArray().FindAt(1);
+        QVERIFY(range && range->IsDictionary());
+        QVERIFY(range->GetDictionary().FindKey("S") != nullptr);
+        QVERIFY(range->GetDictionary().FindKey("St") != nullptr);
+        QVERIFY2(range->GetDictionary().FindKey("P") == nullptr,
+                 "an empty prefix must never produce a /P key");
+
+        // Decoded readback agrees: prefix stays empty, entry equals the
+        // default (prefix-less) expectation.
+        const QList<PageLabelNumEntry> tree = readNumberTree(path);
+        QCOMPARE(tree, numberTreeEntries(4, Style::Decimal, 2));
+        QVERIFY(tree[0].prefix.isEmpty());
+    }
+
+    // Prefix + style composition: "App-" + Decimal from 7 → the written tree
+    // carries both, and the composed labels are "App-7" … "App-10".
+    void writeNumberTree_prefixStyleComposition() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("comp.pdf"));
+        QVERIFY(makeNPdf(path, 4));
+
+        QVERIFY(writeNumberTree(path, 7, Style::Decimal,
+                                QStringLiteral("App-")));
+
+        const QList<PageLabelNumEntry> tree = readNumberTree(path);
+        QCOMPARE(tree, numberTreeEntries(7, Style::Decimal, 4,
+                                         QStringLiteral("App-")));
+        QCOMPARE(tree[0].style, QStringLiteral("D"));
+        QCOMPARE(tree[0].startValue, 7);
+        QCOMPARE(tree[0].prefix, QStringLiteral("App-"));
+
+        QStringList composed;
+        const QStringList computed = labelsFor(7, Style::Decimal, 4);
+        for (const QString& label : computed)
+            composed.append(QStringLiteral("App-") + label);
+        QCOMPARE(composed, QStringList({"App-7", "App-8", "App-9", "App-10"}));
+    }
+
+    // The PagesMode staged SafeSave flow (candidate → label → commit) must
+    // carry the prefix into the committed original, with content intact.
+    void writeNumberTreePrefixSafeSaveRoundTrip()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString original = dir.filePath(QStringLiteral("pfx_g13.pdf"));
+        makeContentBearingPdf(original);
+
+        // PagesMode::onApplyPageLabels: candidate → copy → label → commit.
+        QString candidate;
+        QString err;
+        QVERIFY(gp::SafeSave::makeUniqueCandidate(&candidate, &err));
+        QFile::remove(candidate);
+        QVERIFY(QFile::copy(original, candidate));
+        QVERIFY2(writeNumberTree(candidate, 1, Style::LowercaseRoman,
+                                 QStringLiteral("pref-")),
+                 "labeling the staged candidate with a prefix must succeed");
+        QVERIFY2(gp::SafeSave::commitFileToDestination(candidate, original, &err),
+                 qPrintable(err));
+        QFile::remove(candidate);
+
+        const QList<PageLabelNumEntry> tree = readNumberTree(original);
+        QCOMPARE(tree, numberTreeEntries(1, Style::LowercaseRoman, 2,
+                                         QStringLiteral("pref-")));
+        QCOMPARE(tree[0].prefix, QStringLiteral("pref-"));
+
+        QPdfDocument doc;
+        QCOMPARE(doc.load(original), QPdfDocument::Error::None);
+        QVERIFY2(doc.getAllText(0).text().contains(QStringLiteral("LABELS PAGE ONE")),
+                 "the committed original must keep its content");
     }
 
     // ── G13 (QUALITY-GATE-2026-09-09) ────────────────────────────────────────
