@@ -37,6 +37,9 @@
 #include <QFile>
 #include <QFileInfo>
 
+#include <algorithm>
+#include <cstring>
+
 #include <podofo/podofo.h>
 #include "engines/PdfEditorEngine.h"
 
@@ -136,6 +139,59 @@ bool filterIs(PoDoFo::PdfObject& obj, const char* name)
     auto* f = obj.GetDictionary().FindKey("Filter");
     if (!f || !f->IsName()) return false;
     return std::string(f->GetName().GetString()) == name;
+}
+
+// Convert an already-embedded (drawn, referenced) image XObject into an
+// indexed-color one: raw index stream + /ColorSpace [/Indexed <base> <hival>
+// <lookup>]. Mutating after embedding mirrors the crafted-file discipline of
+// malformedImagesAreSkippedSafely.
+void makeIndexedImage(PoDoFo::PdfObject& img, const QByteArray& indices,
+                      unsigned w, unsigned h, const QByteArray& lookup,
+                      int hival, const char* baseCs, int bpc = 8)
+{
+    img.GetDictionary().AddKey("Width", static_cast<int64_t>(w));
+    img.GetDictionary().AddKey("Height", static_cast<int64_t>(h));
+    img.GetDictionary().AddKey("BitsPerComponent", static_cast<int64_t>(bpc));
+    PoDoFo::PdfArray cs;
+    cs.Add(PoDoFo::PdfName("Indexed"));
+    cs.Add(PoDoFo::PdfName(baseCs));
+    cs.Add(static_cast<int64_t>(hival));
+    // Palette bytes are binary: FromRaw + GetRawData is the raw-bytes contract.
+    // (A UTF-8 text string both throws on non-ASCII and re-encodes on save.)
+    cs.Add(PoDoFo::PdfString::FromRaw(
+        PoDoFo::bufferview(lookup.constData(), static_cast<size_t>(lookup.size())),
+        /*hex=*/true));
+    img.GetDictionary().RemoveKey("ColorSpace");
+    img.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfObject(std::move(cs)));
+    img.GetOrCreateStream().SetData(
+        PoDoFo::bufferview(indices.constData(), static_cast<size_t>(indices.size())),
+        /*raw=*/true);
+}
+
+// Raw 8bpc index bytes for an image of w x h whose horizontal bands cycle
+// through indices 0..bandCount-1 (band 0 at the top).
+QByteArray bandedIndices(unsigned w, unsigned h, int bandCount)
+{
+    QByteArray out(static_cast<qint64>(w) * h, '\0');
+    for (unsigned y = 0; y < h; ++y) {
+        const int band = std::min(bandCount - 1,
+                                  static_cast<int>((y * bandCount) / h));
+        memset(out.data() + static_cast<qint64>(y) * w, static_cast<char>(band), w);
+    }
+    return out;
+}
+
+OptimizeOptions downsampleOptions()
+{
+    OptimizeOptions opts;
+    opts.downsampleImages = true;
+    opts.targetDpi = 72;
+    opts.jpegQuality = 50;
+    opts.deduplicateImages = false;
+    opts.subsetFonts = false;
+    opts.removeUnusedObjects = false;
+    opts.stripMetadata = false;
+    return opts;
 }
 
 } // namespace
@@ -822,6 +878,305 @@ private slots:
                  "predictor image must be left /FlateDecode (not re-encoded)");
         QVERIFY2(rawStream(*imgs[0].obj) == before,
                  "predictor image stream must stay byte-identical (expansion is not pixel data)");
+    }
+
+    // ── PARITY §4 row 13 (scorecard 2026-09-30): indexed downsampling ───────
+    // An /Indexed /DeviceRGB 8bpc image (raw index stream) must be decoded
+    // through its palette, downsampled and re-encoded as a real /DCTDecode
+    // /DeviceRGB JPEG with the palette colors preserved, while a small indexed
+    // image below the DPI threshold stays byte-identical. Re-indexing after
+    // the smooth downsample is a net loss (interpolated pixels leave the
+    // palette; snapping back would re-introduce banding), so staying expanded
+    // as RGB JPEG is the documented contract.
+    void indexedRgbImageIsDownsampledToRgbJpeg() {
+        const int BIG_W = 1240, BIG_H = 1754;   // estDpi ≈ 150 > 72 * 1.2
+        const int SMALL_W = 200, SMALL_H = 280; // estDpi ≈ 24 → below threshold
+        const QRgb palette[4] = { qRgb(200, 30, 40), qRgb(30, 200, 50),
+                                  qRgb(40, 60, 220), qRgb(230, 200, 40) };
+        QByteArray lookup;
+        for (const auto c : palette) {
+            lookup.append(static_cast<char>(qRed(c)));
+            lookup.append(static_cast<char>(qGreen(c)));
+            lookup.append(static_cast<char>(qBlue(c)));
+        }
+
+        QString pdf = tmpPath("indexed.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            auto big = doc.CreateImage();
+            QByteArray px(BIG_W * BIG_H * 3, '\x10');
+            big->SetData(PoDoFo::bufferview(px.constData(), px.size()),
+                         BIG_W, BIG_H, PoDoFo::PdfPixelFormat::RGB24);
+            auto small = doc.CreateImage();
+            QByteArray spx(SMALL_W * SMALL_H * 3, '\x20');
+            small->SetData(PoDoFo::bufferview(spx.constData(), spx.size()),
+                           SMALL_W, SMALL_H, PoDoFo::PdfPixelFormat::RGB24);
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*big, 40, 420, 200.0, 280.0);
+            painter.DrawImage(*small, 40, 40, 100.0, 140.0);
+            painter.FinishDrawing();
+
+            makeIndexedImage(big->GetObject(), bandedIndices(BIG_W, BIG_H, 4),
+                             BIG_W, BIG_H, lookup, 3, "DeviceRGB");
+            makeIndexedImage(small->GetObject(),
+                             bandedIndices(SMALL_W, SMALL_H, 4),
+                             SMALL_W, SMALL_H, lookup, 3, "DeviceRGB");
+            doc.Save(pdf.toUtf8().constData());
+        }
+        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
+
+        QByteArray smallBefore;
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            auto imgs = findImages(doc, SMALL_W, SMALL_H);
+            QCOMPARE(imgs.size(), 1);
+            smallBefore = rawStream(*imgs[0].obj);
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts = downsampleOptions();
+        QString out = tmpPath("indexed_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+
+        // Small indexed image: untouched, byte-identical.
+        auto smallImgs = findImages(doc, SMALL_W, SMALL_H);
+        QCOMPARE(smallImgs.size(), 1);
+        QVERIFY2(rawStream(*smallImgs[0].obj) == smallBefore,
+                 "small indexed image below the DPI threshold must stay byte-identical");
+
+        // Big indexed image: decoded via palette, downsampled, re-encoded.
+        auto outImages = findImages(doc); // big dims changed by the downsample
+        QCOMPARE(outImages.size(), 2);
+        const FoundImage* big = nullptr;
+        for (const auto& im : outImages)
+            if (im.w != SMALL_W) big = &im;
+        QVERIFY2(big != nullptr, "big indexed image must survive the pass");
+        QVERIFY2(filterIs(*big->obj, "DCTDecode"),
+                 "indexed image must be re-encoded to /DCTDecode");
+        QVERIFY2(big->w >= 580 && big->w <= 610,
+                 qPrintable(QString("indexed image must be downsampled toward 72dpi, "
+                                    "got %1x%2").arg(big->w).arg(big->h)));
+        auto* bpc = big->obj->GetDictionary().FindKey("BitsPerComponent");
+        QVERIFY2(bpc && bpc->IsNumberOrReal() && bpc->GetReal() == 8,
+                 "re-encoded image must stay 8bpc");
+        auto* cs = big->obj->GetDictionary().FindKey("ColorSpace");
+        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceRGB",
+                 "indexed/DeviceRGB image must re-encode as /DeviceRGB JPEG "
+                 "(expanded, not re-indexed)");
+
+        // Palette colors must survive decode+downsample+JPEG round-trip.
+        QImage check;
+        QVERIFY2(check.loadFromData(rawStream(*big->obj), "JPEG"),
+                 "re-encoded stream must be a decodable JPEG");
+        for (int band = 0; band < 4; ++band) {
+            const int y = check.height() * (2 * band + 1) / 8; // band interior
+            const QRgb got = check.pixel(check.width() / 2, y);
+            const QRgb want = palette[band];
+            QVERIFY2(qAbs(qRed(got) - qRed(want)) <= 15
+                     && qAbs(qGreen(got) - qGreen(want)) <= 15
+                     && qAbs(qBlue(got) - qBlue(want)) <= 15,
+                 qPrintable(QString("band %1 color drifted: got rgb(%2,%3,%4), want rgb(%5,%6,%7)")
+                     .arg(band).arg(qRed(got)).arg(qGreen(got)).arg(qBlue(got))
+                     .arg(qRed(want)).arg(qGreen(want)).arg(qBlue(want))));
+        }
+    }
+
+    // An /Indexed /DeviceGray image must come out as a real grayscale JPEG
+    // (/DeviceGray) — grayscale stays grayscale, matching the raw-gray path.
+    void indexedGrayImageBecomesGrayscaleJpeg() {
+        const int W = 1240, H = 1754;
+        const uchar palette[2] = { 30, 200 };
+        QByteArray lookup(reinterpret_cast<const char*>(palette), 2);
+
+        QString pdf = tmpPath("indexed_gray.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            auto img = doc.CreateImage();
+            QByteArray px(W * H * 3, '\x30');
+            img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
+                         W, H, PoDoFo::PdfPixelFormat::RGB24);
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*img, 40, 40, 200.0, 280.0);
+            painter.FinishDrawing();
+
+            makeIndexedImage(img->GetObject(), bandedIndices(W, H, 2),
+                             W, H, lookup, 1, "DeviceGray");
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts = downsampleOptions();
+        QString out = tmpPath("indexed_gray_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto outImages = findImages(doc);
+        QCOMPARE(outImages.size(), 1);
+        QVERIFY2(filterIs(*outImages[0].obj, "DCTDecode"),
+                 "indexed gray image must be re-encoded to /DCTDecode");
+        auto* cs = outImages[0].obj->GetDictionary().FindKey("ColorSpace");
+        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceGray",
+                 "indexed/DeviceGray image must re-encode as /DeviceGray JPEG");
+        QImage check;
+        QVERIFY2(check.loadFromData(rawStream(*outImages[0].obj), "JPEG"),
+                 "re-encoded stream must be a decodable JPEG");
+        QCOMPARE(int(check.format()), int(QImage::Format_Grayscale8));
+        const QRgb top = check.pixel(check.width() / 2, check.height() / 8);
+        const QRgb bottom = check.pixel(check.width() / 2, check.height() * 7 / 8);
+        QVERIFY2(qAbs(qGray(top) - 30) <= 12,
+                 qPrintable(QString("top band must stay dark gray 30, got %1").arg(qGray(top))));
+        QVERIFY2(qAbs(qGray(bottom) - 200) <= 12,
+                 qPrintable(QString("bottom band must stay light gray 200, got %1").arg(qGray(bottom))));
+    }
+
+    // Malformed / out-of-bounded-scope indexed images must be skipped safely
+    // and byte-identical:
+    //  a) lookup table shorter than (hival+1) * base-components — indices
+    //     would read past the palette;
+    //  b) /Indexed /DeviceCMYK base — CMYK stays blocked until the tree has a
+    //     color-managed decode (parity row 13 rationale; no silent recolor);
+    //  c) 4bpc indices — bounded scope is 8bpc, consistent with the raw path.
+    void malformedIndexedImagesAreSkippedSafely() {
+        // Widths distinct for findImages and multiples of 4: PdfImage::SetData
+        // reads RGB24 rows on 4-byte-aligned strides (a width not divisible by
+        // 4 throws UnexpectedEOF) — a fixture constraint, not the behavior
+        // under test.
+        const int W1 = 1240, W2 = 1244, W3 = 1248, H = 1754;
+        QByteArray lookup4(4, '\x50');    // far too short for hival=7 RGB
+        QByteArray lookupCmyk(4 * 4, '\x60');
+        QByteArray idx1 = bandedIndices(W1, H, 4);
+        QByteArray idx2 = bandedIndices(W2, H, 4);
+        QByteArray idx4bpc((static_cast<qint64>(W3) * H + 1) / 2, '\x33');
+
+        QString pdf = tmpPath("indexed_malformed.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            auto mkImage = [&](unsigned w) {
+                auto img = doc.CreateImage();
+                QByteArray px(static_cast<qint64>(w) * H * 3, '\x40');
+                img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
+                             w, H, PoDoFo::PdfPixelFormat::RGB24);
+                return img;
+            };
+            auto i1 = mkImage(W1), i2 = mkImage(W2), i3 = mkImage(W3);
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*i1, 20, 500, 60.0, 80.0);
+            painter.DrawImage(*i2, 100, 500, 60.0, 80.0);
+            painter.DrawImage(*i3, 180, 500, 60.0, 80.0);
+            painter.FinishDrawing();
+
+            makeIndexedImage(i1->GetObject(), idx1, W1, H, lookup4, 7, "DeviceRGB"); // (a)
+            makeIndexedImage(i2->GetObject(), idx2, W2, H, lookupCmyk, 3, "DeviceCMYK"); // (b)
+            makeIndexedImage(i3->GetObject(), idx4bpc, W3, H,
+                             QByteArray(16 * 3, '\x70'), 15, "DeviceRGB", /*bpc=*/4); // (c)
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        QByteArray before1, before2, before3;
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            before1 = rawStream(*findImages(doc, W1, H)[0].obj);
+            before2 = rawStream(*findImages(doc, W2, H)[0].obj);
+            before3 = rawStream(*findImages(doc, W3, H)[0].obj);
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts = downsampleOptions();
+        QString out = tmpPath("indexed_malformed_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts),
+                 "optimizeDocument must succeed despite malformed indexed images");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto im1 = findImages(doc, W1, H);
+        auto im2 = findImages(doc, W2, H);
+        auto im3 = findImages(doc, W3, H);
+        QCOMPARE(im1.size(), 1);
+        QCOMPARE(im2.size(), 1);
+        QCOMPARE(im3.size(), 1);
+        QVERIFY2(rawStream(*im1[0].obj) == before1,
+                 "short-lookup indexed image must stay byte-identical");
+        QVERIFY2(rawStream(*im2[0].obj) == before2,
+                 "CMYK-base indexed image must stay byte-identical (CMYK remains "
+                 "blocked until a color-managed decode exists)");
+        QVERIFY2(rawStream(*im3[0].obj) == before3,
+                 "4bpc indexed image must stay byte-identical (bounded scope: 8bpc)");
+    }
+
+    // Characterization pin for the CMYK half of parity row 13: a raw
+    // /DeviceCMYK 8bpc image stays SKIPPED byte-identical. CMYK needs a
+    // color-managed decode to lift the deliberate skip; the tree has none
+    // (no ICC transform engine; the MRC/OCR pipeline only sees pre-rendered
+    // RGB QImages), and a naive CMYK→RGB conversion is exactly the silent
+    // color shift the guard exists to prevent. If this pin ever goes RED,
+    // someone lifted the CMYK skip without color management.
+    void rawCmykImageStaysSkippedUntilColorManagedDecode() {
+        const int W = 1240, H = 1754;
+
+        QString pdf = tmpPath("raw_cmyk.pdf");
+        {
+            PoDoFo::PdfMemDocument doc;
+            auto& page = doc.GetPages().CreatePage(
+                PoDoFo::PdfPageSize::A4);
+            auto img = doc.CreateImage();
+            QByteArray px(W * H * 3, '\x50');
+            img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
+                         W, H, PoDoFo::PdfPixelFormat::RGB24);
+            PoDoFo::PdfPainter painter;
+            painter.SetCanvas(page);
+            painter.DrawImage(*img, 40, 40, 200.0, 280.0);
+            painter.FinishDrawing();
+
+            // Genuine CMYK-shaped payload: 4 bytes per pixel, uncompressed.
+            QByteArray cmyk(static_cast<qint64>(W) * H * 4, '\x22');
+            img->GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
+            img->GetObject().GetOrCreateStream().SetData(
+                PoDoFo::bufferview(cmyk.constData(), static_cast<size_t>(cmyk.size())),
+                /*raw=*/true);
+            doc.Save(pdf.toUtf8().constData());
+        }
+
+        QByteArray before;
+        {
+            PoDoFo::PdfMemDocument doc;
+            doc.Load(pdf.toUtf8().constData());
+            before = rawStream(*findImages(doc, W, H)[0].obj);
+        }
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(pdf));
+        OptimizeOptions opts = downsampleOptions();
+        QString out = tmpPath("raw_cmyk_out.pdf");
+        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(out.toUtf8().constData());
+        auto imgs = findImages(doc, W, H);
+        QCOMPARE(imgs.size(), 1);
+        QVERIFY2(rawStream(*imgs[0].obj) == before,
+                 "raw /DeviceCMYK image must stay byte-identical (no color-managed "
+                 "decode in this tree — lifting the skip would silently recolor)");
+        auto* cs = imgs[0].obj->GetDictionary().FindKey("ColorSpace");
+        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceCMYK",
+                 "skipped CMYK image must keep its colorspace");
     }
 };
 

@@ -6854,10 +6854,17 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
         // /DeviceRGB 8bpc pixels (previously written back as raw RGB, now also
         // re-encoded to real JPEG). Media-filter streams are read with
         // CopyTo(raw) — CopyTo() cannot expand DCTDecode and throws
-        // UnsupportedFilter. Everything else (CCITT, JPX, indexed, 16bpc,
+        // UnsupportedFilter. Everything else (CCITT, JPX, 16bpc,
         // CMYK, /ImageMask, images carrying /SMask or /Mask — rescaling would
         // desync the mask — or a /Decode array the re-encode would invalidate)
         // is skipped untouched.
+        // PARITY row 13 (scorecard 2026-09-30): /Indexed 8bpc images with a
+        // /DeviceRGB or /DeviceGray base no longer sit in the skip set — the
+        // palette is expanded to pixels, downsampled and re-encoded as JPEG.
+        // CMYK (named or indexed base) stays skipped: lifting that guard
+        // needs a color-managed decode, and this tree has no ICC transform
+        // engine — a naive CMYK→RGB conversion is exactly the silent color
+        // shift the guard was written to prevent.
         // upgrade path: downscale /SMask masks together with their base image
         // instead of skipping masked images.
         // §9.13 F9: a non-positive targetDpi inverts the ratio below and would
@@ -6935,14 +6942,87 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                         // §9.13 P1: FlateDecode (or raw) coverage — decode via
                         // PoDoFo's own stream expansion and re-encode as real
                         // JPEG, same contract as the DCT path above.
-                        // /DeviceRGB 8bpc (pre-existing) and /DeviceGray 8bpc
-                        // (new) qualify.
+                        // /DeviceRGB 8bpc (pre-existing), /DeviceGray 8bpc
+                        // (new) and /Indexed 8bpc over a DeviceRGB/DeviceGray
+                        // base (PARITY row 13) qualify.
                         auto* csObj = dict.FindKey("ColorSpace");
                         bool isRgb = isName(csObj, "DeviceRGB");
                         bool isGray = isName(csObj, "DeviceGray");
+                        const PoDoFo::PdfArray* idxCs = nullptr;
+                        if (csObj && csObj->IsArray()
+                            && csObj->GetArray().size() == 4
+                            && isName(&csObj->GetArray()[0], "Indexed"))
+                            idxCs = &csObj->GetArray();
                         auto* bpcObj = dict.FindKey("BitsPerComponent");
                         int bpc = static_cast<int>(asInt(bpcObj) == 0 ? 8 : asInt(bpcObj));
-                        if ((!isRgb && !isGray) || bpc != 8) continue;
+                        if ((!isRgb && !isGray && !idxCs) || bpc != 8) continue;
+
+                        // PARITY row 13: parse the indexed palette up front so a
+                        // malformed colorspace skips the image before any stream
+                        // decode. Bounded scope — the base must be /DeviceRGB or
+                        // /DeviceGray and the lookup must cover (hival+1) samples.
+                        // A /DeviceCMYK base stays blocked on the CMYK rationale
+                        // above (no color-managed decode in this tree).
+                        QVector<QRgb> palette;
+                        bool idxBaseRgb = false;
+                        if (idxCs) {
+                            idxBaseRgb = isName(&(*idxCs)[1], "DeviceRGB");
+                            const bool idxBaseGray = isName(&(*idxCs)[1], "DeviceGray");
+                            if (!idxBaseRgb && !idxBaseGray) {
+                                qDebug() << "optimizeDocument: indexed image with unsupported base colorspace, left untouched";
+                                continue;
+                            }
+                            const int64_t hival = asInt(&(*idxCs)[2]);
+                            if (hival < 0 || hival > 255) continue;
+                            QByteArray lookupBytes;
+                            const PoDoFo::PdfObject* lookupObj = &(*idxCs)[3];
+                            if (lookupObj->IsString()) {
+                                // GetRawData: palette bytes are binary — GetString()
+                                // would re-encode text-charset strings as UTF-8.
+                                const std::string_view sv = lookupObj->GetString().GetRawData();
+                                lookupBytes = QByteArray(sv.data(),
+                                    static_cast<qsizetype>(sv.size()));
+                            } else if (lookupObj->IsReference()) {
+                                // Inline strings and indirect string/stream
+                                // lookups are both legal; resolve the latter.
+                                PoDoFo::PdfObject* target =
+                                    objects.GetObject(lookupObj->GetReference());
+                                if (target && target->IsString()) {
+                                    const std::string_view sv = target->GetString().GetRawData();
+                                    lookupBytes = QByteArray(sv.data(),
+                                        static_cast<qsizetype>(sv.size()));
+                                } else if (target && target->HasStream()) {
+                                    PoDoFo::charbuff lbuf;
+                                    target->GetOrCreateStream().CopyTo(lbuf);
+                                    lookupBytes = QByteArray(lbuf.data(),
+                                        static_cast<qsizetype>(lbuf.size()));
+                                }
+                            }
+                            const int comps = idxBaseRgb ? 3 : 1;
+                            if (lookupBytes.isEmpty()
+                                || static_cast<int64_t>(lookupBytes.size())
+                                   < (hival + 1) * comps) {
+                                qDebug() << "optimizeDocument: indexed image with short palette, left untouched";
+                                continue;
+                            }
+                            for (int64_t i = 0; i <= hival; ++i) {
+                                if (idxBaseRgb)
+                                    palette.append(qRgb(
+                                        static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 0))),
+                                        static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 1))),
+                                        static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 2)))));
+                                else {
+                                    const uchar g = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i)));
+                                    palette.append(qRgb(g, g, g));
+                                }
+                            }
+                            // A crafted stream can carry indices above /hival;
+                            // pad the table to 256 entries so every 8-bit index
+                            // resolves in-bounds (malformed indices get black,
+                            // never an out-of-bounds read).
+                            while (palette.size() < 256)
+                                palette.append(qRgb(0, 0, 0));
+                        }
                         // §9.13 P1: PNG/TIFF predictors transform the decoded
                         // bytes ABOVE the filter — PoDoFo's expansion does not
                         // undo them, so predictor-coded streams must never be
@@ -6974,14 +7054,40 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                             continue;
                         }
                         obj->GetOrCreateStream().CopyTo(buf);
-                        const int64_t cpp = isGray ? 1 : 3; // channels per pixel
-                        if (static_cast<qint64>(buf.size()) < w * h * cpp) continue;
-                        src = QImage(reinterpret_cast<const uchar*>(buf.data()),
-                                     static_cast<int>(w), static_cast<int>(h),
-                                     static_cast<int>(w * cpp),
-                                     isGray ? QImage::Format_Grayscale8
-                                            : QImage::Format_RGB888);
-                        isGrayImage = isGray;
+                        if (idxCs) {
+                            // PARITY row 13: the expanded bytes are 8bpc palette
+                            // indices (1 byte per pixel). Expand through the
+                            // palette to pixels, then let the shared downsample
+                            // below proceed. Re-indexing AFTER the smooth scale
+                            // is a net loss — interpolated pixels leave the
+                            // palette and snapping them back would re-introduce
+                            // banding, and the tree has no quantizer — so the
+                            // documented contract is to stay EXPANDED: the
+                            // re-encode writes /DeviceRGB (or /DeviceGray) JPEG.
+                            if (static_cast<qint64>(buf.size()) < w * h) continue;
+                            QImage idxImg(static_cast<int>(w), static_cast<int>(h),
+                                          QImage::Format_Indexed8);
+                            if (idxImg.isNull()) continue;
+                            // Qt pads scanlines to 4 bytes — copy row-wise
+                            // instead of wrapping the buffer.
+                            for (int64_t y = 0; y < h; ++y)
+                                memcpy(idxImg.scanLine(static_cast<int>(y)),
+                                       buf.data() + y * w, static_cast<size_t>(w));
+                            idxImg.setColorTable(palette);
+                            src = idxImg.convertToFormat(idxBaseRgb
+                                    ? QImage::Format_RGB888
+                                    : QImage::Format_Grayscale8);
+                            isGrayImage = !idxBaseRgb;
+                        } else {
+                            const int64_t cpp = isGray ? 1 : 3; // channels per pixel
+                            if (static_cast<qint64>(buf.size()) < w * h * cpp) continue;
+                            src = QImage(reinterpret_cast<const uchar*>(buf.data()),
+                                         static_cast<int>(w), static_cast<int>(h),
+                                         static_cast<int>(w * cpp),
+                                         isGray ? QImage::Format_Grayscale8
+                                                : QImage::Format_RGB888);
+                            isGrayImage = isGray;
+                        }
                     }
                     if (src.isNull()) {
                         qDebug() << "optimizeDocument: undecodable image, left untouched";
