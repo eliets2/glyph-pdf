@@ -1,0 +1,18 @@
+PASS   : TestCompressJpegReencode::initTestCase()
+PASS   : TestCompressJpegReencode::perImageScopingOnMultiPageDoc()
+PASS   : TestCompressJpegReencode::qualityIsHonored()
+PASS   : TestCompressJpegReencode::malformedImagesAreSkippedSafely()
+PASS   : TestCompressJpegReencode::mediaFilterChainImageIsSkipped()
+PASS   : TestCompressJpegReencode::danglingXobjectRefDoesNotFailDedup()
+PASS   : TestCompressJpegReencode::degenerateTargetDpiLeavesImagesUntouched()
+PASS   : TestCompressJpegReencode::unusedObjectSweepRemovesOrphans()
+PASS   : TestCompressJpegReencode::flateGrayAndRgbImagesAreReencodedToJpeg()
+PASS   : TestCompressJpegReencode::predictorImageIsSkippedSafely()
+FAIL!  : TestCompressJpegReencode::indexedRgbImageIsDownsampledToRgbJpeg() 'filterIs(*big->obj, "DCTDecode")' returned FALSE. (indexed image must be re-encoded to /DCTDecode)
+FAIL!  : TestCompressJpegReencode::indexedGrayImageBecomesGrayscaleJpeg() 'filterIs(*outImages[0].obj, "DCTDecode")' returned FALSE. (indexed gray image must be re-encoded to /DCTDecode)
+PASS   : TestCompressJpegReencode::malformedIndexedImagesAreSkippedSafely()
+PASS   : TestCompressJpegReencode::rawCmykImageStaysSkippedUntilColorManagedDecode()
+PASS   : TestCompressJpegReencode::cleanupTestCase()
+Totals: 13 passed, 2 failed, 0 skipped, 0 blacklisted, 13706ms
+0% tests passed, 1 tests failed out of 1
+The following tests FAILED:
