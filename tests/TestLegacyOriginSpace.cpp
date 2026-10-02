@@ -35,9 +35,16 @@
 #include "core/ItemSpaceTransform.h"
 #include <podofo/podofo.h>
 
+
+// NATIVE-LINUX (2026-10-02): the second-engine read path is a HAS_PDFIUM
+// capability. Windows always vendors pdfium, so this guard is inert there;
+// engine-less Linux builds compile the suite without it and disclose the
+// unavailable cross-check via QSKIP (recorded dependency boundary).
+#ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_annot.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
+#endif
 
 namespace {
 
@@ -178,6 +185,7 @@ QList<QRectF> rawAnnotRects(const QString& path, int pageIndex)
     return out;
 }
 
+#ifdef HAS_PDFIUM
 // PDFium's view of the annotation rects on a page (page user space, y-up).
 QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex)
 {
@@ -202,6 +210,7 @@ QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex)
     FPDF_CloseDocument(doc);
     return out;
 }
+#endif // HAS_PDFIUM
 
 QRectF firstRect(const QList<QRectF>& rects)
 {
@@ -290,13 +299,6 @@ private slots:
             QVERIFY2(rectClose(raw.first(), expected),
                      qPrintable(QString("page %1 raw /Rect %2 != law rect %3")
                                     .arg(p).arg(rectStr(raw.first()), rectStr(expected))));
-
-            // Independent read path 2: PDFium (a second engine reports the box).
-            const QRectF viaPdfium = firstRect(pdfiumAnnotRects(out, p));
-            QVERIFY2(!viaPdfium.isNull(), qPrintable(QString("page %1: PDFium saw no annot").arg(p)));
-            QVERIFY2(rectClose(viaPdfium, expected),
-                     qPrintable(QString("page %1 PDFium rect %2 != law rect %3")
-                                    .arg(p).arg(rectStr(viaPdfium), rectStr(expected))));
         }
 
         // Hardcoded literals for the decisive shapes (independent arithmetic,
@@ -327,6 +329,26 @@ private slots:
                      qPrintable(QString("W2B-1: page4 (rot 270+offset) %1 != [422 862 462 942]")
                                     .arg(rectStr(raw4.first()))));
         }
+
+#ifdef HAS_PDFIUM
+        // Independent read path 2: PDFium (a second engine reports the box).
+        for (int p = 0; p < specs.size(); ++p) {
+            const gp::PageSpace::PageGeometry geo =
+                gp::PageSpace::pageGeometryFromMediaBox(
+                    specs[p].media.X, specs[p].media.Y,
+                    specs[p].media.Width, specs[p].media.Height, specs[p].rotation);
+            const QRectF expected = gp::PageSpace::viewerToUser(drawn, geo);
+            const QRectF viaPdfium = firstRect(pdfiumAnnotRects(out, p));
+            QVERIFY2(!viaPdfium.isNull(), qPrintable(QString("page %1: PDFium saw no annot").arg(p)));
+            QVERIFY2(rectClose(viaPdfium, expected),
+                     qPrintable(QString("page %1 PDFium rect %2 != law rect %3")
+                                    .arg(p).arg(rectStr(viaPdfium), rectStr(expected))));
+        }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // Annotation geometry arrays (/InkList for freehand) must follow the same
@@ -457,11 +479,6 @@ private slots:
                  qPrintable(QString("page3 field /Rect %1 != [150 300 200 500]")
                                 .arg(rectStr(rects3.first()))));
 
-        // PDFium (form widgets are annotations to a second engine too).
-        const QRectF viaPdfium = firstRect(pdfiumAnnotRects(out3, 3));
-        QVERIFY(!viaPdfium.isNull());
-        QVERIFY2(rectClose(viaPdfium, expect3),
-                 qPrintable(QString("page3 field PDFium %1 != law").arg(rectStr(viaPdfium))));
 
         // W2B-1: /Rotate 270 + offset (page 4): drawn (100,150,200x50) →
         // vx 100..300, vy 150..200 → ux = 612-200..612-150 = 412..462;
@@ -476,10 +493,6 @@ private slots:
                  qPrintable(QString("W2B-1: page4 (rot 270+offset) field /Rect %1 != [412 742 462 942]")
                                 .arg(rectStr(rects4.first()))));
 
-        const QRectF viaPdfium4 = firstRect(pdfiumAnnotRects(out4, 4));
-        QVERIFY(!viaPdfium4.isNull());
-        QVERIFY2(rectClose(viaPdfium4, expect4),
-                 qPrintable(QString("page4 field PDFium %1 != law").arg(rectStr(viaPdfium4))));
 
         // Offset, unrotated control (page 1): drawn (100,150,200x50) must
         // store /Rect [100 842 300 892] — the dropped y0=200 offset alone.
@@ -492,6 +505,22 @@ private slots:
         QVERIFY2(rectClose(rects1.first(), expect1),
                  qPrintable(QString("page1 field /Rect %1 != [100 842 300 892]")
                                 .arg(rectStr(rects1.first()))));
+
+#ifdef HAS_PDFIUM
+        // PDFium (form widgets are annotations to a second engine too).
+        const QRectF viaPdfium = firstRect(pdfiumAnnotRects(out3, 3));
+        QVERIFY(!viaPdfium.isNull());
+        QVERIFY2(rectClose(viaPdfium, expect3),
+                 qPrintable(QString("page3 field PDFium %1 != law").arg(rectStr(viaPdfium))));
+        const QRectF viaPdfium4 = firstRect(pdfiumAnnotRects(out4, 4));
+        QVERIFY(!viaPdfium4.isNull());
+        QVERIFY2(rectClose(viaPdfium4, expect4),
+                 qPrintable(QString("page4 field PDFium %1 != law").arg(rectStr(viaPdfium4))));
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     void formFieldRectUpdateFollowsTheSameLaw()

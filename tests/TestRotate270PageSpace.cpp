@@ -33,9 +33,16 @@
 #include "core/PageSpaceTransform.h"
 #include <podofo/podofo.h>
 
+
+// NATIVE-LINUX (2026-10-02): the second-engine read path is a HAS_PDFIUM
+// capability. Windows always vendors pdfium, so this guard is inert there;
+// engine-less Linux builds compile the suite without it and disclose the
+// unavailable cross-check via QSKIP (recorded dependency boundary).
+#ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_annot.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
+#endif
 
 namespace {
 
@@ -144,6 +151,7 @@ QList<QRectF> rawAnnotRects(const QString& path, int pageIndex)
     return out;
 }
 
+#ifdef HAS_PDFIUM
 QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex, QSizeF* pageSizeOut = nullptr)
 {
     QList<QRectF> out;
@@ -168,6 +176,7 @@ QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex, QSizeF* pageS
     FPDF_CloseDocument(doc);
     return out;
 }
+#endif // HAS_PDFIUM
 
 // Letter-page PDF with one text line, carrying /Rotate on the page dict
 // (raw bytes; content user space is rotation-independent).
@@ -245,17 +254,25 @@ private slots:
                 QCOMPARE(geo.width, s.media.Width);
                 QCOMPARE(geo.height, s.media.Height);
                 QCOMPARE(geo.rotation, s.rotation);
-
-                // PDFium independently confirms the DISPLAYED size (the
-                // numbers FPDF_GetPageWidthF/HeightF report).
-                QSizeF pdfiumSize;
-                pdfiumAnnotRects(fixturePath(), p, &pdfiumSize);
-                QVERIFY(std::fabs(pdfiumSize.width() - s.display.width()) < 0.5
-                        && std::fabs(pdfiumSize.height() - s.display.height()) < 0.5);
             }
         } catch (const std::exception& e) {
             QFAIL(qPrintable(QString("raw geometry walk failed: %1").arg(e.what())));
         }
+#ifdef HAS_PDFIUM
+        // PDFium independently confirms the DISPLAYED size (the numbers
+        // FPDF_GetPageWidthF/HeightF report).
+        for (int p = 0; p < all.size(); ++p) {
+            const Shape& s = all[p];
+            QSizeF pdfiumSize;
+            pdfiumAnnotRects(fixturePath(), p, &pdfiumSize);
+            QVERIFY(std::fabs(pdfiumSize.width() - s.display.width()) < 0.5
+                    && std::fabs(pdfiumSize.height() - s.display.height()) < 0.5);
+        }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── annotation embed + extract, every rotation, hardcoded literals ──────
@@ -293,14 +310,6 @@ private slots:
                                     .arg(p).arg(s.rotation)
                                     .arg(rectStr(raw.first()), rectStr(s.embedUser))));
 
-            const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, p);
-            QVERIFY2(!viaPdfium.isEmpty(),
-                     qPrintable(QString("page %1: PDFium saw no annot").arg(p)));
-            QVERIFY2(rectClose(viaPdfium.first(), s.embedUser),
-                     qPrintable(QString("page %1 (rot %2) PDFium %3 != %4")
-                                    .arg(p).arg(s.rotation)
-                                    .arg(rectStr(viaPdfium.first()), rectStr(s.embedUser))));
-
             // Read-back surfaces the drawn spot on every rotation.
             const AnnotationItem* item = nullptr;
             for (const AnnotationItem& b : back)
@@ -311,6 +320,23 @@ private slots:
                                     .arg(p).arg(s.rotation)
                                     .arg(rectStr(item->rect), rectStr(drawn))));
         }
+#ifdef HAS_PDFIUM
+        // PDFium confirms the embedded rect (second engine).
+        for (int p = 0; p < all.size(); ++p) {
+            const Shape& s = all[p];
+            const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, p);
+            QVERIFY2(!viaPdfium.isEmpty(),
+                     qPrintable(QString("page %1: PDFium saw no annot").arg(p)));
+            QVERIFY2(rectClose(viaPdfium.first(), s.embedUser),
+                     qPrintable(QString("page %1 (rot %2) PDFium %3 != %4")
+                                    .arg(p).arg(s.rotation)
+                                    .arg(rectStr(viaPdfium.first()), rectStr(s.embedUser))));
+        }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── form field creation, every rotation, hardcoded literals ─────────────
@@ -332,6 +358,12 @@ private slots:
                                     .arg(p).arg(s.rotation)
                                     .arg(rectStr(raw.first()), rectStr(s.fieldUser))));
 
+        }
+#ifdef HAS_PDFIUM
+        // PDFium confirms the field widget rect (second engine).
+        for (int p = 0; p < all.size(); ++p) {
+            const Shape& s = all[p];
+            const QString out = outPath(QString("field-p%1.pdf").arg(p).toUtf8().constData());
             const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, p);
             QVERIFY(!viaPdfium.isEmpty());
             QVERIFY2(rectClose(viaPdfium.first(), s.fieldUser),
@@ -339,6 +371,11 @@ private slots:
                                     .arg(p).arg(s.rotation)
                                     .arg(rectStr(viaPdfium.first()), rectStr(s.fieldUser))));
         }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── SWEEP-W1 F5 clean path, every rotation ───────────────────────────────
