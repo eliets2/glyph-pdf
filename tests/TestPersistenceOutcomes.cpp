@@ -43,6 +43,11 @@
 #include <QTimer>
 #include <QUndoStack>
 #include <QMessageBox>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <unistd.h>  // geteuid — the ARC03 root-environment guard
+#endif
 #include <QFileDialog>
 #include <QAbstractButton>
 #include <QPdfWriter>
@@ -270,6 +275,16 @@ private slots:
     // retry (writable again) completes the close only after real persistence.
     void closeAfterFailedSaveKeepsDocumentOpen()
     {
+        // NATIVE-LINUX (2026-10-02): the pin below needs the OS to refuse the
+        // write to the read-only destination. Under root (CI containers),
+        // CAP_DAC_OVERRIDE lets the write through, so the refusal — and the
+        // whole ARC03 contract — is unexercisable; skipping is the honest
+        // record there, and the pin stays live for ordinary users.
+        if (::geteuid() == 0) {
+            QSKIP("running as root: POSIX permission bits do not gate writes "
+                  "(CAP_DAC_OVERRIDE) — the read-only-destination refusal is "
+                  "unexercisable in this environment");
+        }
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString a = dir.filePath("a.pdf");
