@@ -247,10 +247,19 @@ void TestFormSafety::occupiedDestinationHandleFailsKeepingOriginal() {
     FormManager fm;
     const bool ok = fm.addTextField(pdf, 0, QRectF(72, 150, 140, 30),
                                     QStringLiteral("held_field"), pdf);
+#ifdef Q_OS_WIN
     QVERIFY2(!ok, "replacement blocked by an open handle must FAIL, not silently fall back to direct write");
 
     QCOMPARE(sha256(pdf), shaBefore);           // original intact
     QVERIFY(pdfLoads(pdf));                     // and still a readable PDF
+#else
+    // NATIVE-LINUX (2026-10-02): POSIX rename(2) has no sharing-violation
+    // class — the replace legitimately lands over the held-open handle. The
+    // honest POSIX pins: the operation succeeds and the file stays a valid,
+    // readable PDF (the never-truncate invariant this slot guards).
+    QVERIFY2(ok, "on POSIX the rename over an open handle is legal and must succeed");
+    QVERIFY(pdfLoads(pdf));
+#endif
     held.close();
 }
 

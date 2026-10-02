@@ -168,6 +168,7 @@ int runK1Child(int argc, char **argv)
     const QString current = engine->currentFile();
     const qint64 loadId = engine->documentLoadId();
     const auto before = gp::SafeSave::captureDestinationIdentity(pdf);
+    bool posixAnyOk = false;
 
     // The bound under test. Production uses 10 s; the child shrinks it so the
     // rounds are quick while keeping the shape identical.
@@ -192,14 +193,30 @@ int runK1Child(int argc, char **argv)
         std::fprintf(stderr, "K1 child: round %d completed (save %s) in %lld ms\n", round,
                      save.result() ? "ok" : "refused", static_cast<long long>(roundTimer.elapsed()));
         std::fflush(stderr);
+        posixAnyOk = posixAnyOk || save.result();
     }
+    const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
+#ifdef Q_OS_WIN
     // The in-place save was refused (the park could not run in time) — the
     // displayed file must be byte-identical.
-    const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
     if (!before.valid || after.sha256 != before.sha256) {
         stage("the refused in-place save changed the displayed file");
         return 4;
     }
+#else
+    // NATIVE-LINUX (2026-10-02): POSIX has no sharing-violation class. A
+    // successful in-place save legitimately rewrites the displayed path
+    // (writing over an open handle is legal); a refused save must leave it
+    // byte-identical. Pin the consistent pair, not the Windows outcome.
+    if (posixAnyOk && after.sha256 == before.sha256) {
+        stage("POSIX: the in-place save reported ok but the displayed file is byte-identical");
+        return 4;
+    }
+    if (!posixAnyOk && after.sha256 != before.sha256) {
+        stage("POSIX: the in-place save was refused but the displayed file changed");
+        return 4;
+    }
+#endif
     return 0;
 }
 
@@ -254,8 +271,22 @@ int runK2Child(int argc, char **argv)
     }
     stage("commit attempt returned while the GUI was still busy (bounded)");
     if (commit.result()) {
+#ifdef Q_OS_WIN
         stage("the late-hopped commit landed although the park deadline passed long before");
         return 10;
+#else
+        // NATIVE-LINUX (2026-10-02): POSIX has no sharing-violation class —
+        // the atomic replace does not need the viewer's park at all, so the
+        // bounded commit LANDS while the GUI is busy. The honest POSIX pin is
+        // the opposite of Windows': the destination must carry the candidate.
+        const auto landed = gp::SafeSave::captureDestinationIdentity(pdf);
+        if (!landed.valid || landed.sha256 == before.sha256) {
+            stage("POSIX: the landed commit did not change the destination");
+            return 11;
+        }
+        stage("POSIX: the bounded commit landed over the open viewer handle");
+        return 0;
+#endif
     }
     const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
     if (!before.valid || after.sha256 != before.sha256) {
@@ -312,8 +343,20 @@ int runK4Child(int argc, char **argv)
     }
     stage("commit attempt returned while the GUI was still busy (bounded)");
     if (commit.result()) {
+#ifdef Q_OS_WIN
         stage("the commit succeeded although the park never ran in time");
         return 4;
+#else
+        // NATIVE-LINUX (2026-10-02): POSIX has no sharing-violation class —
+        // the bounded commit lands while the GUI is busy. Pin the landing.
+        const auto landed = gp::SafeSave::captureDestinationIdentity(pdf);
+        if (!landed.valid || landed.sha256 == before.sha256) {
+            stage("POSIX: the landed commit did not change the destination");
+            return 5;
+        }
+        stage("POSIX: the bounded commit landed over the open viewer handle");
+        return 0;
+#endif
     }
     const auto after = gp::SafeSave::captureDestinationIdentity(pdf);
     if (!before.valid || after.sha256 != before.sha256) {

@@ -96,8 +96,15 @@ private slots:
     // the same session is removed only after the owner is dead (and stale).
     void livenessFollowsARealProcess() {
         QProcess live;
+#ifdef Q_OS_WIN
         live.setProgram(QStringLiteral("cmd"));
         live.setArguments({ QStringLiteral("/c"), QStringLiteral("ping -n 30 127.0.0.1 > NUL") });
+#else
+        // NATIVE-LINUX (2026-10-02): cmd.exe/ping is a Windows liveness probe;
+        // the portable long-lived child is sleep(1) (coreutils, POSIX only).
+        live.setProgram(QStringLiteral("sleep"));
+        live.setArguments({ QStringLiteral("30") });
+#endif
         live.start();
         QVERIFY(live.waitForStarted(10000));
         const quint64 childPid = static_cast<quint64>(live.processId());
