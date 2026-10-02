@@ -1,0 +1,42 @@
+Test project D:/pdf/pdf-w2b-stampimport/build-rel
+    Start 95: TestStampImageImport
+1/1 Test #95: TestStampImageImport .............***Failed    0.22 sec
+********* Start testing of TestStampImageImport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestStampImageImport::initTestCase()
+PASS   : TestStampImageImport::dialogOffersImageImport()
+FAIL!  : TestStampImageImport::imageCatalogEntrySurvivesReload() Compared values are not the same
+   Actual   (loaded.size()): 0
+   Expected (1)            : 1
+D:/pdf/pdf-w2b-stampimport/tests/TestStampImageImport.cpp(87) : failure location
+FAIL!  : TestStampImageImport::tamperedImagePathEntriesRefused() 'StampLibrary::loadCustomFrom(abs).isEmpty()' returned FALSE. (an absolute image path in the catalog must refuse the entry)
+D:/pdf/pdf-w2b-stampimport/tests/TestStampImageImport.cpp(111) : failure location
+PASS   : TestStampImageImport::builtInCatalogSemanticsUnchanged()
+libpng error: Read Error
+PASS   : TestStampImageImport::importRefusesUnusableImagesWithTypedError()
+FAIL!  : TestStampImageImport::importLandsInCatalogAndPlacesAndDeletes() Compared values are not the same
+   Actual   (loaded.size()): 0
+   Expected (1)            : 1
+D:/pdf/pdf-w2b-stampimport/tests/TestStampImageImport.cpp(223) : failure location
+PASS   : TestStampImageImport::armSeamRoutesImageStampsThroughSignatureUpload()
+PASS   : TestStampImageImport::placedImageStampRidesTheExistingStampWriter()
+PASS   : TestStampImageImport::cleanupTestCase()
+Totals: 7 passed, 3 failed, 0 skipped, 0 blacklisted, 89ms
+********* Finished testing of TestStampImageImport *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+comments              =   0.22 sec*proc (1 test)
+headless              =   0.22 sec*proc (1 test)
+qt                    =   0.22 sec*proc (1 test)
+stamp-image-import    =   0.22 sec*proc (1 test)
+stamps                =   0.22 sec*proc (1 test)
+unit                  =   0.22 sec*proc (1 test)
+
+Total Test time (real) =   0.23 sec
+
+The following tests FAILED:
+	 95 - TestStampImageImport (Failed)                     comments headless qt stamp-image-import stamps unit
+Errors while running CTest

@@ -618,6 +618,14 @@ QString EditController::stampTemplateIdForTool(ToolId id) {
     }
 }
 
+// Pure seam: the placement tool a template arms (row 18). Image stamps arm
+// the signature-Upload placement so the placed annotation rides the §9.7 P0
+// /Stamp + image-appearance writer unchanged; text stamps the dynamic one.
+ToolMode EditController::stampArmModeForTemplate(const StampTemplate &tmpl) {
+    return tmpl.imagePath.isEmpty() ? ToolMode::Stamp
+                                    : ToolMode::AddSignatureUpload;
+}
+
 void EditController::armDynamicStamp(const QString &templateId) {
     auto* viewer = _mainWindow ? _mainWindow->pdfViewer() : nullptr;
     if (!viewer) {
@@ -632,6 +640,30 @@ void EditController::armDynamicStamp(const QString &templateId) {
     // ARC07: read-only documents may not receive stamps.
     if (EditPolicy::mutationBlocked(_ctx ? _ctx->document.get() : nullptr)) {
         _mainWindow->statusBar()->showMessage(EditPolicy::readOnlyMessage(), 5000);
+        return;
+    }
+
+    // ── Row 18 image variant ────────────────────────────────────────────────
+    // An imported image stamp arms the EXISTING signature-image placement:
+    // the committed item carries the raster, and the save path is the §9.7 P0
+    // /Stamp + image-appearance writer (GlyphSigMode Upload) — reused, not
+    // duplicated. Order matters: arm the mode FIRST, then install the image
+    // (AnnotationLayer::setMode discards a pending image for any
+    // non-signature tool). A missing/unreadable image refuses with a typed
+    // message — never a blank placement, never a silent degrade.
+    if (!tmpl->imagePath.isEmpty()) {
+        const QImage img = StampLibrary::loadStampImage(
+            StampLibrary::defaultCustomPath(), *tmpl);
+        if (img.isNull()) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Stamp '%1': its image is missing or unreadable — re-import it.")
+                    .arg(tmpl->name), 6000);
+            return;
+        }
+        viewer->setToolMode(stampArmModeForTemplate(*tmpl));
+        viewer->setPendingSignatureImage(img);
+        _mainWindow->statusBar()->showMessage(
+            tr("Stamp '%1' ready — click or drag on the page.").arg(tmpl->name), 6000);
         return;
     }
 

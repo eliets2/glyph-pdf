@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -68,10 +69,23 @@ QList<StampTemplate> StampLibrary::loadCustomFrom(const QString& path) {
         t.name = o.value(QStringLiteral("name")).toString();
         t.textTemplate = o.value(QStringLiteral("template")).toString();
         t.color = QColor(o.value(QStringLiteral("color")).toString());
-        if (t.id.isEmpty() || t.name.isEmpty() || t.textTemplate.isEmpty()) continue;
+        t.imagePath = o.value(QStringLiteral("image")).toString();
         if (!t.color.isValid()) t.color = QColor(0xCC, 0x22, 0x22);
         // Built-in ids are reserved — a tampered file must not shadow them.
+        if (t.id.isEmpty() || t.name.isEmpty()) continue;
         if (t.id.startsWith(QStringLiteral("builtin:"))) continue;
+        // Row 18: an entry carries EXACTLY ONE placement carrier — a text
+        // template OR an image path, never both, never neither. The image
+        // path must be a safe RELATIVE path (absolute or parent-traversing
+        // values are a tampered catalog, not something to resolve) — and an
+        // unsafe path refuses the entry regardless of the text carrier.
+        const bool hasText = !t.textTemplate.isEmpty();
+        const bool hasImage = !t.imagePath.isEmpty();
+        const bool safeImage = hasImage
+            && !QDir::isAbsolutePath(t.imagePath)
+            && !t.imagePath.contains(QStringLiteral(".."));
+        if (hasImage && !safeImage) continue;
+        if (hasText == hasImage) continue;
         out.append(t);
     }
     return out;
@@ -84,7 +98,10 @@ bool StampLibrary::saveCustomTo(const QString& path, const QList<StampTemplate>&
         QJsonObject o;
         o.insert(QStringLiteral("id"), t.id);
         o.insert(QStringLiteral("name"), t.name);
-        o.insert(QStringLiteral("template"), t.textTemplate);
+        if (!t.textTemplate.isEmpty())
+            o.insert(QStringLiteral("template"), t.textTemplate);
+        if (!t.imagePath.isEmpty())
+            o.insert(QStringLiteral("image"), t.imagePath);
         o.insert(QStringLiteral("color"), t.color.name());
         arr.append(o);
     }
@@ -127,4 +144,86 @@ QString StampLibrary::resolveText(const QString& textTemplate,
 QString StampLibrary::placeholderHelp() {
     return QStringLiteral("${author}, ${date} (yyyy-MM-dd), ${time} (HH:mm), "
                           "${datetime} (yyyy-MM-dd HH:mm)");
+}
+
+// ── Row 18: image-variant import ────────────────────────────────────────────
+
+QString StampLibrary::defaultCustomPath() {
+    return customStampsDefaultPath();
+}
+
+QString StampLibrary::imageStampsDirFor(const QString& jsonPath) {
+    return QDir(QFileInfo(jsonPath).absolutePath())
+        .filePath(QStringLiteral("stamp-images"));
+}
+
+QString StampLibrary::imageAbsolutePath(const QString& jsonPath,
+                                        const QString& storedPath) {
+    if (storedPath.isEmpty()) return QString();
+    // Only safe relative paths are ever resolved; anything else was already
+    // refused at load — this is the second gate for in-memory callers.
+    if (QDir::isAbsolutePath(storedPath)) return QString();
+    if (storedPath.contains(QStringLiteral(".."))) return QString();
+    return QDir(QFileInfo(jsonPath).absolutePath()).filePath(storedPath);
+}
+
+std::optional<StampTemplate> StampLibrary::addImageStampTo(const QString& jsonPath,
+                                                           const QString& name,
+                                                           const QString& sourceImagePath,
+                                                           QString* error) {
+    const auto refuse = [error](const QString& msg)
+                            -> std::optional<StampTemplate> {
+        if (error) *error = msg;
+        return std::nullopt;
+    };
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty())
+        return refuse(QObject::tr("Enter a name for the stamp."));
+    if (sourceImagePath.isEmpty() || !QFileInfo::exists(sourceImagePath))
+        return refuse(QObject::tr("Choose an image file first."));
+
+    // The source must FULLY decode now — a file that merely sniffs as an
+    // image header (or decodes to nothing) is refused with its reason,
+    // never accepted into the catalog.
+    QImageReader reader(sourceImagePath);
+    reader.setAutoTransform(true);   // honor EXIF orientation
+    const QImage img = reader.read();
+    if (img.isNull() || img.width() < 1 || img.height() < 1)
+        return refuse(QObject::tr("Could not read %1 as an image "
+                                  "(unsupported or corrupt file).")
+                          .arg(QFileInfo(sourceImagePath).fileName()));
+
+    // The catalog owns its own normalized PNG copy — the user's original
+    // file is never referenced (moving or deleting it must not break stamps).
+    const QString imageDir = imageStampsDirFor(jsonPath);
+    if (!QDir().mkpath(imageDir))
+        return refuse(QObject::tr("Could not create the stamp image folder."));
+    const QString stored = QStringLiteral("stamp-images/%1.png")
+                               .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    if (!img.save(imageAbsolutePath(jsonPath, stored)))
+        return refuse(QObject::tr("Could not save a copy of the image with the stamps."));
+
+    // Append + persist. A failed save must not leave the copied image behind
+    // (no orphans, no half import).
+    QList<StampTemplate> stamps = loadCustomFrom(jsonPath);
+    StampTemplate t;
+    t.id = QStringLiteral("custom:")
+           + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    t.name = trimmedName;
+    t.imagePath = stored;
+    stamps.append(t);
+    if (!saveCustomTo(jsonPath, stamps)) {
+        QFile::remove(imageAbsolutePath(jsonPath, stored));
+        return refuse(QObject::tr("Could not save the custom stamp."));
+    }
+    return t;
+}
+
+QImage StampLibrary::loadStampImage(const QString& jsonPath, const StampTemplate& t) {
+    const QString abs = imageAbsolutePath(jsonPath, t.imagePath);
+    if (abs.isEmpty()) return QImage();
+    QImageReader reader(abs);
+    reader.setAutoTransform(true);
+    // Null when missing or corrupt — the caller surfaces that honestly.
+    return reader.read();
 }

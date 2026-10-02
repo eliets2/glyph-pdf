@@ -3,6 +3,7 @@
 
 #include <QColor>
 #include <QDateTime>
+#include <QImage>
 #include <QList>
 #include <QString>
 #include <optional>
@@ -21,11 +22,22 @@
 //   ${time}     — apply time, HH:mm
 //   ${datetime} — apply date+time, "yyyy-MM-dd HH:mm"
 // Unknown placeholders are left VERBATIM (visible, never silently dropped).
+//
+// ── Row 18 image variant ────────────────────────────────────────────────────
+// A template carries EXACTLY ONE placement carrier: a text template OR an
+// image path. An image stamp is an imported picture (pick file → name it →
+// it lands in the catalog); placing it arms the EXISTING signature-Upload
+// placement so the annotation rides the §9.7 P0 /Stamp + image-appearance
+// writer unchanged. The image itself is a COPY owned by the catalog (never
+// a reference to the user's original file), stored as a path RELATIVE to
+// the stamps.json directory — the profile stays self-contained, and
+// absolute/traversing paths are refused at load (tamper resistance).
 struct StampTemplate {
     QString id;            // "builtin:<name>" or "custom:<uuid>"
     QString name;          // display name ("Approved")
     QString textTemplate;  // may carry ${...} placeholders
     QColor color = QColor(0xCC, 0x22, 0x22);
+    QString imagePath;     // image variant: "stamp-images/<uuid>.png" (relative)
 };
 
 class StampLibrary {
@@ -43,6 +55,31 @@ public:
     static bool saveCustom(const QList<StampTemplate>& stamps);
     static QList<StampTemplate> loadCustomFrom(const QString& path);
     static bool saveCustomTo(const QString& path, const QList<StampTemplate>& stamps);
+
+    // Row 18: the stamps.json the app persists to (explicit-path functions
+    // above remain the testable seam).
+    static QString defaultCustomPath();
+
+    // ── Row 18 image-variant import ─────────────────────────────────────────
+    // "<dir-of-json>/stamp-images" — the managed folder holding the catalog's
+    // own image copies.
+    static QString imageStampsDirFor(const QString& jsonPath);
+    // Resolve a STORED catalog path against the json location. Empty unless
+    // the stored path is a safe relative path (no absolute, no "..").
+    static QString imageAbsolutePath(const QString& jsonPath, const QString& storedPath);
+    // ONE committed import step: the source must FULLY decode as an image,
+    // a normalized PNG copy lands in stamp-images/, the entry is appended
+    // and persisted. On any failure returns nullopt and (when provided)
+    // fills *error with a typed, user-facing reason — never a silent accept,
+    // never a half import.
+    static std::optional<StampTemplate> addImageStampTo(const QString& jsonPath,
+                                                        const QString& name,
+                                                        const QString& sourceImagePath,
+                                                        QString* error = nullptr);
+    // Decode the stamp image for placement/preview (EXIF orientation honored).
+    // A null image means missing or undecodable — callers must surface that
+    // honestly (typed message, no placement), never place a blank stamp.
+    static QImage loadStampImage(const QString& jsonPath, const StampTemplate& t);
 
     static std::optional<StampTemplate> findById(const QString& id);
 

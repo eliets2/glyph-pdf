@@ -8,6 +8,7 @@
 #include <QRegularExpression>
 #include <memory>
 #include "core/ToolId.h"
+#include "core/PdfEnums.h" // ToolMode (row 18: stampArmModeForTemplate seam)
 #include "core/interfaces/IToolController.h"
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult / MergedOcrWord (§9.4 Accept seam)
 #include "modes/OcrReviewSession.h"  // R08: review session + reviewed word records
@@ -16,6 +17,7 @@
 struct AppContext;
 class EditToolBar;
 class IOcrEngine;
+struct StampTemplate;
 
 namespace gp {
 
@@ -63,6 +65,11 @@ public:
     void armDynamicStamp(const QString &templateId);
     // Pure seam: which stamp template id a ToolId maps to (empty = none).
     static QString stampTemplateIdForTool(ToolId id);
+    // Pure seam (row 18): the placement tool a template arms. Image stamps
+    // ride the §9.7 signature-Upload placement (their annotations then go
+    // through the /Stamp + image-appearance writer); text stamps the
+    // dynamic-stamp placement.
+    static ToolMode stampArmModeForTemplate(const StampTemplate &tmpl);
 
     // ── T2-9: auto-bookmarks from text styles ────────────────────────────────
     // Detect heading candidates, show the preview dialog (heuristic basis

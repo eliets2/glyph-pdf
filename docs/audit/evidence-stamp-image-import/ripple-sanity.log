@@ -1,0 +1,19 @@
+Test project D:/pdf/pdf-w2b-stampimport/build-rel
+    Start 39: TestControllers
+1/2 Test #39: TestControllers ..................   Passed   16.93 sec
+    Start 94: TestDynamicStamps
+2/2 Test #94: TestDynamicStamps ................   Passed    0.26 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Label Time Summary:
+comments       =   0.26 sec*proc (1 test)
+controllers    =  16.93 sec*proc (1 test)
+headless       =  17.18 sec*proc (2 tests)
+qt             =  17.18 sec*proc (2 tests)
+stamps         =   0.26 sec*proc (1 test)
+t2-6           =   0.26 sec*proc (1 test)
+ui             =  16.93 sec*proc (1 test)
+unit           =  17.18 sec*proc (2 tests)
+
+Total Test time (real) =  17.19 sec

@@ -1,0 +1,21 @@
+# Row 18 build evidence (ucrt64-first PATH, Ninja, Release, LTO ON, -j2)
+
+## build-impl.log — first full impl build: BUILD_RC=1 (transient LTO link failures, unrelated targets TestRedactClearMarks/TestAutoBookmarks; -k 0 continued)
+BUILD_RC=1
+
+## build-impl-retry.log — incremental retry: BUILD_RC=0
+BUILD_RC=0
+
+## build-impl-fix.log — after carrier-validation fix: BUILD_RC=1 (transient LTO link failures, unrelated targets TestSignatureBadges/TestBatchOcrConfidence)
+BUILD_RC=1
+
+## build-impl-fix2.log — incremental retry: BUILD_RC=0
+BUILD_RC=0
+FAILED target count: 0
+
+## build-nc.log — negative-control revert build: BUILD_RC=0
+BUILD_RC=0
+
+## build-post-nc.log — fix restored: BUILD_RC=0
+BUILD_RC=0
+FAILED target count: 0
