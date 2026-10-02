@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/FormManager.h"
+#include "engines/ConversionManager.h" // csvFormulaSafeCell (wave-2b security audit F-01)
 #include "engines/SafeSave.h"
 #include "engines/formjs/FormJsRunner.h"
 #include "engines/podofo/PdfStringEscape.h"
@@ -1462,11 +1463,18 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
 #endif
 
         if (format.toLower() == "csv") {
+            // Wave-2b security audit F-01 (CWE-1236): field names/values come
+            // from an attacker-supplied AcroForm, so every cell goes through
+            // the same csvFormulaSafeCell guard the conversion exporter uses —
+            // a leading =+-@/tab/CR must never reach a spreadsheet as a
+            // formula. Plain numbers stay exempt (M3); quote-doubling and the
+            // surrounding quotes stay here.
             out << "FieldName,FieldValue\n";
             for (auto it = data.cbegin(); it != data.cend(); ++it) {
-                QString v = it.value().toString();
+                const QString k = ConversionManager::csvFormulaSafeCell(it.key());
+                QString v = ConversionManager::csvFormulaSafeCell(it.value().toString());
                 v.replace("\"", "\"\"");
-                out << "\"" << it.key() << "\",\"" << v << "\"\n";
+                out << "\"" << k << "\",\"" << v << "\"\n";
             }
         } else if (format.toLower() == "fdf") {
             out << "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n";
@@ -1805,8 +1813,18 @@ bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
                     return importErr(err, kRefused,
                         QObject::tr("unexpected character after key %1 at offset %2").arg(key).arg(c.i));
                 if (key == QLatin1String("/V") && !haveValue) {
-                    value = c.s.mid(vs + 1, c.i - vs - 1);  // name value: text after '/'
-                    haveValue = true;
+                    // Wave-2b adversarial audit F-2: the +1 offset is only correct
+                    // after a '/' delimiter — for a bare keyword it sliced off the
+                    // first character (/V null imported as "ull"). Take the whole
+                    // token for non-delimiter values; the PDF `null` keyword means
+                    // "no value", so it leaves the field untouched rather than
+                    // importing a bogus string.
+                    const int take = (v == '/') ? vs + 1 : vs;
+                    const QString token = c.s.mid(take, c.i - take);
+                    if (token != QLatin1String("null")) {
+                        value = token;
+                        haveValue = true;
+                    }
                 }
             }
         }

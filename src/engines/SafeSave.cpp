@@ -158,9 +158,15 @@ bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix)
 // ── WP-R04 external-writer transaction ──────────────────────────────────────
 
 // PARITY-SCORECARD-2026-09-30 §4 row 14 — see the header note. App-owned
-// (vendored) 7-Zip first, PATH fallback, conventional install dirs, empty on
-// true absence (the caller discloses honestly). Requires BOTH 7z.exe and
-// 7z.dll in the app-owned branch: 7z.exe is only a launcher.
+// (vendored) 7-Zip ONLY, empty on true absence (the caller discloses
+// honestly). The PATH and Program-Files fallback legs were removed at the
+// wave-2b security audit (F-02, CWE-427): a planted 7z.exe on PATH or in a
+// conventional install dir would receive the document bytes AND the package
+// password with no hash verification — silently reintroducing the
+// external-binary dependency the vendoring removed. CMake stages the pinned
+// bundle beside the app and every test executable, so the bundled branch is
+// the only legitimate resolution. Requires BOTH 7z.exe and 7z.dll: 7z.exe is
+// only a launcher.
 QString locateSevenZip(const QString& appDirOverride) {
     const QString appDir = appDirOverride.isEmpty()
         ? QCoreApplication::applicationDirPath() : appDirOverride;
@@ -169,13 +175,6 @@ QString locateSevenZip(const QString& appDirOverride) {
         if (QFileInfo::exists(bundled)
             && QFileInfo::exists(appDir + QStringLiteral("/7z.dll")))
             return QDir::toNativeSeparators(bundled);
-    }
-    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("7z"));
-    if (!onPath.isEmpty()) return QDir::toNativeSeparators(onPath);
-    for (const QString& c : {
-             QStringLiteral("C:/Program Files/7-Zip/7z.exe"),
-             QStringLiteral("C:/Program Files (x86)/7-Zip/7z.exe") }) {
-        if (QFileInfo::exists(c)) return QDir::toNativeSeparators(c);
     }
     return {};
 }

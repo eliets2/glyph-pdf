@@ -188,11 +188,14 @@ quadpoints (self-landed ad77c29c) · pcre2-16 ci fix df2e7f94 (fuzz batch
 green) · #17 preprocessing disclosure (606397b1) · #13 indexed downsampling
 (af2604bd/2af5bdf7; CMYK blocked-with-pins, owner: lcms2) · #16 thumbnails
 off-GUI (93e222ea/a602fa55; renderPageAsync seam) · /P prefix (b90b44d0) ·
-rotate-view port (2cb94e9c..276514a3 via finisher; conflict with #16
-hand-reconciled: renderPageUncached split + view-rotation-aware cache key) ·
+rotate-view port (eb7b464b/72ccbe04 via finisher + 6d1595a3 command-spec
+gap the closing gate caught; conflict with #16 hand-reconciled:
+renderPageUncached split + view-rotation-aware cache key; note — the lane
+report’s “NC ×1” was a first-green observation, the genuine RED-before is the
+compile-error evidence) ·
 #15 a11y export (7f1b70ed/4845a142) · #14 vendored 7z (d41979c1 lineage;
 configure-time SHA-256 pin; provenance dual-source) · #18 stamp image import
-(2101f6e5..88c01163) · #12 re-OCR region (392c57d9..a0c68823) · #7 compare
+(2101f6e5..88c01163) · #12 re-OCR region (picked bd483d21/6d69a5d1/3f098e85; branch originals 392c57d9..a0c68823) · #7 compare
 progress+cancel (2cb94e9c lineage via finisher; UAF pins upgraded to QPointer)
 · #10 batch formats (integrator-finished 9ccc2d82) · #9 hot-folder
 characterization+extraction (0bd10142/164be93b) + recursion/polling

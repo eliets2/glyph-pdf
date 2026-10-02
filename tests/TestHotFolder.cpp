@@ -571,15 +571,20 @@ private slots:
 
         const int ceilingMs = 10000;
         int waited = 0;
-        while (ingested.isEmpty() && waited < ceilingMs) {
+        // Wave-2b testing audit H1: wait for BOTH same-stem deliveries, not
+        // just the first — asserting after the first delivery left the second
+        // count to luck on slow/loaded machines.
+        auto sameStemCount = [&ingested]() {
+            int n = 0;
+            for (const QString& f : ingested)
+                if (f.contains(QStringLiteral("same.pdf"))) ++n;
+            return n;
+        };
+        while (sameStemCount() < 2 && waited < ceilingMs) {
             QTest::qWait(100);
             waited += 100;
         }
-        QVERIFY2(!ingested.isEmpty(), "nested same-stem drops not ingested");
-        int count = 0;
-        for (const QString& f : ingested)
-            if (f.contains(QStringLiteral("same.pdf"))) ++count;
-        QCOMPARE(count, 2);
+        QVERIFY2(sameStemCount() == 2, "nested same-stem drops not both ingested");
         c.stop();
     }
 

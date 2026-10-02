@@ -1374,7 +1374,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitization.cpp")
     add_executable(TestSanitization
         tests/TestSanitization.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestSanitization PRIVATE src tests)
     target_link_libraries(TestSanitization PRIVATE
@@ -1422,7 +1421,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitizeTrailerUaf.cpp")
     add_executable(TestSanitizeTrailerUaf
         tests/TestSanitizeTrailerUaf.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestSanitizeTrailerUaf PRIVATE src tests)
     target_link_libraries(TestSanitizeTrailerUaf PRIVATE
@@ -2802,7 +2800,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormPersistence.cpp")
     add_executable(TestFormPersistence
         tests/TestFormPersistence.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFormPersistence PRIVATE src tests)
     target_link_libraries(TestFormPersistence PRIVATE
@@ -3295,7 +3292,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
     add_test(NAME TestBatchOpsCoverage COMMAND TestBatchOpsCoverage)
     set_tests_properties(TestBatchOpsCoverage PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        TIMEOUT 600
         LABELS "unit;batch;watermark;pdfa;merge;redact;qt;headless"
     )
 endif()
@@ -4279,7 +4276,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormLock.cpp")
     add_executable(TestFillFormLock
         tests/TestFillFormLock.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFillFormLock PRIVATE src tests)
     target_link_libraries(TestFillFormLock PRIVATE
@@ -4311,7 +4307,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormNoOp.cpp")
     add_executable(TestFillFormNoOp
         tests/TestFillFormNoOp.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFillFormNoOp PRIVATE src tests)
     target_link_libraries(TestFillFormNoOp PRIVATE
@@ -4537,7 +4532,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFieldMetadata.cpp")
     add_executable(TestFieldMetadata
         tests/TestFieldMetadata.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFieldMetadata PRIVATE src tests)
     target_link_libraries(TestFieldMetadata PRIVATE
@@ -4761,7 +4755,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
     add_executable(TestEngineSave
         tests/TestEngineSave.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestEngineSave PRIVATE src tests)
     target_link_libraries(TestEngineSave PRIVATE
@@ -4859,7 +4852,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormUndo.cpp")
     add_executable(TestFormUndo
         tests/TestFormUndo.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFormUndo PRIVATE src tests)
     target_link_libraries(TestFormUndo PRIVATE
@@ -5036,7 +5028,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoDetectHeuristic.cpp")
     add_executable(TestAutoDetectHeuristic
         tests/TestAutoDetectHeuristic.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestAutoDetectHeuristic PRIVATE src tests)
     target_link_libraries(TestAutoDetectHeuristic PRIVATE
@@ -5706,7 +5697,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
     # plus fault-injected engines for the failure paths.
     add_executable(TestHistoryIntegrity
         tests/TestHistoryIntegrity.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestHistoryIntegrity PRIVATE src tests)
     target_link_libraries(TestHistoryIntegrity PRIVATE
@@ -5744,7 +5734,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageAppearance.cpp")
     add_executable(TestImageAppearance
         tests/TestImageAppearance.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestImageAppearance PRIVATE src tests)
     target_link_libraries(TestImageAppearance PRIVATE

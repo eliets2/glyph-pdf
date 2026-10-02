@@ -136,19 +136,20 @@ private slots:
                      QDir(appDir.path()).filePath(QStringLiteral("7z.exe"))));
     }
 
-    // Pin 3 — honest absence: a location without the tool pair must never be
-    // reported as the resolved tool. The resolver either falls back to a real
-    // system installation (existing file) or returns EMPTY — the caller turns
-    // an empty result into the explicit "capability unavailable" disclosure.
+    // Pin 3 — honest absence: without the app-owned tool pair the resolver
+    // returns EMPTY, full stop. The wave-2b security audit (F-02, CWE-427)
+    // removed the PATH and Program-Files fallback legs: a planted 7z.exe there
+    // would receive the document and the package password with no hash
+    // verification, so absence must reach the caller's explicit
+    // "capability unavailable" disclosure rather than any system tool.
     void resolverDisclosesAbsenceHonestly() {
         QTemporaryDir emptyDir;
         QVERIFY(emptyDir.isValid());
 
         const QString resolved = SafeSave::locateSevenZip(emptyDir.path());
-        QVERIFY2(resolved != QDir(emptyDir.path()).filePath(QStringLiteral("7z.exe")),
-                 "an empty app directory must not be reported as resolved");
-        QVERIFY2(resolved.isEmpty() || QFileInfo::exists(resolved),
-                 "a non-empty resolution must point at an existing tool");
+        QVERIFY2(resolved.isEmpty(),
+                 "without the bundled pair the resolver must return EMPTY — "
+                 "no PATH or Program-Files fallback may satisfy it");
     }
 
     // Pin 4 — the bundled binary does the real work end-to-end through the
