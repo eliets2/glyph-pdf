@@ -6,6 +6,8 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QProgressDialog>
+#include <QPromise>
 #include <QSplitter>
 #include <QColor>
 #include <QTextBrowser>
@@ -25,6 +27,25 @@ namespace gp {
 
 // §9.10/R11: the CHANGES-row data roles live in CompareMode.h (shared with the
 // tests that pin the filter seam).
+
+namespace {
+
+// §4 row 7: per-stage progress text streamed to the progress dialog through
+// QPromise::setProgressValueAndText (→ QFutureWatcher::progressTextChanged →
+// QProgressDialog::setLabelText). Runs on the worker thread; tr() is safe
+// there (the BatchMode ordered worker translates its skip reasons the same way).
+QString compareStageText(int stage, int done, int total) {
+    switch (stage) {
+    case DiffEngine::ProgressExtractText:
+        return CompareMode::tr("Extracting text... %1/%2").arg(done).arg(total);
+    case DiffEngine::ProgressPagePairs:
+        return CompareMode::tr("Comparing pages... %1/%2").arg(done).arg(total);
+    default:
+        return QString();
+    }
+}
+
+} // namespace
 
 CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
     auto* col = new QVBoxLayout(this);
@@ -209,6 +230,10 @@ CompareMode::CompareMode(QWidget* parent) : QWidget(parent) {
 }
 
 void CompareMode::compareFiles(const QString& file1, const QString& file2) {
+    // §4 row 7: one diff at a time — a re-entry while the worker runs would
+    // orphan the previous run's progress dialog and interleave two watchers.
+    if (m_watcher.isRunning())
+        return;
     m_file1 = file1;
     m_file2 = file2;
     m_compareWidget->loadDocuments(file1, file2);
@@ -229,14 +254,101 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     if (m_nextBtn) m_nextBtn->setEnabled(false);
     if (m_swapBtn) m_swapBtn->setEnabled(false);   // U04: no swap mid-flight
 
-    QFuture<DiffResult> future = QtConcurrent::run([file1, file2]() {
+    // §4 row 7: progress + cancel surface — the MainWindow::runConversion
+    // idiom: a dialog whose Cancel drives the watcher's cancel; determinate
+    // range/value/text arrive through the worker's QPromise.
+    // autoClose/autoReset stay off so onDiffFinished closes the dialog itself
+    // AFTER reading the cancel state (the 1.7b trap).
+    //
+    // NON-MODAL, deliberately: QProgressDialog::setValue() spins a nested
+    // QApplication::processEvents() when the dialog is modal AND shown —
+    // and this dialog receives a stream of queued worker progress meta-events.
+    // A nested pump can then deliver the finished event (→ close + deleteLater)
+    // INSIDE the setValue() frame of a previous progress event, leaving that
+    // frame's d->bar dangling (observed 0xc0000005 in QProgressBar::value()
+    // under load). runConversion only escapes the same trap because its busy
+    // (0,0) dialog never receives setValue calls. Non-modal keeps event
+    // delivery at the outer loop: FIFO, no re-entrancy.
+    auto* progress = new QProgressDialog(tr("Comparing documents..."), tr("Cancel"),
+                                         0, 0, this);
+    progress->setObjectName(QStringLiteral("cmpProgressDialog"));
+    progress->setWindowModality(Qt::NonModal);
+    progress->setMinimumDuration(500);   // fast diffs never flash the dialog
+    progress->setAutoClose(false);
+    progress->setAutoReset(false);
+    m_progress = progress;
+    connect(progress, &QProgressDialog::canceled,
+            &m_watcher, &QFutureWatcher<DiffResult>::cancel);
+    connect(&m_watcher, &QFutureWatcher<DiffResult>::progressRangeChanged,
+            progress, &QProgressDialog::setRange);
+    connect(&m_watcher, &QFutureWatcher<DiffResult>::progressValueChanged,
+            progress, &QProgressDialog::setValue);
+    connect(&m_watcher, &QFutureWatcher<DiffResult>::progressTextChanged,
+            progress, &QProgressDialog::setLabelText);
+
+    // §4 row 7: the batch boundary-poll idiom
+    // (BatchMode::startPresetOrderedWorker): the worker polls
+    // QPromise::isCanceled() at every stage boundary — the SAME probe
+    // DiffEngine::compare already honours — and streams per-stage progress
+    // through the promise. The test hook is captured by value; the member is
+    // never read cross-thread (m_mergeBoundaryHook's discipline).
+    const std::function<void(int, int)> stageHook = m_stageBoundaryHook;
+    auto worker = [file1, file2, stageHook](QPromise<DiffResult>& promise) {
+        const std::function<bool()> cancelled =
+            [&promise]() { return promise.isCanceled(); };
+        const auto report =
+            [&promise, &stageHook](int stage, int done, int total) {
+                // Boundary hook BEFORE the report: a parked test sees the
+                // dialog state of everything reported so far, never the
+                // boundary's own report (deterministic stage observation).
+                if (stageHook)
+                    stageHook(stage, done);
+                if (total <= 0)
+                    return;
+                promise.setProgressRange(0, total);
+                // "starting unit done+1 of total": QFutureInterface suppresses
+                // value-0 progress reports (probed on Qt 6.11 — a 0/N report
+                // never reaches QFutureWatcher), so the 0-based boundary would
+                // be invisible. 1-based keeps every boundary observable while
+                // the hook/cancel probe above stays at the true boundary; the
+                // post-loop "completed" boundary (done == total) clamps to
+                // total so the bar lands exactly on its end.
+                promise.setProgressValueAndText(qMin(done + 1, total),
+                                                compareStageText(stage, qMin(done + 1, total), total));
+            };
         DiffEngine engine;
-        return engine.compare(file1, file2, 150);
-    });
-    m_watcher.setFuture(future);
+        // QtConcurrent's promise overload requires a void-returning callable:
+        // the result is delivered through the promise, so a CANCELED run's
+        // partial DiffResult is silently discarded (addResult on a canceled
+        // promise is a no-op) and can never reach the UI.
+        promise.addResult(engine.compare(file1, file2, 150, cancelled, report));
+    };
+    m_watcher.setFuture(QtConcurrent::run(worker));
 }
 
 void CompareMode::onDiffFinished() {
+    // §4 row 7: read the cancel state BEFORE closing the dialog — closing a
+    // QProgressDialog emits canceled() (closeEvent → cancel()), which would
+    // cancel the ALREADY-FINISHED future and misroute a real completion as a
+    // cancellation (the exact 1.7b trap documented on
+    // MainWindow::runConversion, which this flow copies).
+    const bool canceled = m_watcher.isCanceled();
+    if (m_progress) {
+        m_progress->close();
+        m_progress->deleteLater();
+        m_progress.clear();
+    }
+    if (canceled) {
+        // Cancelled: the partial engine result is discarded (never read).
+        // No partial state leaks — compareFiles already cleared the CHANGES
+        // tree, the completed m_lastResult (if any) is left untouched, and
+        // export/navigation stay disabled until a new diff completes. Swap
+        // is safe again: the same pair can be re-run (idempotent after
+        // cancel).
+        m_statusLabel->setText(tr("COMPARISON CANCELLED"));
+        if (m_swapBtn) m_swapBtn->setEnabled(true);
+        return;
+    }
     const DiffResult result = m_watcher.result();
     m_compareWidget->setDiffResult(result);
     if (m_exportBtn) m_exportBtn->setEnabled(true);

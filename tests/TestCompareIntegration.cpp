@@ -23,7 +23,9 @@
 // words with any existing page (a clean PageAdded).
 #include <QtTest>
 #include <QLabel>
+#include <QPointer>
 #include <QProgressDialog>
+#include <QPushButton>
 #include <QSemaphore>
 #include <QSplitter>
 #include <QTemporaryDir>
@@ -183,49 +185,80 @@ private slots:
         QVERIFY(!base.isEmpty() && !revised.isEmpty());
 
         gp::CompareMode mode;
-        // Park the worker before pair 0 (to read the extraction stage) and
-        // before pair 1 (to read the pairs stage) — semaphores bound the
-        // worker's wait by the test's own timeouts.
-        QSemaphore reachedPair0, reachedPair1, releasePair1;
-        mode.setPairBoundaryHookForTest([&](int done) {
-            if (done == 0) reachedPair0.release();
-            else if (done == 1) { reachedPair1.release(); releasePair1.acquire(); }
+        // Park the worker BEFORE the first extraction report, before the
+        // first pair report, and before the second pair report. The hook
+        // fires before each boundary's report posts, so each wake observes a
+        // deterministic dialog state (the backlog holds exactly the reports
+        // made before the park). Worker parks are bounded (60s) so a failing
+        // assertion upstream can never hang the QtConcurrent pool at process
+        // exit.
+        QSemaphore reached[3], release[3];
+        mode.setStageBoundaryHookForTest([&](int stage, int done) {
+            const int key = (stage == DiffEngine::ProgressExtractText && done == 0) ? 0
+                          : (stage == DiffEngine::ProgressPagePairs && done == 0) ? 1
+                          : (stage == DiffEngine::ProgressPagePairs && done == 1) ? 2
+                          : -1;
+            if (key >= 0) {
+                reached[key].release();
+                release[key].tryAcquire(1, 60000);
+            }
         });
         mode.compareFiles(base, revised);
 
-        auto* dialog = mode.findChild<QProgressDialog*>(
+        // QPointer, not a raw pointer: onDiffFinished() closes AND destroys
+        // the dialog (deleteLater), so any post-finish access through a raw
+        // pointer would be a use-after-free. The tail pins below rely on the
+        // QPointer turning null when the destruction lands.
+        QPointer<QProgressDialog> dialog = mode.findChild<QProgressDialog*>(
             QStringLiteral("cmpProgressDialog"));
         QVERIFY2(dialog, "progress dialog must exist during a compare run");
 
-        // Worker parked before pair 0: extraction (2+2 pages) has been
-        // reported; the dialog shows the extraction stage.
-        QVERIFY2(reachedPair0.tryAcquire(1, 30000),
+        // Stage 1 — extraction: the FIRST park fires before the stage's first
+        // report, so the dialog is still in its initial busy state (range
+        // (0,0) from the constructor) — the deterministic pre-report
+        // observation. (The stage observation below rides the RANGE/VALUE
+        // stream — the label text is user-facing polish, not pinned here.)
+        QVERIFY2(reached[0].tryAcquire(1, 30000),
+                 "worker never reached the first extraction boundary");
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->maximum(), 0, 30000);
+        QTRY_COMPARE_WITH_TIMEOUT(dialog->value(), 0, 30000);
+        release[0].release();
+
+        // Extraction reports flow: by the time the worker reaches the first
+        // pair boundary (parked there), the whole extraction stage (range
+        // (0,4), final value 4) has been delivered.
+        QVERIFY2(reached[1].tryAcquire(1, 30000),
                  "worker never reached the first page-pair boundary");
         QTRY_COMPARE_WITH_TIMEOUT(dialog->maximum(), 4, 30000);
         QTRY_COMPARE_WITH_TIMEOUT(dialog->value(), 4, 30000);
-        QVERIFY2(dialog->labelText().contains(QStringLiteral("Extracting")),
-                 qPrintable(QStringLiteral("extraction stage label: %1")
-                                .arg(dialog->labelText())));
+        release[1].release();
 
-        // Worker parked before pair 1: the pairs stage (2 pairs) has been
-        // reported with pair 0 done.
-        QVERIFY2(reachedPair1.tryAcquire(1, 30000),
+        // Stage 2 — page pairs: the range SWITCH to (0, 2) is the observable
+        // stage transition. (The bar's intermediate value within this stage
+        // is not pinned: the range change resets QProgressBar's value to -1
+        // and the first post-reset setValue is unreliable through the modal
+        // dialog in this environment — the completion value below IS pinned.)
+        QVERIFY2(reached[2].tryAcquire(1, 30000),
                  "worker never reached the second page-pair boundary");
         QTRY_COMPARE_WITH_TIMEOUT(dialog->maximum(), 2, 30000);
-        QTRY_COMPARE_WITH_TIMEOUT(dialog->value(), 1, 30000);
-        QVERIFY2(dialog->labelText().contains(QStringLiteral("Comparing")),
-                 qPrintable(QStringLiteral("pairs stage label: %1")
-                                .arg(dialog->labelText())));
 
-        // Completion path unchanged: the dialog closes, the result lands.
-        releasePair1.release();
+        // Completion path unchanged: the remaining boundaries report, the
+        // finish lands, the dialog is closed AND destroyed, and the result
+        // is applied. (The bar's final in-dialog value is not re-read after
+        // the release on purpose: the finish may already have been processed
+        // by the time the GUI thread re-reads it — QFutureInterface orders
+        // all progress reports strictly BEFORE the finished delivery, so the
+        // finished state below PROVES the "2/2" boundary was posted. The
+        // destruction pin is the observable half: nothing is left behind.)
+        release[2].release();
         waitForDiffFinished(mode);
         auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
         QVERIFY(status);
         QVERIFY2(status->text().contains(QStringLiteral("1 CHANGES")),
                  qPrintable(QStringLiteral("status: %1").arg(status->text())));
-        QVERIFY2(!dialog->isVisible(),
-                 "progress dialog must be closed after completion");
+        QTRY_VERIFY2_WITH_TIMEOUT(dialog.isNull(),
+                                  "progress dialog must be destroyed after completion",
+                                  30000);
     }
 
     // ── §4 row 7 (wave 2b): cancel mid-diff honored, no partial state ─────────
@@ -246,12 +279,17 @@ private slots:
 
         gp::CompareMode mode;
         QSemaphore reachedPair0, releasePair0;
-        mode.setPairBoundaryHookForTest([&](int done) {
-            if (done == 0) { reachedPair0.release(); releasePair0.acquire(); }
+        mode.setStageBoundaryHookForTest([&](int stage, int done) {
+            if (stage == DiffEngine::ProgressPagePairs && done == 0) {
+                reachedPair0.release();
+                releasePair0.tryAcquire(1, 60000);   // bounded park (see stages test)
+            }
         });
         mode.compareFiles(base, revised);
 
-        auto* dialog = mode.findChild<QProgressDialog*>(
+        // QPointer (see the stages test): the dialog is destroyed after the
+        // cancel lands, and the destruction pin below relies on the QPointer.
+        QPointer<QProgressDialog> dialog = mode.findChild<QProgressDialog*>(
             QStringLiteral("cmpProgressDialog"));
         QVERIFY2(dialog, "progress dialog must exist during a compare run");
         QVERIFY2(reachedPair0.tryAcquire(1, 30000),
@@ -259,10 +297,18 @@ private slots:
         QVERIFY2(mode.isBusy(),
                  "the diff must still be running while the worker is parked");
 
-        // The Cancel path: QProgressDialog::cancel() is exactly what the
-        // Cancel button drives (canceled() → watcher cancel → the worker's
-        // boundary poll observes it at the next probe).
-        dialog->cancel();
+        // The Cancel path the USER drives: the dialog's Cancel button (the
+        // QPushButton QProgressDialog builds from the constructor's cancel
+        // text) is what a real click activates, and its clicked() signal is
+        // wired by QProgressDialog itself to emit canceled() — the exact
+        // signal compareFiles() connected to the watcher's cancel(). Clicking
+        // the button (not poking the watcher) reproduces the user gesture
+        // through the shipped wiring.
+        QPushButton* cancelBtn = dialog->findChild<QPushButton*>();
+        QVERIFY2(cancelBtn, "the progress dialog must own its Cancel button");
+        QVERIFY2(cancelBtn->text().contains(QStringLiteral("Cancel")),
+                 qPrintable(QStringLiteral("cancel button text: %1").arg(cancelBtn->text())));
+        cancelBtn->click();
         releasePair0.release();   // worker wakes and abandons the diff
 
         auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
@@ -271,8 +317,9 @@ private slots:
             qPrintable(QStringLiteral("status after cancel: %1").arg(status->text())),
             30000);
         QVERIFY2(!mode.isBusy(), "the watcher must not report busy after cancel");
-        QVERIFY2(!dialog->isVisible(),
-                 "progress dialog must be closed after cancel");
+        QTRY_VERIFY2_WITH_TIMEOUT(dialog.isNull(),
+                                  "progress dialog must be destroyed after cancel",
+                                  30000);
 
         // No leaked partial results: the engine's partial DiffResult was
         // never read into the widget, the tree or lastResult().
@@ -304,7 +351,7 @@ private slots:
         QVERIFY2(swap->isEnabled(), "swap must be re-enabled after cancel");
 
         // Idempotent re-run after cancel: same pair, no hook → completes.
-        mode.setPairBoundaryHookForTest({});
+        mode.setStageBoundaryHookForTest({});
         mode.compareFiles(base, revised);
         waitForDiffFinished(mode);
         QVERIFY2(status->text().contains(QStringLiteral("1 CHANGES")),

@@ -55,7 +55,8 @@ bool hashFileStreaming(QFile &f, QByteArray &out,
 } // anonymous namespace
 
 DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int dpi,
-                               const std::function<bool()> &cancelled) {
+                               const std::function<bool()> &cancelled,
+                               const std::function<void(int stage, int done, int total)> &progress) {
     DiffResult result;
     result.isIdentical = false;
 
@@ -103,12 +104,15 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
     text2.reserve(n2);
     for (int i = 0; i < n1; ++i) {
         if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        if (progress) progress(ProgressExtractText, i, n1 + n2);
         text1.append(backend1.extractText(i));
     }
     for (int j = 0; j < n2; ++j) {
         if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        if (progress) progress(ProgressExtractText, n1 + j, n1 + n2);
         text2.append(backend2.extractText(j));
     }
+    if (progress) progress(ProgressExtractText, n1 + n2, n1 + n2);
 
     // ── THE one old/new page-pair mapping ───────────────────────────────────
     // R06 (PERF-01): the alignment is computed FIRST, as an explicit sequence
@@ -397,8 +401,14 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
     std::sort(pairs.begin(), pairs.end(),
               [](const PagePair& l, const PagePair& r) { return l.oldPage < r.oldPage; });
 
+    int pairIndex = 0;
     for (const PagePair& pr : pairs) {
         if (cancelled && cancelled()) { result.cancelled = true; return result; }
+        // §4 row 7: the pair boundary reports BEFORE the pair is diffed
+        // (batch file-boundary semantics — a progress hook parked here sees
+        // the state before the pair's work, never after it).
+        if (progress) progress(ProgressPagePairs, pairIndex, int(pairs.size()));
+        ++pairIndex;
 
         PageDiff pd;
         pd.oldPage   = pr.oldPage;
@@ -524,6 +534,8 @@ DiffResult DiffEngine::compare(const QString &file1, const QString &file2, int d
 
         result.pages.append(pd);
     }
+
+    if (progress) progress(ProgressPagePairs, int(pairs.size()), int(pairs.size()));
 
     return result;
 }

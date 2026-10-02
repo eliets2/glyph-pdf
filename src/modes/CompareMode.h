@@ -2,12 +2,16 @@
 #pragma once
 #include <QWidget>
 
+#include <functional>
+
 #include "engines/DiffEngine.h"
 #include <QFutureWatcher>
+#include <QPointer>
 
 class CompareWidget;
 class QTreeWidget;
 class QLabel;
+class QProgressDialog;
 class QToolButton;
 struct CompareChangeFilter;   // U04: defined in ui/CompareWidget.h
 
@@ -48,6 +52,18 @@ public:
     QString buildTextReport() const;
     QString buildHtmlReport(const CompareChangeFilter& filter) const;
     QString buildTextReport(const CompareChangeFilter& filter) const;
+
+    // §4 row 7 (wave 2b): test seam, copied from BatchMode's
+    // setPresetBoundaryHookForTest — invoked from the WORKER at every stage
+    // boundary BEFORE that boundary's progress report is posted, with the
+    // DiffEngine::ProgressStage and the (zero-based) unit the boundary sits
+    // in front of. The hook is captured BY VALUE into the worker lambda when
+    // the diff starts (the member is never read cross-thread), so tests can
+    // park the diff mid-run deterministically — before any boundary's report
+    // — and observe each stage's dialog state (cancel/stage pins).
+    void setStageBoundaryHookForTest(std::function<void(int stage, int done)> hook) {
+        m_stageBoundaryHook = std::move(hook);
+    }
 
     // §9.10/R11: data roles tagging each CHANGES row with the filter gate it
     // obeys, plus (for structural rows) its index in the one shared change
@@ -91,6 +107,8 @@ private:
     QToolButton* m_linkScrollBtn = nullptr;  // U04: linked scrolling toggle
     QToolButton* m_swapBtn       = nullptr;  // U04: swap original/revised sides
     QFutureWatcher<DiffResult> m_watcher;
+    QPointer<QProgressDialog> m_progress;   // §4 row 7: per-run progress dialog
+    std::function<void(int, int)> m_stageBoundaryHook;   // §4 row 7: worker-side test seam
     DiffResult m_lastResult;
     QString m_file1;
     QString m_file2;

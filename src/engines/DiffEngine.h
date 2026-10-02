@@ -92,6 +92,15 @@ struct DiffResult {
 
 class DiffEngine {
 public:
+    /// §4 row 7 (wave 2b): stages reported through the optional \p progress
+    /// probe (stage, done, total). \p done counts completed units at a stage
+    /// boundary — the page-pair boundary reports BEFORE its pair is diffed,
+    /// mirroring the batch file-boundary semantics.
+    enum ProgressStage {
+        ProgressExtractText = 1,   ///< per-page text extraction (total = n1+n2)
+        ProgressPagePairs   = 2,   ///< per-pair content diff (total = pair count)
+    };
+
     DiffEngine();
     ~DiffEngine();
 
@@ -106,6 +115,12 @@ public:
     /// Checks run inside every expensive loop (hashing, extraction,
     /// alignment, per-pair diff, pixel scanning); an abandoned comparison
     /// returns a partial result with DiffResult::cancelled set.
+    ///
+    /// §4 row 7 (wave 2b): the optional \p progress probe is invoked at the
+    /// extraction and page-pair boundaries with (stage, done, total) so the
+    /// UI worker can stream per-stage progress. Default-off — every existing
+    /// caller is unaffected.
     DiffResult compare(const QString &file1, const QString &file2, int dpi = 150,
-                       const std::function<bool()> &cancelled = {});
+                       const std::function<bool()> &cancelled = {},
+                       const std::function<void(int stage, int done, int total)> &progress = {});
 };
