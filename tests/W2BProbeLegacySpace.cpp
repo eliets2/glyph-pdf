@@ -40,9 +40,16 @@
 #include "core/AnnotationTypes.h"
 #include <podofo/podofo.h>
 
+
+// NATIVE-LINUX (2026-10-02): the second-engine read path is a HAS_PDFIUM
+// capability. Windows always vendors pdfium, so this guard is inert there;
+// engine-less Linux builds compile the suite without it and disclose the
+// unavailable cross-check via QSKIP (recorded dependency boundary).
+#ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_annot.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
+#endif
 
 namespace {
 
@@ -104,6 +111,7 @@ QList<QRectF> rawAnnotRects(const QString& path, int pageIndex)
     return out;
 }
 
+#ifdef HAS_PDFIUM
 QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex)
 {
     QList<QRectF> out;
@@ -126,6 +134,7 @@ QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex)
     FPDF_CloseDocument(doc);
     return out;
 }
+#endif // HAS_PDFIUM
 
 // Letter-page PDF with one text line: "BT /F1 12 Tf <x> <y> Td (<label>) Tj ET".
 bool buildLabelPdf(const QString& path, int x, int y, const QByteArray& label)
@@ -242,6 +251,7 @@ private slots:
         } catch (const std::exception& e) {
             qWarning() << "w2b-diag load failed:" << e.what();
         }
+#ifdef HAS_PDFIUM
         {
             const QList<QList<QRectF>> perPage = { pdfiumAnnotRects(out, 0),
                                                    pdfiumAnnotRects(out, 1),
@@ -262,6 +272,7 @@ private slots:
                 FPDF_CloseDocument(doc);
             }
         }
+#endif // HAS_PDFIUM
         for (int p = 0; p < 4; ++p) {
             const QList<QRectF> raw = rawAnnotRects(out, p);
             QVERIFY2(raw.size() == 1,
@@ -271,7 +282,9 @@ private slots:
                                         "literal %3 — the drawn mark is not where the "
                                         "user drew it").arg(p).arg(rectStr(raw.first()),
                                                                rectStr(expected[p]))));
-
+        }
+#ifdef HAS_PDFIUM
+        for (int p = 0; p < 4; ++p) {
             const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, p);
             QVERIFY2(!viaPdfium.isEmpty(), qPrintable(QString("page %1: PDFium saw no annot").arg(p)));
             QVERIFY2(rectClose(viaPdfium.first(), expected[p]),
@@ -279,6 +292,11 @@ private slots:
                                         "disagrees with the law)").arg(p)
                                    .arg(rectStr(viaPdfium.first()), rectStr(expected[p]))));
         }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // SL1 blast-radius on /Rotate 270 (found by THIS probe; the committed
@@ -380,12 +398,6 @@ private slots:
                  qPrintable(QString("SL1 REGRESSION: field /Rect %1 != my literal %2")
                                 .arg(rectStr(raw.first()), rectStr(expect))));
 
-        const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, 1);
-        QVERIFY(!viaPdfium.isEmpty());
-        QVERIFY2(rectClose(viaPdfium.first(), expect),
-                 qPrintable(QString("PDFium %1 != %2")
-                                .arg(rectStr(viaPdfium.first()), rectStr(expect))));
-
         // Move the field through updateFieldRect: display (20, 30, 60x24) →
         // user ux=30..54, uy=200+20..200+80 → [30 220 54 280].
         QVERIFY(forms.updateFieldRect(out, QStringLiteral("W2BField"), 1,
@@ -396,6 +408,17 @@ private slots:
         QVERIFY2(rectClose(moved.first(), expect2),
                  qPrintable(QString("SL1 REGRESSION: moved /Rect %1 != %2")
                                 .arg(rectStr(moved.first()), rectStr(expect2))));
+#ifdef HAS_PDFIUM
+        const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, 1);
+        QVERIFY(!viaPdfium.isEmpty());
+        QVERIFY2(rectClose(viaPdfium.first(), expect),
+                 qPrintable(QString("PDFium %1 != %2")
+                                .arg(rectStr(viaPdfium.first()), rectStr(expect))));
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── SL3: auto-detected suggestions sit under the label, not mirrored ────

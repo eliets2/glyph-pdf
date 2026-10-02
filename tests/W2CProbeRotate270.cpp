@@ -50,9 +50,16 @@
 #include "core/RedactionProof.h"
 #include <podofo/podofo.h>
 
+
+// NATIVE-LINUX (2026-10-02): the second-engine read path is a HAS_PDFIUM
+// capability. Windows always vendors pdfium, so this guard is inert there;
+// engine-less Linux builds compile the suite without it and disclose the
+// unavailable cross-check via QSKIP (recorded dependency boundary).
+#ifdef HAS_PDFIUM
 #include <fpdfview.h>
 #include <fpdf_annot.h>
 #include "engines/pdfium/PdfiumEnvironment.h"
+#endif
 
 namespace {
 
@@ -238,6 +245,7 @@ SigRects sigFieldRects(const QString& path, int pageIndex)
 
 // PDFium annotation rects (raw user space, the convention the committed pins
 // establish for FPDFAnnot_GetRect on this vendored build).
+#ifdef HAS_PDFIUM
 QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex,
                                QSizeF* pageSizeOut = nullptr)
 {
@@ -263,6 +271,7 @@ QList<QRectF> pdfiumAnnotRects(const QString& path, int pageIndex,
     FPDF_CloseDocument(doc);
     return out;
 }
+#endif // HAS_PDFIUM
 
 // ── MY raw-bytes redaction fixture (offset MediaBox + /Rotate 270) ──────────
 //
@@ -433,26 +442,6 @@ private slots:
                                     .arg(tag, rectStr(nmRects.first()),
                                          rectStr(expectedB[p]))));
 
-            // PDFium must see the moved shape on the page.
-            QSizeF pdfiumSize;
-            const QList<QRectF> viaPdfium = pdfiumAnnotRects(outB, p, &pdfiumSize);
-            QVERIFY2(!viaPdfium.isEmpty(), qPrintable(tag + ": PDFium saw no annot"));
-            const QSizeF wantSize = (s.rotation == 90 || s.rotation == 270)
-                                        ? QSizeF(s.H, s.W) : QSizeF(s.W, s.H);
-            QVERIFY2(std::fabs(pdfiumSize.width() - wantSize.width()) < 0.5
-                     && std::fabs(pdfiumSize.height() - wantSize.height()) < 0.5,
-                     qPrintable(QString("W2C: %1 PDFium page %2x%3 != display %4x%5")
-                                    .arg(tag).arg(pdfiumSize.width())
-                                    .arg(pdfiumSize.height())
-                                    .arg(wantSize.width()).arg(wantSize.height())));
-            bool pdfiumSeesMoved = false;
-            for (const QRectF& r : viaPdfium)
-                pdfiumSeesMoved = pdfiumSeesMoved || rectClose(r, expectedB[p]);
-            QVERIFY2(pdfiumSeesMoved,
-                     qPrintable(QString("W2C: %1 PDFium annots %2 miss moved literal %3")
-                                    .arg(tag).arg(rectStr(viaPdfium.first()),
-                                         rectStr(expectedB[p]))));
-
             // Read-back must surface the moved DISPLAY rect.
             PoDoFoBackend reader;
             const QList<AnnotationItem> back = reader.extractAnnotations(outB);
@@ -484,6 +473,36 @@ private slots:
                          "W2C: p5 moved literal [357 653 515 727] not found in raw bytes");
             }
         }
+#ifdef HAS_PDFIUM
+        // PDFium must see the moved shape on the page (second engine).
+        for (int p = 0; p < all.size(); ++p) {
+            const Shape& s = all[p];
+            const QString tag = QString("p%1 rot%2").arg(p).arg(s.rotation);
+            const QString outB = outPath(QString("move-b-p%1.pdf").arg(p).toUtf8().constData());
+            QSizeF pdfiumSize;
+            const QList<QRectF> viaPdfium = pdfiumAnnotRects(outB, p, &pdfiumSize);
+            QVERIFY2(!viaPdfium.isEmpty(), qPrintable(tag + ": PDFium saw no annot"));
+            const QSizeF wantSize = (s.rotation == 90 || s.rotation == 270)
+                                        ? QSizeF(s.H, s.W) : QSizeF(s.W, s.H);
+            QVERIFY2(std::fabs(pdfiumSize.width() - wantSize.width()) < 0.5
+                     && std::fabs(pdfiumSize.height() - wantSize.height()) < 0.5,
+                     qPrintable(QString("W2C: %1 PDFium page %2x%3 != display %4x%5")
+                                    .arg(tag).arg(pdfiumSize.width())
+                                    .arg(pdfiumSize.height())
+                                    .arg(wantSize.width()).arg(wantSize.height())));
+            bool pdfiumSeesMoved = false;
+            for (const QRectF& r : viaPdfium)
+                pdfiumSeesMoved = pdfiumSeesMoved || rectClose(r, expectedB[p]);
+            QVERIFY2(pdfiumSeesMoved,
+                     qPrintable(QString("W2C: %1 PDFium annots %2 miss moved literal %3")
+                                    .arg(tag).arg(rectStr(viaPdfium.first()),
+                                         rectStr(expectedB[p]))));
+        }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── Slot 2: in-place form-field move through updateFieldRect ────────────
@@ -522,12 +541,22 @@ private slots:
                      qPrintable(QString("W2C: p%1 MOVED field raw /Rect %2 != law literal %3")
                                     .arg(leg.page).arg(rectStr(raw.first()),
                                                        rectStr(leg.litMoved))));
+        }
+#ifdef HAS_PDFIUM
+        for (const Leg& leg : legs) {
+            const QString out = outPath(
+                QString("form-%1.pdf").arg(leg.page).toUtf8().constData());
             const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, leg.page);
             QVERIFY2(!viaPdfium.isEmpty() && rectClose(viaPdfium.first(), leg.litMoved),
                      qPrintable(QString("W2C: p%1 PDFium field %2 != %3")
                                     .arg(leg.page).arg(rectStr(viaPdfium.first()),
                                                        rectStr(leg.litMoved))));
         }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── Slot 3: F5 containment honesty on the offset 270 shape ──────────────
@@ -555,11 +584,6 @@ private slots:
                      qPrintable(QString("W2C: sig raw /Rect %1 != [356 435 439 556]")
                                     .arg(raw.isEmpty() ? QString("none")
                                                        : rectStr(raw.first()))));
-            const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, p);
-            QVERIFY2(!viaPdfium.isEmpty()
-                     && rectClose(viaPdfium.first(),
-                                  QRectF(QPointF(356, 435), QPointF(439, 556))),
-                     "W2C: PDFium does not confirm the signature field rect");
         }
         // Refuse: an anchor crossing the displayed right edge
         //   (790,100,80x40): display width is 842, vx1=870 -> the law maps it
@@ -592,6 +616,20 @@ private slots:
             QVERIFY2(fileSha(fixturePath()) == shaBefore,
                      "W2C F5: a refused placement must be a pure read (source changed)");
         }
+#ifdef HAS_PDFIUM
+        {
+            const QString out = outPath("f5-ok.pdf");
+            const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, p);
+            QVERIFY2(!viaPdfium.isEmpty()
+                     && rectClose(viaPdfium.first(),
+                                  QRectF(QPointF(356, 435), QPointF(439, 556))),
+                     "W2C: PDFium does not confirm the signature field rect");
+        }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 
     // ── Slot 4: SEP13 L5/L8 on MY offset-270 fixture ─────────────────────────
@@ -743,18 +781,6 @@ private slots:
                                     .arg(leg.tag, rectStr(rects.fromPageAnnots.first()),
                                          rectStr(leg.lit))));
 
-            // PDFium confirms.
-            const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, leg.page);
-            bool pdfiumOk = false;
-            for (const QRectF& r : viaPdfium)
-                pdfiumOk = pdfiumOk || rectClose(r, leg.lit);
-            QVERIFY2(pdfiumOk,
-                     qPrintable(QString("W2C verbatim: %1 PDFium %2 != %3")
-                                    .arg(leg.tag).arg(viaPdfium.isEmpty()
-                                                          ? QString("none")
-                                                          : rectStr(viaPdfium.first()))
-                                    .arg(rectStr(leg.lit))));
-
             // The literal must be findable in the RAW FILE BYTES.
             QFile bf(out);
             QVERIFY(bf.open(QIODevice::ReadOnly));
@@ -766,6 +792,27 @@ private slots:
                      qPrintable(QString("W2C verbatim: %1 literal '%2' not in raw bytes")
                                     .arg(leg.tag, litStr)));
         }
+#ifdef HAS_PDFIUM
+        // PDFium confirms the verbatim rect (second engine).
+        for (const Leg& leg : legs) {
+            const QString out = outPath(
+                QString("sigver-%1.pdf").arg(leg.page).toUtf8().constData());
+            const QList<QRectF> viaPdfium = pdfiumAnnotRects(out, leg.page);
+            bool pdfiumOk = false;
+            for (const QRectF& r : viaPdfium)
+                pdfiumOk = pdfiumOk || rectClose(r, leg.lit);
+            QVERIFY2(pdfiumOk,
+                     qPrintable(QString("W2C verbatim: %1 PDFium %2 != %3")
+                                    .arg(leg.tag).arg(viaPdfium.isEmpty()
+                                                          ? QString("none")
+                                                          : rectStr(viaPdfium.first()))
+                                    .arg(rectStr(leg.lit))));
+        }
+#else
+        QSKIP("PDFium unavailable in this build (HAS_PDFIUM off, engine-less Linux) "
+              "— recorded dependency boundary: the raw/PoDoFo pins above in this "
+              "slot ran; the second-engine cross-check is not compiled");
+#endif
     }
 };
 
