@@ -315,6 +315,16 @@ public:
     // ON branch; the auto-run option is switched on so the ingest runs.
     void armHotFolderForTest(const QString& dir);
 
+    // HotFolderController seams (deterministic tests; see TestHotFolder):
+    // the post-picker half of onToggleHotFolder's ON branch — watch vs poll
+    // per the polling checkbox — without the native dialog.
+    bool startHotFolderForTest(const QString& dir);
+    // The live controller (null until first arm/toggle).
+    HotFolderController* hotFolderForTest() { return m_hotFolder; }
+    // The polling-fallback option (network shares where fs-events are
+    // unreliable) as set by the checkbox in the hot-folder section.
+    bool hotFolderPollingEnabled() const;
+
 signals:
     // Emitted from onBatchFinished so tests can spy on completion.
     void batchFinished();
@@ -529,10 +539,12 @@ private:
     // keeps the UI and reacts to the controller's ingest handler.
     void buildHotFolderSection(QVBoxLayout* btnLay);
     HotFolderController* ensureHotFolder();  // lazy create + ingest wiring
+    bool beginHotFolderWatch(const QString& dir);  // ON-branch half after the picker
 
     QCheckBox*          m_hotFolderCheck   = nullptr;
     QLineEdit*          m_hotFolderEdit    = nullptr;
     QCheckBox*          m_hotAutoRunCheck  = nullptr;
+    QCheckBox*          m_hotPollCheck     = nullptr;
     HotFolderController* m_hotFolder       = nullptr;  // owned (QObject child)
 
     // §9.12 P1: merge file-boundary hook (test seam; see the setter above).

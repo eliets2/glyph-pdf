@@ -10,9 +10,16 @@
 //   * modified same-name file re-ingests (filename+mtime key) while the batch
 //     model dedupes by path (count stays 1 — pins what IS)
 //   * extension filter (*.pdf AND *.PDF; non-PDF ignored)
-//   * CURRENT non-recursive gap (subdirectory PDFs are NOT ingested today)
+//   * the pre-recursion non-recursive gap (subdirectoryPdfNotIngested) —
+//     FLIPPED by the recursion capability into subdirectoryPdfIsIngestedRecursive
 //   * error paths: unarmed ingest no-op; watch dir deleted between ingests
 //   * seam contract: armHotFolderForTest forces auto-run ON
+//
+// Since the capability commit this suite also pins the two enterprise
+// capabilities (scorecard §4 row 9): RECURSIVE watch (root + every
+// subdirectory, live discovery of dirs created after start, subtree-unique
+// identity keys) and the POLLING fallback for network shares (deterministic
+// timer ingest + dedup, BatchMode checkbox wiring).
 //
 // NOT pinned here, honestly: the fs-watch trigger + 500 ms debounce
 // lifecycle. The only activation path is onToggleHotFolder's ON branch, which
@@ -83,6 +90,13 @@ static QTextEdit* logView(BatchMode& bm) {
 static QCheckBox* autoRunCheck(BatchMode& bm) {
     for (QCheckBox* cb : bm.findChildren<QCheckBox*>())
         if (cb->text().contains(QStringLiteral("Auto-run on new files")))
+            return cb;
+    return nullptr;
+}
+
+static QCheckBox* pollingCheck(BatchMode& bm) {
+    for (QCheckBox* cb : bm.findChildren<QCheckBox*>())
+        if (cb->text().contains(QStringLiteral("network drives")))
             return cb;
     return nullptr;
 }
@@ -232,10 +246,11 @@ private slots:
         QCOMPARE(ingestLogCount(bm), 0);
     }
 
-    // CHARACTERIZES THE GAP (scorecard §3 row 84): today's ingest lists the
-    // watch dir non-recursively — a PDF in a subdirectory is NOT ingested.
-    // (This pin deliberately flips when the recursive capability lands.)
-    void subdirectoryPdfNotIngested() {
+    // The recursion capability (scorecard §3 row 84) CLOSES the gap this pin
+    // used to characterize: a PDF in a subdirectory is now ingested. The old
+    // subdirectoryPdfNotIngested pin flipped here — deliberate behavior
+    // change, justified in the capability commit (fail-before captured).
+    void subdirectoryPdfIsIngestedRecursive() {
         BatchMode bm;
         armSilently(bm, hotDir());
 
@@ -243,8 +258,10 @@ private slots:
                                   QStringLiteral("deep.pdf")).isEmpty());
 
         bm.runHotFolderIngestForTest();
-        QCOMPARE(bm.fileCount(), 0);
-        QCOMPARE(ingestLogCount(bm), 0);
+        QCOMPARE(bm.fileCount(), 1);
+        QCOMPARE(ingestLogCount(bm), 1);
+        QVERIFY(logView(bm)->toPlainText()
+                    .contains(QStringLiteral("ingested 1 new file.")));
     }
 
     // Error path: the watch dir vanishing between ingests is a silent no-op
@@ -391,6 +408,207 @@ private slots:
         QTest::qWait(700);
         QCOMPARE(passes, 0);
         QCOMPARE(c.debouncePassesForTest(), 0);
+    }
+
+    // ── Capability pins: RECURSIVE watch + POLLING fallback ───────────────────
+    // (PARITY-SCORECARD-2026-09-30 §4 row 9; the two enterprise watched-folder
+    // gaps — nested dirs and fs-event-unreliable network shares.)
+
+    // Recursive fs-watch coverage: subdirectories present at start are under
+    // watch (the wiring that carries nested-drop events).
+    void controllerWatchesSubdirectories() {
+        HotFolderController c;
+        QDir().mkpath(hotDir(QStringLiteral("nested/deeper")));
+        QVERIFY(c.start(hotDir()));
+        const QStringList watched = c.watchedDirectoriesForTest();
+        QVERIFY2(watched.contains(hotDir()),
+                 qPrintable(QStringLiteral("root not watched: %1").arg(watched.join(','))));
+        QVERIFY2(watched.contains(hotDir(QStringLiteral("nested"))),
+                 qPrintable(QStringLiteral("nested dir not watched: %1").arg(watched.join(','))));
+        QVERIFY2(watched.contains(hotDir(QStringLiteral("nested/deeper"))),
+                 qPrintable(QStringLiteral("deep dir not watched: %1").arg(watched.join(','))));
+        c.stop();
+    }
+
+    // A subdirectory created AFTER start gets watched on the next change
+    // delivery (watch refresh in the directory-changed path).
+    void controllerDiscoversSubdirCreatedAfterStart() {
+        HotFolderController c;
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));
+        QVERIFY(!c.watchedDirectoriesForTest()
+                     .contains(hotDir(QStringLiteral("late"))));
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));
+        c.triggerDirectoryChangedForTest();  // what a parent-change event does
+        QVERIFY2(c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late"))),
+                 qPrintable(c.watchedDirectoriesForTest().join(',')));
+        c.stop();
+    }
+
+    // OS-level proof of the recursive fs-watch: a drop into a NESTED dir is
+    // delivered through the real QFileSystemWatcher + debounce and ingested.
+    // (Bounded wait on real OS fs-events — generous ceiling, serial run.)
+    void recursiveWatchIngestsNestedDropEndToEnd() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(c.start(hotDir()));
+
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("nested")),
+                                  QStringLiteral("deep.pdf")).isEmpty());
+
+        const int ceilingMs = 10000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(),
+                 "nested drop not ingested via fs-events within ceiling");
+        QCOMPARE(ingested.size(), 1);
+        QVERIFY2(ingested.first().contains(QStringLiteral("deep.pdf")),
+                 qPrintable(ingested.first()));
+        c.stop();
+    }
+
+    // Polling fallback — deterministic (pure timer, no OS fs-events): a
+    // NESTED drop is discovered on a later tick (the network-share path).
+    void pollingFallbackDiscoversNestedDrop() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(c.startPolling(hotDir(), /*intervalMs=*/200));
+        QVERIFY(c.isWatching());
+        QVERIFY(c.isPolling());
+
+        QTest::qWait(450);  // ≥2 ticks with nothing new
+        QVERIFY(ingested.isEmpty());
+
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("nested")),
+                                  QStringLiteral("polled.pdf")).isEmpty());
+        const int ceilingMs = 5000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(),
+                 "polling fallback missed a nested drop within ceiling");
+        QCOMPARE(ingested.size(), 1);
+        QVERIFY(ingested.first().contains(QStringLiteral("polled.pdf")));
+        c.stop();
+        QVERIFY(!c.isWatching());
+    }
+
+    // Polling also covers flat drops and processed-set dedup: a file dropped
+    // AFTER start ingests on the next tick and never re-ingests (pre-start
+    // files are seeded by design — the pinned seeding semantics).
+    void pollingDedupsAndFlatDrops() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QVERIFY(c.startPolling(hotDir(), /*intervalMs=*/200));
+        QTest::qWait(450);  // ≥2 ticks: an empty folder delivers nothing
+        QVERIFY(ingested.isEmpty());
+
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("flat.pdf")).isEmpty());
+        const int ceilingMs = 5000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(), "polling missed the flat drop");
+        QCOMPARE(ingested.size(), 1);  // ingested exactly once...
+
+        QTest::qWait(600);  // several more ticks
+        QCOMPARE(ingested.size(), 1);  // ...and never re-ingested
+        c.stop();
+    }
+
+    // The identity key is subtree-unique: the same stem in different
+    // subdirectories ingests BOTH (filename|mtime alone would collide — the
+    // recursion capability fixed the key to the root-relative path). The
+    // drops happen AFTER start: pre-start files are seeded by design (the
+    // pinned seeding semantics), so only post-start drops can prove the key
+    // split. Same premise fix pollingDedupsAndFlatDrops needed.
+    void sameStemInDifferentSubdirsBothIngest() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());  // root must exist to be watched at start
+        QVERIFY(c.start(hotDir()));
+
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("d1")),
+                                  QStringLiteral("same.pdf")).isEmpty());
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("d2")),
+                                  QStringLiteral("same.pdf")).isEmpty());
+        // Forge IDENTICAL mtimes: under the historical filename|mtime key the
+        // two drops share one identity and only one would ingest — the
+        // root-relative key is what must tell them apart.
+        const QDateTime shared = QDateTime::currentDateTimeUtc().addSecs(-60);
+        QVERIFY2(forgeMTime(hotDir(QStringLiteral("d1"))
+                                + QStringLiteral("/same.pdf"), shared),
+                 "mtime forge failed — pin premise broken");
+        QVERIFY2(forgeMTime(hotDir(QStringLiteral("d2"))
+                                + QStringLiteral("/same.pdf"), shared),
+                 "mtime forge failed — pin premise broken");
+
+        const int ceilingMs = 10000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(), "nested same-stem drops not ingested");
+        int count = 0;
+        for (const QString& f : ingested)
+            if (f.contains(QStringLiteral("same.pdf"))) ++count;
+        QCOMPARE(count, 2);
+        c.stop();
+    }
+
+    // BatchMode wiring: the polling-fallback checkbox exists, the getter
+    // tracks it, and startHotFolderForTest (the post-picker half of the
+    // toggle's ON branch) starts POLLING when it is checked — watch mode
+    // otherwise.
+    void batchModePollingOptionWiring() {
+        BatchMode bm;
+        QVERIFY(!bm.hotFolderPollingEnabled());
+        QCheckBox* poll = pollingCheck(bm);
+        QVERIFY2(poll, "polling-fallback checkbox not found in BatchMode");
+
+        QDir().mkpath(hotDir());
+
+        poll->setChecked(true);
+        QVERIFY(bm.hotFolderPollingEnabled());
+        QVERIFY(bm.startHotFolderForTest(hotDir()));
+        QVERIFY2(bm.hotFolderForTest() && bm.hotFolderForTest()->isPolling(),
+                 "polling checkbox did not start the controller in poll mode");
+        bm.hotFolderForTest()->stop();
+
+        poll->setChecked(false);
+        QVERIFY(!bm.hotFolderPollingEnabled());
+        QVERIFY(bm.startHotFolderForTest(hotDir()));
+        QVERIFY2(bm.hotFolderForTest() && !bm.hotFolderForTest()->isPolling()
+                     && bm.hotFolderForTest()->isWatching(),
+                 "unchecked polling did not start fs-watch mode");
+        bm.hotFolderForTest()->stop();
     }
 };
 

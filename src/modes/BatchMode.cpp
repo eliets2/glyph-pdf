@@ -850,6 +850,14 @@ void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
     m_hotAutoRunCheck->setToolTip(tr("Start the batch automatically when new files arrive"));
     btnLay->addWidget(m_hotAutoRunCheck);
 
+    // Polling fallback: on network shares QFileSystemWatcher change events
+    // are unreliable or absent — a plain scan timer keeps the folder working.
+    m_hotPollCheck = new QCheckBox(tr("Polling fallback (network drives)"));
+    m_hotPollCheck->setToolTip(
+        tr("Scan the watched folder on a timer instead of filesystem events — "
+           "for network shares where change notifications are unreliable"));
+    btnLay->addWidget(m_hotPollCheck);
+
     connect(m_hotFolderCheck, &QCheckBox::toggled, this, &BatchMode::onToggleHotFolder);
     // Browse re-picks the folder by re-triggering the toggle flow.
     connect(hotBrowse, &QPushButton::clicked, this, [this]() {
@@ -857,6 +865,20 @@ void BatchMode::buildHotFolderSection(QVBoxLayout* btnLay) {
             m_hotFolderCheck->setChecked(false);  // stop current watch
         m_hotFolderCheck->setChecked(true);       // prompt + start
     });
+}
+
+// The ON-branch half that runs once a folder is chosen (shared by the
+// picker path and the test seam): hand the folder to the controller in the
+// mode the polling checkbox selects.
+bool BatchMode::beginHotFolderWatch(const QString& dir) {
+    m_hotFolderEdit->setText(dir);
+    HotFolderController* hot = ensureHotFolder();
+    bool ok;
+    if (hotFolderPollingEnabled())
+        ok = hot->startPolling(dir, HotFolderController::kPollIntervalMs);
+    else
+        ok = hot->start(dir);  // seeds the processed set + watches (recursive)
+    return ok;
 }
 
 // The hot-folder watch lifecycle (watcher, debounce, processed set, PDF
@@ -883,8 +905,7 @@ void BatchMode::onToggleHotFolder() {
             m_hotFolderCheck->setChecked(false);
             return;
         }
-        m_hotFolderEdit->setText(dir);
-        ensureHotFolder()->start(dir);  // seeds the processed set + watches
+        beginHotFolderWatch(dir);
         appendLog(tr("Hot folder watching: %1").arg(dir), "#5b9bd5");
     } else {
         // Toggled off — tear down watcher + debounce and clear state.
@@ -902,6 +923,15 @@ void BatchMode::armHotFolderForTest(const QString& dir) {
     ensureHotFolder()->arm(dir);
     if (m_hotAutoRunCheck)
         m_hotAutoRunCheck->setChecked(true);
+}
+
+// Test seam: beginHotFolderWatch without the native dialog.
+bool BatchMode::startHotFolderForTest(const QString& dir) {
+    return beginHotFolderWatch(dir);
+}
+
+bool BatchMode::hotFolderPollingEnabled() const {
+    return m_hotPollCheck && m_hotPollCheck->isChecked();
 }
 
 // The controller delivered NEW hot-folder files (it owns the scan + dedup —

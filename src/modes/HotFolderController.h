@@ -18,6 +18,7 @@
 #include <functional>
 
 #include <QFileInfo>
+#include <QList>
 #include <QObject>
 #include <QSet>
 #include <QString>
@@ -33,6 +34,9 @@ class HotFolderController : public QObject {
 public:
     // Debounce window for fs-event storms — BatchMode's historical 500 ms.
     static constexpr int kDebounceMs = 500;
+    // Polling-fallback tick for network shares: fresh enough for a
+    // watched-folder ingest, light enough for a share.
+    static constexpr int kPollIntervalMs = 2000;
 
     explicit HotFolderController(QObject* parent = nullptr);
     ~HotFolderController() override;
@@ -85,9 +89,12 @@ private slots:
 private:
     void ensureDebounce();
     void seedProcessed();
-    QStringList scanPdfFiles() const;
+    void watchSubdirectories();  // keep root + every subdirectory under watch
+    QList<QFileInfo> recursivePdfEntries() const;  // the whole tree, *.pdf/*.PDF
 
-    static QString hotFileKey(const QFileInfo& fi);
+    // Subtree-unique identity: path relative to the watched root + mtime
+    // (flat files yield exactly the historical filename|mtime key).
+    QString hotFileKey(const QFileInfo& fi) const;
 
     QString m_dir;
     QSet<QString> m_processed;          // already-seen file keys
