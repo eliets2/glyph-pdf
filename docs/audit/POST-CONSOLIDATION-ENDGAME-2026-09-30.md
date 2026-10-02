@@ -173,3 +173,41 @@ no merge to main, no worktree/branch deletion) after the incidents below.
 
 `D:/pdf/pdf-archive-final-2026-09-30.bundle` (SHA-256 4766c3c3…1942, 498 refs,
 restore-drilled) + 263 archive tags (local = origin). gc/prune remain forbidden.
+
+## Feature-fleet wave 2b — CLOSED (2026-10-02, main @ 17389f7b)
+
+All 12 dispatched lanes landed and folded; queue fully dispositioned.
+Gate: **full serial 202/202, 0 failed** (R14ProbeBatchSkip disabled by
+design) at the merged tip, evidence
+`docs/audit/evidence-wave2-closing/wave-closing-serial-2026-10-02.txt`.
+Folds (cherry-pick unless noted): #8 fdf/CSV import hardening
+(1149b23b/2f33af53/095b9fde) · #11 page-labels CHECK-FIRST closure — the
+writer+UI shipped 2026-09-23 in v1.5.0; stale rows corrected (bbfd858b/
+3a6a044f/2b4d0558) · polish (self-landed 7066534c, gate applied post-hoc) ·
+quadpoints (self-landed ad77c29c) · pcre2-16 ci fix df2e7f94 (fuzz batch
+green) · #17 preprocessing disclosure (606397b1) · #13 indexed downsampling
+(af2604bd/2af5bdf7; CMYK blocked-with-pins, owner: lcms2) · #16 thumbnails
+off-GUI (93e222ea/a602fa55; renderPageAsync seam) · /P prefix (b90b44d0) ·
+rotate-view port (2cb94e9c..276514a3 via finisher; conflict with #16
+hand-reconciled: renderPageUncached split + view-rotation-aware cache key) ·
+#15 a11y export (7f1b70ed/4845a142) · #14 vendored 7z (d41979c1 lineage;
+configure-time SHA-256 pin; provenance dual-source) · #18 stamp image import
+(2101f6e5..88c01163) · #12 re-OCR region (392c57d9..a0c68823) · #7 compare
+progress+cancel (2cb94e9c lineage via finisher; UAF pins upgraded to QPointer)
+· #10 batch formats (integrator-finished 9ccc2d82) · #9 hot-folder
+characterization+extraction (0bd10142/164be93b) + recursion/polling
+capabilities via finisher (4190b0bf/01c76bd4) · #5 OCR OutputMode
+(c725a1c8/e15f07ef via relaunch adopting the dead instance's WIP) ·
+commands.json rotateViewCW/CCW registration (6d1595a3 — the wave gate's
+catch: the rotate port added ToolIds without command specs; TestCommandRegistry
+failed at the gate, fixed with status:toolid entries, redo exemplar).
+Recovery round: provider 5h-usage cap + request-rate limits killed lanes
+mid-flight (one 1308 bounce, one 1302, two silent deaths); finisher agents +
+integrator-inline finishes recovered every lane without losing work. Two
+documented misses fixed at the gate: a CMakeLists union truncation (reocr/
+ocrmode test blocks — parse error, repaired 3-line closure) and the skipped
+RED-pins commit in the compare pick order.
+WAVE-CLOSING STATE: dispatch list rows 1-18 DONE or dispositioned; owner
+decisions open: font subsetting A/B/C (plan f3c7cb88), CMYK-via-lcms2 (row 13),
+7z 26.03 bump. Watch: TestSweepW3UxFlows load flake (4/5, environmental).
+Next: independent verification wave over the whole wave, then native-Linux.
