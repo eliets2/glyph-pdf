@@ -92,6 +92,7 @@
 #include <QPdfDocument>
 #include <QProcess>
 #include <QPdfSelection>
+#include <QSet>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 
@@ -99,6 +100,8 @@
 
 #include "core/AppContext.h"
 #include "core/interfaces/IPdfEditorEngine.h"
+#include "core/interfaces/IConversionEngine.h"
+#include "engines/ConversionManager.h"
 #include "engines/VeraPdfValidator.h"
 #include "modes/BatchMode.h"
 #include "engines/PatternRedactor.h"
@@ -358,6 +361,27 @@ private:
             if (c->findText(QStringLiteral("PDF/A-1B")) >= 0)
                 return c;
         return nullptr;
+    }
+
+    // Row 10 (PARITY-SCORECARD-2026-09-30 §4): the batch convert
+    // target-format combo is the only one offering "Word (.docx)".
+    static QComboBox* convertFormatCombo(gp::BatchMode& bm) {
+        const auto combos = bm.findChildren<QComboBox*>();
+        for (QComboBox* c : combos)
+            if (c->findText(QStringLiteral("Word (.docx)")) >= 0)
+                return c;
+        return nullptr;
+    }
+
+    // Row 10: the batch convert worker dispatches through the REAL conversion
+    // engine — the SAME ConversionManager::convertTo the single-document
+    // ConvertController uses. The pin must drive that real path; a mock here
+    // would prove nothing about parity.
+    static AppContext makeConvertCtx() {
+        AppContext ctx = makeCtx();
+        ctx.conversion = std::shared_ptr<IConversionEngine>(
+            new ConversionManager, [](auto*){});
+        return ctx;
     }
 
     // Pump the event loop until the QtConcurrent batch completes.
@@ -1070,6 +1094,188 @@ private slots:
                 << "[E-1] mismatch control (2b artifact at flavour 1b) flagged: "
                 << idFailures.join(QStringLiteral(", "));
         }
+    }
+
+    // ── Row 10 (PARITY-SCORECARD-2026-09-30 §4): batch convert format parity ──
+    // The single-document ConvertController offers Word/Excel/Csv/Html/Text/
+    // PowerPoint/Image; the batch panel offered only 5 (Text and PowerPoint
+    // missing). Three pins:
+    //   1. the batch format combo offers BOTH previously-missing formats
+    //      (list parity, no placeholder/dupe rows);
+    //   2. each produces REAL output through the SAME conversion path the
+    //      single-doc convert uses (IConversionEngine::convertTo — no
+    //      parallel engine implementation);
+    //   3. a failing conversion is reported honestly (failed count, the
+    //      real conversion-path reason, no half-written artifact).
+
+    // Pin 1 — list parity.
+    void batchConvertFormatListOffersTextAndPowerPoint() {
+        AppContext ctx = makeCtx();
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.setOperationForTest(0); // OpConvert
+
+        QComboBox* combo = convertFormatCombo(bm);
+        QVERIFY2(combo, "batch convert target-format combo (the one offering "
+                        "\"Word (.docx)\") not found");
+
+        QCOMPARE(combo->count(), 7);
+
+        // Every selectable item's data must be the SAME TargetFormat enum
+        // value the single-doc path dispatches on; exactly the 7 PDF→X
+        // targets, no dupes and no non-convert rows.
+        using TF = IConversionEngine::TargetFormat;
+        QSet<int> data;
+        for (int i = 0; i < combo->count(); ++i)
+            data.insert(combo->itemData(i).toInt());
+
+        QVERIFY2(data.contains(static_cast<int>(TF::Text)),
+                 "batch convert must offer TargetFormat::Text (single-doc parity)");
+        QVERIFY2(data.contains(static_cast<int>(TF::PowerPoint)),
+                 "batch convert must offer TargetFormat::PowerPoint (single-doc parity)");
+        QCOMPARE(data.size(), 7);
+        QVERIFY2(!data.contains(static_cast<int>(TF::OfficeToPdf)) &&
+                 !data.contains(static_cast<int>(TF::ImagesToPdf)),
+                 "batch convert must offer the PDF→X targets only");
+
+        const int txtIdx  = combo->findData(static_cast<int>(TF::Text));
+        const int pptxIdx = combo->findData(static_cast<int>(TF::PowerPoint));
+        QVERIFY2(combo->itemText(txtIdx).contains(QStringLiteral(".txt")),
+                 "Text item label must disclose the .txt extension");
+        QVERIFY2(combo->itemText(pptxIdx).contains(QStringLiteral(".pptx")),
+                 "PowerPoint item label must disclose the .pptx extension");
+    }
+
+    // Pin 2a — Text through the REAL conversion path.
+    void batchConvertTextProducesRealOutput() {
+        // Overwrite-modal guard: pre-remove the artifact the run will write
+        // (the run pre-checks output paths and would raise a modal that no
+        // offscreen test can answer).
+        QFile::remove(tmpPath(QStringLiteral("row10txt_src.txt")));
+        const QString src = createMultiPageTextPdf(
+            m_tmpDir.path(), QStringLiteral("row10txt_src.pdf"),
+            { QStringLiteral("ROW10-TXT-PARITY") });
+        QVERIFY2(!src.isEmpty(), "fixture creation failed");
+
+        AppContext ctx = makeConvertCtx();
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({src});
+        bm.setOperationForTest(0); // OpConvert
+
+        QComboBox* combo = convertFormatCombo(bm);
+        QVERIFY2(combo, "convert format combo not found");
+        const int idx = combo->findData(
+            static_cast<int>(IConversionEngine::TargetFormat::Text));
+        QVERIFY2(idx >= 0, "TargetFormat::Text not offered by the batch convert combo");
+        combo->setCurrentIndex(idx);
+
+        runAndWait(bm);
+        QCOMPARE(bm.successCount(), 1);
+        QCOMPARE(bm.failCount(), 0);
+
+        // Extension pinned end-to-end: the worker's extension table must be
+        // in step with the combo row that carries TargetFormat::Text.
+        const QString out = tmpPath(QStringLiteral("row10txt_src.txt"));
+        QVERIFY2(QFile::exists(out),
+                 "batch Text convert must produce <base>.txt next to the source");
+        QFile f(out);
+        QVERIFY2(f.open(QIODevice::ReadOnly | QIODevice::Text),
+                 "cannot read the text output");
+        const QString text = QString::fromUtf8(f.readAll());
+        QVERIFY2(!text.trimmed().isEmpty(), "text output must be non-empty");
+        QVERIFY2(text.contains(QStringLiteral("ROW10-TXT-PARITY")),
+                 qPrintable(QStringLiteral("text output must carry the fixture's real "
+                                          "extracted text (got: %1)").arg(text.left(120))));
+    }
+
+    // Pin 2b — PowerPoint through the REAL conversion path.
+    void batchConvertPowerPointProducesRealOutput() {
+        QFile::remove(tmpPath(QStringLiteral("row10pptx_src.pptx")));
+        const QString src = createMultiPageTextPdf(
+            m_tmpDir.path(), QStringLiteral("row10pptx_src.pdf"),
+            { QStringLiteral("ROW10-PPTX-PG0"), QStringLiteral("ROW10-PPTX-PG1") });
+        QVERIFY2(!src.isEmpty(), "fixture creation failed");
+
+        AppContext ctx = makeConvertCtx();
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({src});
+        bm.setOperationForTest(0); // OpConvert
+
+        QComboBox* combo = convertFormatCombo(bm);
+        QVERIFY2(combo, "convert format combo not found");
+        const int idx = combo->findData(
+            static_cast<int>(IConversionEngine::TargetFormat::PowerPoint));
+        QVERIFY2(idx >= 0, "TargetFormat::PowerPoint not offered by the batch convert combo");
+        combo->setCurrentIndex(idx);
+
+        runAndWait(bm);
+        QCOMPARE(bm.successCount(), 1);
+        QCOMPARE(bm.failCount(), 0);
+
+        const QString out = tmpPath(QStringLiteral("row10pptx_src.pptx"));
+        QVERIFY2(QFile::exists(out),
+                 "batch PowerPoint convert must produce <base>.pptx next to the source");
+        QFile f(out);
+        QVERIFY2(f.open(QIODevice::ReadOnly), "cannot read the pptx output");
+        const QByteArray raw = f.readAll();
+        QVERIFY2(!raw.isEmpty(), "pptx output must be non-empty");
+        // Real OOXML package check without a zip-reader dependency: ZIP
+        // local/central headers store entry names UNCOMPRESSED, so the part
+        // names a .pptx consumer needs are verifiable from the raw bytes.
+        QVERIFY2(raw.startsWith("PK\x03\x04"),
+                 "pptx output must be a real ZIP (OOXML) package");
+        QVERIFY2(raw.contains("[Content_Types].xml"),
+                 "pptx must carry [Content_Types].xml");
+        QVERIFY2(raw.contains("ppt/presentation.xml"),
+                 "pptx must carry ppt/presentation.xml");
+        QVERIFY2(raw.contains("ppt/slides/slide2.xml"),
+                 "pptx must carry one slide per fixture page (2 pages → slide2.xml)");
+    }
+
+    // Pin 3 — a failing conversion reports honestly.
+    void batchConvertFailureReportsHonestly() {
+        // A .pdf that is not a PDF: pre-flight only checks existence for
+        // OpConvert, so this reaches the worker and the real convertTo must
+        // refuse it — the batch must report that refusal truthfully.
+        const QString src = tmpPath(QStringLiteral("row10bad_src.pdf"));
+        {
+            QFile f(src);
+            QVERIFY2(f.open(QIODevice::WriteOnly), "fixture write failed");
+            f.write("this is not a PDF document\n");
+        }
+        QFile::remove(tmpPath(QStringLiteral("row10bad_src.txt")));
+
+        AppContext ctx = makeConvertCtx();
+        gp::BatchMode bm;
+        bm.setAppContext(&ctx);
+        bm.addFilesForTest({src});
+        bm.setOperationForTest(0); // OpConvert
+
+        QComboBox* combo = convertFormatCombo(bm);
+        QVERIFY2(combo, "convert format combo not found");
+        const int idx = combo->findData(
+            static_cast<int>(IConversionEngine::TargetFormat::Text));
+        QVERIFY2(idx >= 0, "TargetFormat::Text not offered by the batch convert combo");
+        combo->setCurrentIndex(idx);
+
+        CompletionSnapshot snap = captureCompletion(bm);
+        runAndWait(bm);
+        QCOMPARE(bm.successCount(), 0);
+        QCOMPARE(bm.failCount(), 1);
+        QVERIFY2(snap.fired && snap.fail == 1,
+                 "completion contract must count the failed conversion");
+        QVERIFY2(snap.summary.contains(QStringLiteral("1 failed")),
+                 qPrintable(QStringLiteral("completion summary must disclose the "
+                                          "failure (got: %1)").arg(snap.summary)));
+
+        const QString detail = bm.errorDetailForTest(0);
+        QVERIFY2(detail.contains(QStringLiteral("convertTo returned false")),
+                 qPrintable(QStringLiteral("error log must carry the real conversion-path "
+                                          "reason (got: %1)").arg(detail)));
+        QVERIFY2(!QFile::exists(tmpPath(QStringLiteral("row10bad_src.txt"))),
+                 "a failed conversion must not leave a half-written artifact");
     }
 };
 

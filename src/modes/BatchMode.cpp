@@ -249,11 +249,21 @@ void BatchMode::buildOperationPanel(QWidget* host) {
         auto* lay = new QVBoxLayout(pConvert);
         lay->addWidget(new QLabel(tr("Target Format:")));
         m_fmtCombo = new QComboBox;
+        // Row 10 (PARITY-SCORECARD-2026-09-30): single-doc ConvertController
+        // offers Word/Excel/Csv/Html/Text/PowerPoint/Image — batch offered 5
+        // and silently lacked Text/PowerPoint. Appended AFTER Csv so the
+        // combo positions of the pre-existing rows (0-4) stay stable: both
+        // extension tables below (resolveOutputPath's and the worker's) are
+        // indexed by combo position, not by the enum value. All rows dispatch
+        // through the SAME IConversionEngine::convertTo the single-doc path
+        // uses — no parallel conversion implementation.
         m_fmtCombo->addItem(tr("Word (.docx)"),    static_cast<int>(TargetFormat::Word));
         m_fmtCombo->addItem(tr("Excel (.xlsx)"),   static_cast<int>(TargetFormat::Excel));
         m_fmtCombo->addItem(tr("HTML (.html)"),    static_cast<int>(TargetFormat::Html));
         m_fmtCombo->addItem(tr("Image (.png)"),    static_cast<int>(TargetFormat::Image));
         m_fmtCombo->addItem(tr("CSV (.csv)"),      static_cast<int>(TargetFormat::Csv));
+        m_fmtCombo->addItem(tr("Text (.txt)"),     static_cast<int>(TargetFormat::Text));
+        m_fmtCombo->addItem(tr("PowerPoint (.pptx)"), static_cast<int>(TargetFormat::PowerPoint));
         lay->addWidget(m_fmtCombo);
 
         lay->addWidget(new QLabel(tr("Output Folder:")));
@@ -940,7 +950,11 @@ QString BatchMode::resolveOutputPath(const QString& inputPath, QString* deConfli
         if (outDir.isEmpty()) outDir = QFileInfo(inputPath).absolutePath();
         // Extension from format
         int fmtIdx = m_fmtCombo ? m_fmtCombo->currentIndex() : 0;
-        const QStringList exts = { ".docx", ".xlsx", ".html", ".png", ".csv" };
+        // Row 10: indexed by COMBO POSITION (kept append-stable with the
+        // combo rows above) — .txt/.pptx for the Text/PowerPoint rows, the
+        // same extensions the single-doc ConvertController saves under.
+        const QStringList exts = { ".docx", ".xlsx", ".html", ".png", ".csv",
+                                   ".txt", ".pptx" };
         QString ext = (fmtIdx >= 0 && fmtIdx < exts.size()) ? exts[fmtIdx] : ".out";
         return QDir(outDir).filePath(outName + ext);
     }
@@ -1878,7 +1892,10 @@ void BatchMode::onRunClicked() {
         switch (capturedOp) {
         case OpConvert: {
             QString outDir = resolveDir(capturedConvertOutDir);
-            const QStringList exts = { ".docx", ".xlsx", ".html", ".png", ".csv" };
+            // Row 10: MUST stay in step with resolveOutputPath's table and
+            // the combo row order (both indexed by combo position).
+            const QStringList exts = { ".docx", ".xlsx", ".html", ".png", ".csv",
+                                       ".txt", ".pptx" };
             QString ext = (capturedFmtIdx >= 0 && capturedFmtIdx < exts.size())
                 ? exts[capturedFmtIdx] : ".out";
             result.outputPath = QDir(outDir).filePath(baseName + ext);
