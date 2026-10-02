@@ -1,0 +1,7 @@
+# BUILD 1 (implementation complete, uncommitted WIP + test hardening fixes)
+# command: PATH="/c/msys64/ucrt64/bin:/c/msys64/usr/bin:$PATH" cmake --build D:/pdf/pdf-w2b-compare/build-rel --config Release -- -k 0 -j 2
+# full default-target incremental rebuild (DiffEngine.h/CompareMode.h touched => all lib consumers relinked, LTO)
+# ran under heavy cross-lane contention (4 concurrent ninja -j2 builds on the host); single full pass, no LTO link retry needed
+BUILD_RC=0
+# last edges: [197/198] Staging runtime DLLs into build dir; [198/198] Linking CXX executable TestFileHandleCoordination.exe
+# only warning: benign third_party lua-5.4 -Wstringop-overflow in str_gsub (pre-existing, unrelated)
