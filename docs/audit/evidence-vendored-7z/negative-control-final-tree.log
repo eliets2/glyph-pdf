@@ -1,0 +1,8 @@
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp(90) : failure location
+PASS   : TestSevenZipBundle::resolverPrefersAppOwnedBinary()
+PASS   : TestSevenZipBundle::resolverDisclosesAbsenceHonestly()
+SKIP   : TestSevenZipBundle::bundledBinaryEndToEndStdinPassword() vendored 7-Zip bundle not present — pins 2/3 still ran
+D:/pdf/pdf-w2b-7z/tests/TestSevenZipBundle.cpp(162) : failure location
+PASS   : TestSevenZipBundle::cleanupTestCase()
+Totals: 4 passed, 1 failed, 1 skipped, 0 blacklisted, 39ms
+********* Finished testing of TestSevenZipBundle *********

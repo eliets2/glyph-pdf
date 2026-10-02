@@ -1,0 +1,15 @@
+# full-tree build (final pass, commit 245c2fb9 tree)
+command: cmake --build D:/pdf/pdf-w2b-7z/build-rel --config Release -- -k 0 -j 2 (ucrt64-first PATH)
+
+earlier passes (recorded honestly):
+  pass 1: harness killed the wrapper at step 659/862 (no RC; ninja died with it; co-tenant lanes saturating the machine)
+  pass 2: BUILD_RC=1 — exactly ONE failed edge, tests/TestEncryptedPackageSafeWrite.cpp (my new HomeController.h include pulled QDialog into a target that does not link QtWidgets)
+  pass 3: BUILD_RC=1 — exactly ONE failed edge, TestEncryptedPackageSafeWrite.exe link (undefined reference to gp::HomeController::locateSevenZip: the minimal target compiles only SafeSave.cpp) -> locator relocated to SafeSave (commit 245c2fb9)
+
+final pass tail:
+    inlined from 'add_value' at D:/pdf/pdf-w2b-7z/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-w2b-7z/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+BUILD_RC=0

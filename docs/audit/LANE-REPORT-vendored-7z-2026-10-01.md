@@ -2,8 +2,8 @@
 
 - **Lane**: wave-2b #14, branch `feat/vendor-7z` (worktree `D:/pdf/pdf-w2b-7z`), base `a4cc1522`
 - **Date**: 2026-10-01
-- **Commits**: `f2da2438` (RED pins + fail-before evidence), `f62d5322` (implementation), final docs commit (this report + evidence)
-- **Status**: COMPLETE (deliverable + R7 evidence; one retry recorded honestly, see §5)
+- **Commits**: `f2da2438` (RED pins + fail-before evidence) · `f62d5322` (implementation) · `245c2fb9` (locator relocated to the transaction layer — the link gate caught a real layering bug) · final docs commit (this report + evidence)
+- **Status**: COMPLETE (deliverable + R7 evidence; build retries recorded honestly, §5)
 
 ## 1. Mission
 
@@ -15,18 +15,18 @@ long-term is a separate owner decision) — the subprocess contract is kept.
 
 ## 2. Coupling characterization (as found at base `a4cc1522`)
 
-- **Single runtime resolver**: `HomeController::createEncryptedPackage`
-  (`src/shell/controllers/HomeController.cpp:487-503` at base) resolved 7-Zip
-  as `QStandardPaths::findExecutable("7z")` → `C:/Program Files/7-Zip/7z.exe`
-  → `C:/Program Files (x86)/7-Zip/7z.exe` → **last**:
+- **Single runtime resolver** in `HomeController::createEncryptedPackage`
+  (`src/shell/controllers/HomeController.cpp:487-503` at base):
+  `QStandardPaths::findExecutable("7z")` → `C:/Program Files/7-Zip/7z.exe` →
+  `C:/Program Files (x86)/7-Zip/7z.exe` → **last**:
   `applicationDirPath()/7z.exe`. The app-owned location was the LAST resort,
   so any system install shadowed a bundled copy; absence produced the
   "Install 7-Zip" disclosure dialog.
-- **The only launcher**: the resolved path was captured by
+- **The only launcher**: the resolved path fed
   `SafeSave::runExternalWriterCommit` / `SafeSave::runBoundedProcess`
   (`src/engines/SafeSave.cpp`, `runBoundedProcess` ≈ line 156; the scorecard's
   "`SafeSave.cpp:156` (`7z a` append)" refers to this transaction — SafeSave is
-  program-agnostic and holds no 7z path itself).
+  program-agnostic and held no 7z path itself).
 - **M-1 password-stdin contract** (CWE-214, `evidence-m1-package-argv`,
   verified against shipped 7-Zip **26.02**): create = `7z a -tzip -mem=AES256
   -p <candidate> <file>` with a BARE `-p` (prompt) and the password delivered
@@ -72,26 +72,37 @@ long-term is a separate owner decision) — the subprocess contract is kept.
   are the offline-pitch capability, are small (2.4 MB), and the configure-time
   hash pin guards them (§4).
 
-## 4. File-by-file changes (`f62d5322` + docs)
+## 4. File-by-file changes
 
-- `src/shell/controllers/HomeController.h/.cpp` — new pure-function seam
-  `SafeSave::locateSevenZip(const QString& appDirOverride = {})`:
-  app-owned dir first (requires BOTH `7z.exe` and `7z.dll` — 7z.exe is only a
-  launcher; a half-copied bundle degrades to fallbacks instead of a launch
-  error) → `PATH` → conventional Program Files dirs → empty. Empty result
-  keeps the disclosure dialog, reworded to name BOTH missing things (bundled
-  copy AND system install). `createEncryptedPackage` uses the seam; the
-  M-1/WP-R04 transaction logic is untouched.
+- `src/engines/SafeSave.h/.cpp` — the resolver, `gp::SafeSave::locateSevenZip(
+  const QString& appDirOverride = {})`, at the transaction layer (it owns
+  `runBoundedProcess`/`runExternalWriterCommit`, i.e. "which 7-Zip do we
+  launch"): app-owned dir first (requires BOTH `7z.exe` and `7z.dll` — 7z.exe
+  is only a launcher; a half-copied bundle degrades to fallbacks instead of a
+  launch error) → `PATH` → conventional Program Files dirs → empty. Empty
+  result must be disclosed honestly by the caller, never guessed. Landed first
+  on HomeController and was moved here when the link gate proved the minimal
+  `TestEncryptedPackageSafeWrite` target (compiles only `SafeSave.cpp`) could
+  never reach a HomeController symbol (see §5, commit `245c2fb9`).
+- `src/shell/controllers/HomeController.h/.cpp` — `createEncryptedPackage`
+  resolves via `gp::SafeSave::locateSevenZip()`; disclosure dialog reworded to
+  name BOTH missing things (bundled copy AND system install). The M-1 argv
+  seams (`encryptedPackageCreateArgs`/`ValidateArgs`) and the WP-R04
+  transaction logic are untouched.
 - `CMakeLists.txt` — configure-time supply-chain pin: `file(SHA256)` of both
   committed binaries vs enforced constants (quickjs-ng pin discipline);
   FATAL_ERROR on drift or (on WIN32) missing bundle; non-Windows records and
   skips staging (L05 gating discipline). `stage_runtime_dlls` copies the pair
-  beside app + test executables, so tests exercise the BUNDLED binary.
-- `tests/TestSevenZipBundle.cpp` (new, + CMake target) — the four pins of §6.
+  beside app + test executables, so tests exercise the BUNDLED binary. New
+  `TestSevenZipBundle` target (`SOURCE_DIR` define per the fixture-path
+  convention).
+- `tests/TestSevenZipBundle.cpp` (new) — the four pins of §6.
 - `tests/TestControllers.cpp`, `tests/TestEncryptedPackageSafeWrite.cpp` —
-  real-7z legs resolve via `gp::SafeSave::locateSevenZip()` (bundled
-  copy wins; QSKIP only when no 7-Zip exists anywhere). Strictly stronger —
-  nothing weakened.
+  real-7z legs resolve via `gp::SafeSave::locateSevenZip()` (bundled copy
+  wins; QSKIP only when no 7-Zip exists anywhere). Strictly stronger —
+  nothing weakened; the minimal link set of `TestEncryptedPackageSafeWrite`
+  is preserved (no Qt6::Widgets patch was needed once the HomeController
+  include came back out).
 - `third_party/7zip/` — binaries + `License.txt` + `PROVENANCE.md` (version,
   dual-source URLs, installer + member hashes, extraction method,
   corroboration, license summary, 26.03 note, integration map).
@@ -109,7 +120,7 @@ long-term is a separate owner decision) — the subprocess contract is kept.
 - `docs/audit/PARITY-SCORECARD-2026-09-30.md` — §4 row 14 CLOSED, §3 row 75
   DONE, §9.11 stale residual phrase ("still shells to system 7z") corrected.
 
-## 5. Build record
+## 5. Build record (all passes, honest)
 
 - Configure (fresh, once, per runbook flags): OK.
 - RED-phase single-target build: `BUILD_RC=1` — expected, the pin seam did not
@@ -119,15 +130,26 @@ long-term is a separate owner decision) — the subprocess contract is kept.
   (`string(SHA256)` hashes its input as a string; I had passed a path, so the
   gate hashed the path text and FATALed with a mismatch). Fixed to
   `file(SHA256)`; recorded as a live proof the gate fires. Retry `BUILD_RC=0`.
-- Full-tree build (`-k 0 -j 2`, Release, LTO): BUILD_RC=**0**
-  (PENDING-FULLBUILD — filled in before final commit; a transient LTO link
-  failure + one incremental retry would be recorded here honestly).
-- `stage_runtime_dlls` verified to stage `7z.exe`/`7z.dll` into the build dir
-  (byte-identical, hashes re-verified after the negative-control restore).
+- Full-tree build pass 1 (`-k 0 -j 2`, Release, LTO): the harness killed the
+  build wrapper at step 659/862 (co-tenant lanes saturating the machine;
+  ninja died with the wrapper, no RC). Resumed detached.
+- Full-tree build pass 2: `BUILD_RC=1` — exactly ONE failed edge,
+  `tests/TestEncryptedPackageSafeWrite.cpp` (my new `HomeController.h` include
+  pulled `QDialog` into a target that does not link QtWidgets).
+- Full-tree build pass 3: `BUILD_RC=1` — exactly ONE failed edge,
+  `TestEncryptedPackageSafeWrite.exe` link: `undefined reference to
+  gp::HomeController::locateSevenZip`. Root cause: that test target is
+  deliberately minimal (compiles only `SafeSave.cpp`) and can never reach a
+  HomeController symbol. Fix: the locator belongs at the transaction layer —
+  moved to `gp::SafeSave::locateSevenZip` (commit `245c2fb9`).
+- **Full-tree build final pass: `BUILD_RC=0`, zero FAILED edges** on the
+  `245c2fb9` tree (`evidence-vendored-7z/full-build-record.txt`).
+- `stage_runtime_dlls` verified to stage `7z.exe`/`7z.dll` into the build dir;
+  hashes re-verified byte-exact after the negative-control restores.
 
 ## 6. R7 evidence contract (`docs/audit/evidence-vendored-7z/`)
 
-- **Fail-before** (on base `a4cc1522` + RED pins):
+- **Fail-before** (on base `a4cc1522` + RED pins `f2da2438`):
   - `fail-before-bundle-absent.txt` — `git ls-tree a4cc1522 -- third_party/7zip`
     is empty (no vendored 7z at base); status shows the RED-pin working tree.
   - `fail-before-compile.log` / `fail-before-compile-errors.txt` — the pin
@@ -135,18 +157,24 @@ long-term is a separate owner decision) — the subprocess contract is kept.
     `error: 'locateSevenZip' is not a member of 'gp::HomeController'`
     (4 call sites), `BUILD_RC=1`. The strongest honest RED for a new seam;
     pin 1's runtime RED is provided by the NC below.
-- **Negative control (once)**: `negative-control-bundle-scoped-out.log` —
-  committed SOURCE bundle moved aside (`mv third_party/7zip/bin …bin.NC-aside`),
-  suite re-run, then restored (hashes re-verified byte-exact afterwards).
-  Observed split, exactly the right-reason isolation:
-  pin 1 FAIL (`vendored 7z.exe missing from third_party/7zip/bin`), pins 2/3
-  PASS (resolver semantics are bundle-independent), pin 4 SKIP (honest
-  absent-capability skip). Totals: 4 passed, 1 failed, 1 skipped.
-- **Pass-after ×3, SERIAL**: `pass-after-run{1,2,3}.log` — serial
-  (never -j) runs of the three touched suites:
-  `TestSevenZipBundle` + `TestControllers` + `TestEncryptedPackageSafeWrite`
-  (PENDING-PASSAFTER — per-run totals recorded in the logs; if a serial run
-  flaked under co-tenant load it was re-run once and BOTH runs are logged).
+- **Negative control (bundle scoped out)**:
+  - `negative-control-bundle-scoped-out.log` — first NC, run between the
+    implementation and relocation commits.
+  - `negative-control-final-tree.log` — NC REDONE on the final `245c2fb9`
+    tree so the recorded evidence matches the committed code exactly. Same
+    procedure (`mv third_party/7zip/bin …bin.NC-aside`, suite re-run, restore,
+    hashes re-verified byte-exact). Observed split, exactly the right-reason
+    isolation: pin 1 FAIL (`vendored 7z.exe missing from third_party/7zip/bin`),
+    pins 2/3 PASS (resolver semantics are bundle-independent), pin 4 SKIP
+    (honest absent-capability skip). Totals: 4 passed, 1 failed, 1 skipped.
+- **Pass-after ×3, SERIAL** (`pass-after-x3-serial.log`): three consecutive
+  serial ctest runs (never -j) of the three touched suites —
+  `TestControllers` (18.5/16.7/16.6 s), `TestSevenZipBundle`
+  (0.95/1.16/0.22 s), `TestEncryptedPackageSafeWrite` (3.4/3.1/2.6 s) —
+  each run reporting **"100% tests passed, 0 tests failed out of 3"**. The
+  direct smoke runs before the ×3 gate also reported 0 skipped for all three
+  suites, i.e. the real-7z end-to-end legs RAN (against the bundled binary)
+  rather than skipping.
 
 ## 7. Known limits / owner follow-ups
 
@@ -170,7 +198,7 @@ long-term is a separate owner decision) — the subprocess contract is kept.
 
 ## 8. Verification gate (doctrine)
 
-Every completion claim above is backed by a command whose output is captured
-in this repo (evidence dir + build/test logs). No claim rests on "should
-work". Items marked PENDING-* at draft time were filled from captured output
-before the final commit, or explicitly reported as not done.
+Every completion claim above is backed by a command whose actual output is
+captured in this repo (evidence dir + build/test logs):
+`fail-before-*`, `negative-control-*.log`, `pass-after-x3-serial.log`,
+`full-build-record.txt`. No claim rests on "should work".

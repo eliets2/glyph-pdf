@@ -1,0 +1,69 @@
+=== pass-after RUN 1 (01:21:31z) ===
+Test project D:/pdf/pdf-w2b-7z/build-rel
+    Start  39: TestControllers
+1/3 Test  #39: TestControllers ..................   Passed   18.47 sec
+    Start  40: TestSevenZipBundle
+2/3 Test  #40: TestSevenZipBundle ...............   Passed    0.95 sec
+    Start 125: TestEncryptedPackageSafeWrite
+3/3 Test #125: TestEncryptedPackageSafeWrite ....   Passed    3.41 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+controllers    =  19.42 sec*proc (2 tests)
+export         =   3.41 sec*proc (1 test)
+headless       =  22.83 sec*proc (3 tests)
+qt             =  19.42 sec*proc (2 tests)
+safesave       =   3.41 sec*proc (1 test)
+security       =   0.95 sec*proc (1 test)
+shell          =   3.41 sec*proc (1 test)
+ui             =  18.47 sec*proc (1 test)
+unit           =  22.83 sec*proc (3 tests)
+
+Total Test time (real) =  23.30 sec
+=== pass-after RUN 2 (01:21:55z) ===
+Test project D:/pdf/pdf-w2b-7z/build-rel
+    Start  39: TestControllers
+1/3 Test  #39: TestControllers ..................   Passed   16.73 sec
+    Start  40: TestSevenZipBundle
+2/3 Test  #40: TestSevenZipBundle ...............   Passed    1.16 sec
+    Start 125: TestEncryptedPackageSafeWrite
+3/3 Test #125: TestEncryptedPackageSafeWrite ....   Passed    3.12 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+controllers    =  17.89 sec*proc (2 tests)
+export         =   3.12 sec*proc (1 test)
+headless       =  21.02 sec*proc (3 tests)
+qt             =  17.89 sec*proc (2 tests)
+safesave       =   3.12 sec*proc (1 test)
+security       =   1.16 sec*proc (1 test)
+shell          =   3.12 sec*proc (1 test)
+ui             =  16.73 sec*proc (1 test)
+unit           =  21.02 sec*proc (3 tests)
+
+Total Test time (real) =  21.04 sec
+=== pass-after RUN 3 (01:22:16z) ===
+Test project D:/pdf/pdf-w2b-7z/build-rel
+    Start  39: TestControllers
+1/3 Test  #39: TestControllers ..................   Passed   16.64 sec
+    Start  40: TestSevenZipBundle
+2/3 Test  #40: TestSevenZipBundle ...............   Passed    0.22 sec
+    Start 125: TestEncryptedPackageSafeWrite
+3/3 Test #125: TestEncryptedPackageSafeWrite ....   Passed    2.62 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+controllers    =  16.86 sec*proc (2 tests)
+export         =   2.62 sec*proc (1 test)
+headless       =  19.48 sec*proc (3 tests)
+qt             =  16.86 sec*proc (2 tests)
+safesave       =   2.62 sec*proc (1 test)
+security       =   0.22 sec*proc (1 test)
+shell          =   2.62 sec*proc (1 test)
+ui             =  16.64 sec*proc (1 test)
+unit           =  19.48 sec*proc (3 tests)
+
+Total Test time (real) =  19.49 sec
