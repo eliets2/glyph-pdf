@@ -1,0 +1,13 @@
+tests/TestOcrOutputMode.cpp:139:14: error: 'ocrOutputModePrefValue' was not declared in this scope
+tests/TestOcrOutputMode.cpp:139:37: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+tests/TestOcrOutputMode.cpp:141:14: error: 'ocrOutputModePrefValue' was not declared in this scope
+tests/TestOcrOutputMode.cpp:141:37: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+tests/TestOcrOutputMode.cpp:143:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+tests/TestOcrOutputMode.cpp:144:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+tests/TestOcrOutputMode.cpp:145:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+tests/TestOcrOutputMode.cpp:146:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+tests/TestOcrOutputMode.cpp:149:18: error: 'ocrOutputModeFromPref' was not declared in this scope
+tests/TestOcrOutputMode.cpp:149:44: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+tests/TestOcrOutputMode.cpp:152:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+tests/TestOcrOutputMode.cpp:152:36: error: 'ocrOutputModePrefValue' was not declared in this scope
+scoped revert: src/ + tests/mocks -> base 7066534c (CMakeLists.txt + tests/TestOcrOutputMode.cpp kept); cmake --build --target TestOcrOutputMode -k 0 -j 2 => BUILD_RC=1, 56 'error:' diagnostics

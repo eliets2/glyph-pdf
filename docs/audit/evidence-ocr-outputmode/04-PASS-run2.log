@@ -1,0 +1,44 @@
+Test project D:/pdf/pdf-w2b-ocrmode/build-rel
+    Start  31: TestOcrReviewLifecycle
+1/9 Test  #31: TestOcrReviewLifecycle ...........   Passed    0.20 sec
+    Start  32: TestOcrOutputMode
+2/9 Test  #32: TestOcrOutputMode ................   Passed    0.14 sec
+    Start  66: TestBatchOcrLanguage
+3/9 Test  #66: TestBatchOcrLanguage .............   Passed    0.07 sec
+    Start  68: TestOcrPreprocessPrefs
+4/9 Test  #68: TestOcrPreprocessPrefs ...........   Passed    0.09 sec
+    Start 101: TestOcrLanguage
+5/9 Test #101: TestOcrLanguage ..................   Passed    0.02 sec
+    Start 130: TestExportPathBadge
+6/9 Test #130: TestExportPathBadge ..............   Passed    0.16 sec
+    Start 153: TestOcrAcceptSeam
+7/9 Test #153: TestOcrAcceptSeam ................   Passed    0.03 sec
+    Start 156: TestOcrAcceptScope
+8/9 Test #156: TestOcrAcceptScope ...............   Passed    0.03 sec
+    Start 166: TestMrcPipeline
+9/9 Test #166: TestMrcPipeline ..................   Passed    0.29 sec
+
+100% tests passed, 0 tests failed out of 9
+
+Label Time Summary:
+accept         =   0.06 sec*proc (2 tests)
+batch          =   0.07 sec*proc (1 test)
+compression    =   0.29 sec*proc (1 test)
+conversion     =   0.16 sec*proc (1 test)
+export         =   0.30 sec*proc (2 tests)
+headless       =   1.03 sec*proc (9 tests)
+honesty        =   0.03 sec*proc (1 test)
+language       =   0.09 sec*proc (2 tests)
+lifecycle      =   0.20 sec*proc (1 test)
+mrc            =   0.29 sec*proc (1 test)
+ocr            =   0.59 sec*proc (7 tests)
+outputmode     =   0.14 sec*proc (1 test)
+pdfa           =   0.29 sec*proc (1 test)
+persistence    =   0.09 sec*proc (1 test)
+preprocess     =   0.09 sec*proc (1 test)
+qt             =   1.03 sec*proc (9 tests)
+review         =   0.20 sec*proc (1 test)
+sandwich       =   0.29 sec*proc (1 test)
+unit           =   1.03 sec*proc (9 tests)
+
+Total Test time (real) =   1.04 sec

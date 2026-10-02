@@ -2168,6 +2168,29 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;ocr;reocr-region;review;qt;headless"
+# ── TestOcrOutputMode (§4 #5 — searchable vs editable OCR output mode) ───────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrOutputMode.cpp")
+    add_executable(TestOcrOutputMode
+        tests/TestOcrOutputMode.cpp
+    )
+    target_include_directories(TestOcrOutputMode PRIVATE src tests)
+    target_link_libraries(TestOcrOutputMode PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestOcrOutputMode POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrOutputMode>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOcrOutputMode>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrOutputMode"
+    )
+    add_test(NAME TestOcrOutputMode COMMAND TestOcrOutputMode)
+    set_tests_properties(TestOcrOutputMode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;ocr;outputmode;export;qt;headless"
     )
 endif()
 

@@ -467,6 +467,15 @@ public:
                                const QList<QImage>& pageImages,
                                const QList<struct PageOcrResult>& pageResults,
                                MrcMode mode = MrcMode::Balanced) = 0;
+    /// OCR OutputMode "editable" writer (PARITY-SCORECARD-2026-09-30 §4 #5):
+    /// the recognized text REPLACES the page content — visible black text at
+    /// the recognized word boxes on a blank page, NO scan image. pageImages
+    /// supplies page geometry only (width/height at 150 dpi, mirroring
+    /// exportMrcPdfA) and is never written into the output. Not a PDF/A claim:
+    /// the output is a plain PDF 1.6 document with no archival XMP.
+    virtual bool exportEditableTextPdf(const QString& outputPath,
+                                       const QList<QImage>& pageImages,
+                                       const QList<struct PageOcrResult>& pageResults) = 0;
     virtual OptimizeEstimate estimateOptimization(const OptimizeOptions &options) = 0;
     virtual bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options) = 0;
 };

@@ -1640,28 +1640,53 @@ PageOcrResult EditController::buildPageOcrResult(int pageIndex, const QList<Merg
     return r;
 }
 
-// §9.4 honesty: the interactive Accept flow persists a ONE-PAGE MRC PDF/A
+// §9.4 honesty: the interactive Accept flow persists a ONE-PAGE OCR copy
 // (runOcr recognises the current page only). The save dialog and the success
 // status must say so — a dialog titled "Save Searchable Copy" on a 40-page
 // document reads as a whole-document searchable export, which it is not.
 // Single-page documents need no scope note: the one-page copy IS the document.
-QString EditController::ocrSaveDialogTitle(int totalPages, int pageIndex) {
+// §4 #5: the mode names the kind of copy — Searchable (MRC PDF/A) keeps the
+// original page image with an invisible text layer; Editable replaces the
+// page content with the recognized text — so the strings never mislabel one
+// as the other.
+QString EditController::ocrSaveDialogTitle(int totalPages, int pageIndex,
+                                           OcrOutputMode mode) {
+    if (mode == OcrOutputMode::Editable) {
+        if (totalPages <= 1)
+            return EditController::tr("Save Editable Text (OCR) Copy");
+        return EditController::tr("Save Editable Text (OCR) Copy — Current Page Only (%1 of %2)")
+            .arg(pageIndex + 1).arg(totalPages);
+    }
     if (totalPages <= 1)
         return EditController::tr("Save Searchable (OCR) Copy");
     return EditController::tr("Save Searchable (OCR) Copy — Current Page Only (%1 of %2)")
         .arg(pageIndex + 1).arg(totalPages);
 }
 
-QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QString& fileName) {
+QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QString& fileName,
+                                       OcrOutputMode mode) {
+    if (mode == OcrOutputMode::Editable) {
+        if (totalPages <= 1)
+            return EditController::tr("Editable text copy saved: %1").arg(fileName);
+        return EditController::tr("Editable text copy saved (current page %1 of %2 only): %3")
+            .arg(pageIndex + 1).arg(totalPages).arg(fileName);
+    }
     if (totalPages <= 1)
         return EditController::tr("Searchable copy saved: %1").arg(fileName);
     return EditController::tr("Searchable copy saved (current page %1 of %2 only): %3")
         .arg(pageIndex + 1).arg(totalPages).arg(fileName);
 }
 
-// §9.4 P0: Accept persists the recognised text as a searchable MRC PDF/A
-// copy — the same production writer Batch Mode uses — instead of only
+OcrOutputMode EditController::outputModeFromSettings() {
+    return ocrOutputModeFromPref(QSettings().value(ocrOutputModePrefKey()).toString());
+}
+
+// §9.4 P0: Accept persists the recognised text as an OCR output copy —
+// the same production writer Batch Mode uses — instead of only
 // showing a status message while the searchable layer silently vanished.
+// §4 #5: the ocr/outputMode pref (OCRMode toolbar combo) selects WHICH copy:
+// Searchable → MRC PDF/A (image + invisible text layer), Editable →
+// text-only PDF (recognized text replaces the page content).
 // R07 (F11): every exit reports its outcome via ocrSaveFinished so the
 // review panel's Saving state always completes (cancelled saves retain the
 // review edits and re-enable Accept; failed saves retain data for retry).
@@ -1716,11 +1741,18 @@ void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewed
 
     // R07/R08: dialog title and payload identity come from the REVIEWED
     // session (page + page count snapshot), never from the displayed page.
+    // §4 #5: the output mode is read at accept time from the persisted pref
+    // (the OCRMode toolbar combo writes it) and selects the writer —
+    // Searchable → exportMrcPdfA (page image + invisible text layer),
+    // Editable → exportEditableTextPdf (recognized text REPLACES the page
+    // content). A failed write of the selected mode reports failure and
+    // never falls back to the other mode's writer.
+    const OcrOutputMode mode = outputModeFromSettings();
     const QFileInfo fi(m_reviewSession.sourcePath);
     const int totalPages  = m_reviewSession.sourcePageCount;
     const int pageIndex   = m_reviewSession.sourcePage;
     const QString outPath = QFileDialog::getSaveFileName(
-        _mainWindow, ocrSaveDialogTitle(totalPages, pageIndex),
+        _mainWindow, ocrSaveDialogTitle(totalPages, pageIndex, mode),
         fi.absolutePath() + QLatin1Char('/') + fi.completeBaseName()
             + QStringLiteral("_ocr.pdf"),
         tr("PDF Files (*.pdf)"));
@@ -1743,14 +1775,22 @@ void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewed
     QApplication::setOverrideCursor(Qt::WaitCursor);
     // R08: the original page image from the session is exported (never a
     // re-render of the currently displayed page), with the reviewed words as
-    // the searchable text layer (Unicode).
-    const bool ok = _ctx->pdfEditor->exportMrcPdfA(
-        outPath, {m_reviewSession.pageImage}, {pageResult});
+    // the text layer (Unicode). §4 #5: the mode selects the writer —
+    // Searchable keeps the page image with an invisible text layer (MRC
+    // PDF/A); Editable replaces the content with the recognized text.
+    const bool ok = (mode == OcrOutputMode::Editable)
+        ? _ctx->pdfEditor->exportEditableTextPdf(
+              outPath, {m_reviewSession.pageImage}, {pageResult})
+        : _ctx->pdfEditor->exportMrcPdfA(
+              outPath, {m_reviewSession.pageImage}, {pageResult});
     QApplication::restoreOverrideCursor();
 
     if (ok)
         emit ocrSaveFinished(true, false,
-            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName()));
+            ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName(), mode));
+    else if (mode == OcrOutputMode::Editable)
+        emit ocrSaveFinished(false, false,
+            tr("Could not write the editable text copy. See the application log."));
     else
         emit ocrSaveFinished(false, false,
             tr("Could not write the searchable MRC PDF/A copy. See the application log."));

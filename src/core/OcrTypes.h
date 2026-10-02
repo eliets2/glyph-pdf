@@ -33,6 +33,42 @@ inline const QList<OcrLanguageInfo>& ocrLanguages() {
     return languages;
 }
 
+// ── OCR output mode (PARITY-SCORECARD-2026-09-30 §4 #5) ────────────────────
+// What an OCR Accept/export produces from the recognized words:
+//   Searchable — the original page image stays, with the recognized text as
+//                an INVISIBLE text layer (the MRC PDF/A writer path).
+//   Editable   — the recognized text REPLACES the page content: visible text
+//                on a blank page, no scan image (the review-doc path).
+enum class OcrOutputMode {
+    Searchable,
+    Editable
+};
+
+// The persisted preference key carrying the output-mode choice (written by
+// the OCRMode toolbar combo, read by EditController at Accept time — the same
+// QSettings wire pattern as ocr/language and ocr/orientDetect).
+inline QString ocrOutputModePrefKey() {
+    return QStringLiteral("ocr/outputMode");
+}
+
+// Persisted value → mode. Only an explicit "editable" selects Editable;
+// everything else (empty, unknown, legacy values) is Searchable — the shipped
+// default and the only output every historical build produced. An unknown
+// stored value therefore behaves as the DOCUMENTED default; it can never
+// silently flip an explicit "editable" choice off.
+inline OcrOutputMode ocrOutputModeFromPref(const QString& value) {
+    return value.compare(QStringLiteral("editable"), Qt::CaseInsensitive) == 0
+        ? OcrOutputMode::Editable
+        : OcrOutputMode::Searchable;
+}
+
+// Mode → canonical persisted value (round-trips through ocrOutputModeFromPref).
+inline QString ocrOutputModePrefValue(OcrOutputMode mode) {
+    return mode == OcrOutputMode::Editable
+        ? QStringLiteral("editable")
+        : QStringLiteral("searchable");
+}
+
 // Map a persisted UI code (case-insensitive) to the engine language code.
 // Unknown/empty codes fall back to "eng" so OCR never receives garbage.
 inline QString ocrEngineLanguageCode(const QString& uiCode) {

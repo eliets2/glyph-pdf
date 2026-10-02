@@ -1,0 +1,104 @@
+Test project D:/pdf/pdf-w2b-ocrmode/build-rel
+      Start   3: TestExpiryInterface
+ 1/24 Test   #3: TestExpiryInterface ..............   Passed    0.16 sec
+      Start   5: TestSanitization
+ 2/24 Test   #5: TestSanitization .................   Passed    0.37 sec
+      Start   8: TestAutosave
+ 3/24 Test   #8: TestAutosave .....................   Passed    0.73 sec
+      Start  33: TestOcrVerifyNavigation
+ 4/24 Test  #33: TestOcrVerifyNavigation ..........   Passed    0.23 sec
+      Start  34: TestOcrVerifyPort
+ 5/24 Test  #34: TestOcrVerifyPort ................   Passed    0.19 sec
+      Start  40: TestControllers
+ 6/24 Test  #40: TestControllers ..................   Passed   16.60 sec
+      Start  42: TestMenuBarIntegrity
+ 7/24 Test  #42: TestMenuBarIntegrity .............   Passed    0.27 sec
+      Start  44: TestWelcomeRoutes
+ 8/24 Test  #44: TestWelcomeRoutes ................   Passed    4.74 sec
+      Start  45: TestSweepW3UxFlows
+ 9/24 Test  #45: TestSweepW3UxFlows ...............   Passed   51.93 sec
+      Start  61: TestPagesMode
+10/24 Test  #61: TestPagesMode ....................   Passed    1.98 sec
+      Start  63: TestBatchMode
+11/24 Test  #63: TestBatchMode ....................   Passed    1.33 sec
+      Start  64: TestBatchPresets
+12/24 Test  #64: TestBatchPresets .................   Passed    0.60 sec
+      Start  65: TestBatchPresetsP2
+13/24 Test  #65: TestBatchPresetsP2 ...............   Passed    2.25 sec
+      Start  72: TestBatchOpsCoverage
+14/24 Test  #72: TestBatchOpsCoverage .............   Passed    0.85 sec
+      Start  92: TestFindReplace
+15/24 Test  #92: TestFindReplace ..................   Passed    0.69 sec
+      Start  96: TestAutoBookmarks
+16/24 Test  #96: TestAutoBookmarks ................   Passed    0.68 sec
+      Start 116: TestCompressDialogHonesty
+17/24 Test #116: TestCompressDialogHonesty ........   Passed    0.15 sec
+      Start 131: TestImageEditWiring
+18/24 Test #131: TestImageEditWiring ..............   Passed    0.08 sec
+      Start 157: TestViewerLinkSeam
+19/24 Test #157: TestViewerLinkSeam ...............   Passed    0.23 sec
+      Start 159: TestRedactMarkAll
+20/24 Test #159: TestRedactMarkAll ................   Passed    0.75 sec
+      Start 167: TestCheckedMutationCoverage
+21/24 Test #167: TestCheckedMutationCoverage ......   Passed    0.43 sec
+      Start 168: TestHistoryIntegrity
+22/24 Test #168: TestHistoryIntegrity .............   Passed    0.63 sec
+      Start 177: TestSep13LeadOcrGuards
+23/24 Test #177: TestSep13LeadOcrGuards ...........   Passed    0.15 sec
+      Start 191: TestPgr35BatchCollision
+24/24 Test #191: TestPgr35BatchCollision ..........   Passed    0.26 sec
+
+100% tests passed, 0 tests failed out of 24
+
+Label Time Summary:
+auto-bookmarks    =   0.68 sec*proc (1 test)
+autosave          =   0.73 sec*proc (1 test)
+batch             =   5.29 sec*proc (5 tests)
+commands          =   0.63 sec*proc (1 test)
+compression       =   0.15 sec*proc (1 test)
+controllers       =  16.60 sec*proc (1 test)
+edit              =   1.37 sec*proc (2 tests)
+editing           =   0.08 sec*proc (1 test)
+expiry            =   0.16 sec*proc (1 test)
+find-replace      =   0.69 sec*proc (1 test)
+headless          =  86.29 sec*proc (24 tests)
+history           =   1.06 sec*proc (2 tests)
+honesty           =   0.15 sec*proc (1 test)
+images            =   0.08 sec*proc (1 test)
+integrity         =   0.27 sec*proc (1 test)
+interfaces        =   0.16 sec*proc (1 test)
+links             =   0.23 sec*proc (1 test)
+menubar           =   0.27 sec*proc (1 test)
+merge             =   0.85 sec*proc (1 test)
+modes             =   6.31 sec*proc (5 tests)
+navigation        =   0.23 sec*proc (1 test)
+ocr               =   0.57 sec*proc (3 tests)
+pages             =   1.98 sec*proc (1 test)
+pdfa              =   0.85 sec*proc (1 test)
+persistence       =   1.06 sec*proc (2 tests)
+pgr35             =   0.26 sec*proc (1 test)
+presets           =   2.85 sec*proc (2 tests)
+qt                =  86.29 sec*proc (24 tests)
+r16               =   4.74 sec*proc (1 test)
+redact            =   0.85 sec*proc (1 test)
+redaction         =   0.75 sec*proc (1 test)
+review            =   0.42 sec*proc (2 tests)
+routes            =   4.74 sec*proc (1 test)
+sanitization      =   0.37 sec*proc (1 test)
+seam              =   0.23 sec*proc (1 test)
+security          =   0.53 sec*proc (2 tests)
+sep13leads        =   0.15 sec*proc (1 test)
+sweep-w3          =  51.93 sec*proc (1 test)
+t2-2              =   0.69 sec*proc (1 test)
+t2-9              =   0.68 sec*proc (1 test)
+u03               =   0.23 sec*proc (1 test)
+ui                =  79.71 sec*proc (8 tests)
+undo              =   0.63 sec*proc (1 test)
+unit              =  86.29 sec*proc (24 tests)
+ux-audit          =  51.93 sec*proc (1 test)
+verify-port       =   0.19 sec*proc (1 test)
+viewing           =   0.23 sec*proc (1 test)
+watermark         =   0.85 sec*proc (1 test)
+welcome           =   4.74 sec*proc (1 test)
+
+Total Test time (real) =  86.31 sec

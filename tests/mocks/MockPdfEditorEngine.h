@@ -78,6 +78,20 @@ public:
     bool exportMrcPdfA(const QString&, const QList<QImage>&,
                        const QList<PageOcrResult>&,
                        MrcMode) override { return m_loaded; }
+    // §4 #5 OCR OutputMode: records the last requested output path so
+    // controller-branch tests can assert WHICH writer the mode selected
+    // without writing real PDFs. PageOcrResult stays an incomplete type here
+    // (the mock deliberately does not include OcrPipeline.h — it pulls
+    // LaneScheduler → QtConcurrent, breaking QtConcurrent-less test targets),
+    // so the writer choice is recorded, not inspected.
+    bool exportEditableTextPdf(const QString& path, const QList<QImage>&,
+                               const QList<PageOcrResult>&) override {
+        ++m_editableTextCalls;
+        m_lastEditableTextPath = path;
+        return m_loaded;
+    }
+    int m_editableTextCalls = 0;
+    QString m_lastEditableTextPath;
     bool encryptDocument(const QString &, const QString &, const DocumentPermissions&) override { return m_loaded; }
     bool removeEncryption(const QString &) override { return m_loaded; }
     bool encryptWithCertificate(const QString &, const QString &, const QStringList &) override { return m_loaded; }

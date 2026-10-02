@@ -1,0 +1,41 @@
+Test project D:/pdf/pdf-w2b-ocrmode/build-rel
+    Start 32: TestOcrOutputMode
+1/1 Test #32: TestOcrOutputMode ................***Failed    1.59 sec
+********* Start testing of TestOcrOutputMode *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrOutputMode::initTestCase()
+PASS   : TestOcrOutputMode::prefParsesToModeAndRoundTrips()
+PASS   : TestOcrOutputMode::unknownPrefNeverSilentlySelectsEditable()
+PASS   : TestOcrOutputMode::outputModeFromSettingsReadsThePref()
+PASS   : TestOcrOutputMode::dialogTitleAndStatusNameTheEditableCopy()
+PASS   : TestOcrOutputMode::searchableViewKeepsHistoricalStrings()
+QDEBUG : TestOcrOutputMode::editableWriterReplacesContentWithVisibleText() EditableTextPdf: wrote 763 bytes to "D:/pdf/pdf-w2b-ocrmode/build-rel/test-tmp/TestOcrOutputMode/TestOcrOutputMode-eLWAip/editable.pdf"
+FAIL!  : TestOcrOutputMode::editableWriterReplacesContentWithVisibleText() '!bytes.contains("3 Tr")' returned FALSE. (the editable copy must not carry an invisible text layer)
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp(235) : failure location
+QDEBUG : TestOcrOutputMode::searchableWriterStillEmbedsTheImage() MrcPdfA: wrote 2680 bytes to "D:/pdf/pdf-w2b-ocrmode/build-rel/test-tmp/TestOcrOutputMode/TestOcrOutputMode-ePVPhZ/searchable.pdf"
+QWARN  : TestOcrOutputMode::searchableWriterStillEmbedsTheImage() MrcPdfA: veraPDF not available — skipping conformance gate
+PASS   : TestOcrOutputMode::searchableWriterStillEmbedsTheImage()
+PASS   : TestOcrOutputMode::editableWriterRefusesAnAllEmptyPayload()
+PASS   : TestOcrOutputMode::ocrModeComboExposesAndPersistsTheChoice()
+QWARN  : TestOcrOutputMode::probeClassifiesTextVsScannedDocuments() PDFium failed to load document: "D:/pdf/pdf-w2b-ocrmode/build-rel/test-tmp/TestOcrOutputMode/TestOcrOutputMode-UNhhVR/missing.pdf"
+PASS   : TestOcrOutputMode::probeClassifiesTextVsScannedDocuments()
+PASS   : TestOcrOutputMode::cleanupTestCase()
+Totals: 11 passed, 1 failed, 0 skipped, 0 blacklisted, 1326ms
+********* Finished testing of TestOcrOutputMode *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+export        =   1.59 sec*proc (1 test)
+headless      =   1.59 sec*proc (1 test)
+ocr           =   1.59 sec*proc (1 test)
+outputmode    =   1.59 sec*proc (1 test)
+qt            =   1.59 sec*proc (1 test)
+unit          =   1.59 sec*proc (1 test)
+
+Total Test time (real) =   1.60 sec
+
+The following tests FAILED:
+	 32 - TestOcrOutputMode (Failed)                        export headless ocr outputmode qt unit
+Errors while running CTest
