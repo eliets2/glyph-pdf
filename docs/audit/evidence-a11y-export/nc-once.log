@@ -1,0 +1,11 @@
+# NC (natural intermediate) — single-shot run after the first full build,
+# before the evidence gates: 10 passed, 1 failed.
+#   FAIL!  : TestA11yReportWriter::pdfSummaryCarriesVerdictFindingsAndDisclosure()
+#   'text.contains(QStringLiteral("not a PDF/UA verdict"))' returned FALSE.
+#   (standing disclosure)  — tests/TestA11yReportWriter.cpp(324)
+# Diagnosis: the pin was correct; the WRAPPED disclosure line (wrapText at
+# ~92 chars) splits the phrase across extracted text lines, so the phrase
+# pin could not see it. Fix was TEST-READER-side only — wholeText() now
+# whitespace-normalizes (QString::simplified) before phrase matching.
+# The pin itself was never weakened: pass-after gates assert the identical
+# phrase on the identical artifact.

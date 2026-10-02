@@ -1,0 +1,9 @@
+# The lane hoisted the standard-14 toolkit (sanitizeForStandard14/wrapText)
+# out of ReviewSummaryWriter.cpp into engines/Standard14Text.h — its two
+# suites plus the checker/tagger/fixes neighbors were re-run (serial):
+1/5 Test #51: TestAccessibilityChecker .........   Passed    0.13 sec
+2/5 Test #54: TestAccessibilityFixes ...........   Passed    0.21 sec
+3/5 Test #55: TestAccessibilityTagger ..........   Passed    0.60 sec
+4/5 Test #93: TestReviewSummary ................   Passed    0.31 sec
+5/5 Test #94: TestPrintableSummary .............   Passed    0.51 sec
+100% tests passed, 0 tests failed out of 5

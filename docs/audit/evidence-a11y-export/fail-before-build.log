@@ -1,0 +1,29 @@
+[1/4] Building CXX object CMakeFiles/TestA11yReportWriter.dir/tests/TestA11yReportWriter.cpp.obj
+FAILED: [code=1] CMakeFiles/TestA11yReportWriter.dir/tests/TestA11yReportWriter.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DGLYPHPDF_QUICKJS_VERSION=\"0.15.1\" -DHAS_OPENJPEG2 -DHAS_PDFIUM -DHAS_QPDF -DHAS_QUICKJS -DHAS_TESSERACT -DMINGW_HAS_SECURE_API=1 -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_TESTCASE_BUILDDIR=\"D:/pdf/pdf-w2b-a11yexport/build-rel\" -DQT_TESTCASE_SOURCEDIR=\"D:/pdf/pdf-w2b-a11yexport\" -DQT_TESTLIB_LIB -DQT_WIDGETS_LIB -DUNICODE -DUSING_QJS_SHARED -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -ID:/pdf/pdf-w2b-a11yexport/build-rel/TestA11yReportWriter_autogen/include -ID:/pdf/pdf-w2b-a11yexport/src -ID:/pdf/pdf-w2b-a11yexport/tests -IC:/msys64/ucrt64/include/leptonica -IC:/msys64/ucrt64/include/libpng16 -IC:/msys64/ucrt64/include/webp -isystem C:/msys64/ucrt64/include/openjpeg-2.5 -isystem C:/msys64/ucrt64/include/qt6/QtCore -isystem C:/msys64/ucrt64/include/qt6 -isystem C:/msys64/ucrt64/share/qt6/mkspecs/win32-g++ -isystem C:/msys64/ucrt64/include/qt6/QtGui -isystem D:/pdf/pdf-w2b-a11yexport/third_party/pdfium/include -isystem D:/pdf/pdf-w2b-a11yexport/third_party/podofo/install/include -isystem C:/msys64/ucrt64/include/qt6/QtTest -isystem C:/msys64/ucrt64/include/qt6/QtWidgets -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=unused-result -Werror=shadow -fstack-protector-strong -D_FORTIFY_SOURCE=2 -flto=auto -MD -MT CMakeFiles/TestA11yReportWriter.dir/tests/TestA11yReportWriter.cpp.obj -MF CMakeFiles\TestA11yReportWriter.dir\tests\TestA11yReportWriter.cpp.obj.d -o CMakeFiles/TestA11yReportWriter.dir/tests/TestA11yReportWriter.cpp.obj -c D:/pdf/pdf-w2b-a11yexport/tests/TestA11yReportWriter.cpp
+D:/pdf/pdf-w2b-a11yexport/tests/TestA11yReportWriter.cpp:29:10: fatal error: engines/A11yReportWriter.h: No such file or directory
+   29 | #include "engines/A11yReportWriter.h"
+      |          ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+compilation terminated.
+[2/4] Building CXX object CMakeFiles/TestAccessibilityPanel.dir/tests/TestAccessibilityPanel.cpp.obj
+FAILED: [code=1] CMakeFiles/TestAccessibilityPanel.dir/tests/TestAccessibilityPanel.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DGLYPHPDF_QUICKJS_VERSION=\"0.15.1\" -DHAS_OPENJPEG2 -DHAS_PDFIUM -DHAS_QPDF -DHAS_QUICKJS -DHAS_TESSERACT -DMINGW_HAS_SECURE_API=1 -DQT_CONCURRENT_LIB -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_PDFWIDGETS_LIB -DQT_PDF_LIB -DQT_TESTCASE_BUILDDIR=\"D:/pdf/pdf-w2b-a11yexport/build-rel\" -DQT_TESTCASE_SOURCEDIR=\"D:/pdf/pdf-w2b-a11yexport\" -DQT_TESTLIB_LIB -DQT_WIDGETS_LIB -DUNICODE -DUSING_QJS_SHARED -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -ID:/pdf/pdf-w2b-a11yexport/build-rel/TestAccessibilityPanel_autogen/include -ID:/pdf/pdf-w2b-a11yexport/src -ID:/pdf/pdf-w2b-a11yexport/tests -IC:/msys64/ucrt64/include/leptonica -IC:/msys64/ucrt64/include/libpng16 -IC:/msys64/ucrt64/include/webp -isystem C:/msys64/ucrt64/include/qt6/QtCore -isystem C:/msys64/ucrt64/include/qt6 -isystem C:/msys64/ucrt64/share/qt6/mkspecs/win32-g++ -isystem C:/msys64/ucrt64/include/qt6/QtGui -isystem C:/msys64/ucrt64/include/qt6/QtWidgets -isystem C:/msys64/ucrt64/include/openjpeg-2.5 -isystem D:/pdf/pdf-w2b-a11yexport/third_party/pdfium/include -isystem D:/pdf/pdf-w2b-a11yexport/third_party/podofo/install/include -isystem C:/msys64/ucrt64/include/qt6/QtTest -isystem C:/msys64/ucrt64/include/qt6/QtConcurrent -isystem C:/msys64/ucrt64/include/qt6/QtPdf -isystem C:/msys64/ucrt64/include/qt6/QtPdfWidgets -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=unused-result -Werror=shadow -fstack-protector-strong -D_FORTIFY_SOURCE=2 -flto=auto -MD -MT CMakeFiles/TestAccessibilityPanel.dir/tests/TestAccessibilityPanel.cpp.obj -MF CMakeFiles\TestAccessibilityPanel.dir\tests\TestAccessibilityPanel.cpp.obj.d -o CMakeFiles/TestAccessibilityPanel.dir/tests/TestAccessibilityPanel.cpp.obj -c D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp
+In file included from C:/msys64/ucrt64/include/qt6/QtTest/qtesteventloop.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qsignalspy.h:10,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:10,
+                 from D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp:8:
+D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp: In member function 'void TestAccessibilityPanel::exportActionsGateOnDeliveredReport()':
+D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp:870:20: error: 'class gp::AccessibilityPanel' has no member named 'exportCsvTo'
+  870 |     QVERIFY(!panel.exportCsvTo(outCsv));
+      |                    ^~~~~~~~~~~
+D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp:871:20: error: 'class gp::AccessibilityPanel' has no member named 'exportSummaryPdfTo'
+  871 |     QVERIFY(!panel.exportSummaryPdfTo(outPdf));
+      |                    ^~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp:884:19: error: 'class gp::AccessibilityPanel' has no member named 'exportCsvTo'
+  884 |     QVERIFY(panel.exportCsvTo(outCsv));
+      |                   ^~~~~~~~~~~
+D:/pdf/pdf-w2b-a11yexport/tests/TestAccessibilityPanel.cpp:895:19: error: 'class gp::AccessibilityPanel' has no member named 'exportSummaryPdfTo'
+  895 |     QVERIFY(panel.exportSummaryPdfTo(outPdf));
+      |                   ^~~~~~~~~~~~~~~~~~
+ninja: build stopped: cannot make progress due to previous errors.
+BUILD_RC=1

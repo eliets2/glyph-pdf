@@ -1,0 +1,17 @@
+# PASS-AFTER x3 SERIAL — TestAccessibilityPanel + TestA11yReportWriter
+# ctest (serial, no -j), tree = lane implementation complete, BUILD_RC=0 (build-final2.log)
+=== PASS-AFTER RUN 1 ===
+1/2 Test #52: TestAccessibilityPanel ...........   Passed    2.60 sec
+2/2 Test #53: TestA11yReportWriter .............   Passed    0.28 sec
+100% tests passed, 0 tests failed out of 2
+=== PASS-AFTER RUN 2 ===
+1/2 Test #52: TestAccessibilityPanel ...........   Passed    2.18 sec
+2/2 Test #53: TestA11yReportWriter .............   Passed    0.29 sec
+100% tests passed, 0 tests failed out of 2
+=== PASS-AFTER RUN 3 ===
+1/2 Test #52: TestAccessibilityPanel ...........   Passed    2.24 sec
+2/2 Test #53: TestA11yReportWriter .............   Passed    0.30 sec
+100% tests passed, 0 tests failed out of 2
+# Per-suite detail (run 1):
+#   TestA11yReportWriter:  Totals: 11 passed, 0 failed, 0 skipped
+#   TestAccessibilityPanel: Totals: 18 passed, 0 failed, 0 skipped

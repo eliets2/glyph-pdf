@@ -1,0 +1,3 @@
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+BUILD_RC=0
