@@ -1,0 +1,63 @@
+Test project D:/pdf/pdf-w2b-reocr/build-rel
+      Start  30: TestOcrPipeline
+ 1/14 Test  #30: TestOcrPipeline ..................   Passed    0.24 sec
+      Start  31: TestOcrReviewLifecycle
+ 2/14 Test  #31: TestOcrReviewLifecycle ...........   Passed    0.38 sec
+      Start  32: TestOcrRegionReocr
+ 3/14 Test  #32: TestOcrRegionReocr ...............   Passed    0.08 sec
+      Start  33: TestOcrVerifyNavigation
+ 4/14 Test  #33: TestOcrVerifyNavigation ..........   Passed    0.25 sec
+      Start  34: TestOcrVerifyPort
+ 5/14 Test  #34: TestOcrVerifyPort ................   Passed    0.21 sec
+      Start  35: TestOcrPreprocessor
+ 6/14 Test  #35: TestOcrPreprocessor ..............   Passed    0.77 sec
+      Start  36: TestOcrDjotMapper
+ 7/14 Test  #36: TestOcrDjotMapper ................   Passed    0.06 sec
+      Start  66: TestBatchOcrLanguage
+ 8/14 Test  #66: TestBatchOcrLanguage .............   Passed    0.18 sec
+      Start  67: TestBatchOcrSkipText
+ 9/14 Test  #67: TestBatchOcrSkipText .............   Passed    1.55 sec
+      Start  68: TestOcrPreprocessPrefs
+10/14 Test  #68: TestOcrPreprocessPrefs ...........   Passed    0.17 sec
+      Start  89: TestBatchOcrConfidence
+11/14 Test  #89: TestBatchOcrConfidence ...........   Passed    0.15 sec
+      Start 101: TestOcrLanguage
+12/14 Test #101: TestOcrLanguage ..................   Passed    0.05 sec
+      Start 154: TestOcrAcceptSeam
+13/14 Test #154: TestOcrAcceptSeam ................   Passed    0.12 sec
+      Start 178: TestSep13LeadOcrGuards
+14/14 Test #178: TestSep13LeadOcrGuards ...........   Passed    0.15 sec
+
+100% tests passed, 0 tests failed out of 14
+
+Label Time Summary:
+accept          =   0.12 sec*proc (1 test)
+batch           =   1.88 sec*proc (3 tests)
+confidence      =   0.15 sec*proc (1 test)
+cross-page      =   0.24 sec*proc (1 test)
+djot            =   0.06 sec*proc (1 test)
+headless        =   4.36 sec*proc (14 tests)
+language        =   0.24 sec*proc (2 tests)
+lifecycle       =   0.38 sec*proc (1 test)
+mapper          =   0.06 sec*proc (1 test)
+modes           =   0.15 sec*proc (1 test)
+navigation      =   0.25 sec*proc (1 test)
+ocr             =   4.36 sec*proc (14 tests)
+orientation     =   0.77 sec*proc (1 test)
+persistence     =   0.17 sec*proc (1 test)
+pipeline        =   0.24 sec*proc (1 test)
+preprocess      =   0.94 sec*proc (2 tests)
+qt              =   4.30 sec*proc (13 tests)
+reocr-region    =   0.08 sec*proc (1 test)
+review          =   0.91 sec*proc (4 tests)
+roundtrip       =   0.06 sec*proc (1 test)
+rover           =   0.24 sec*proc (1 test)
+sep13leads      =   0.15 sec*proc (1 test)
+skip-text       =   1.55 sec*proc (1 test)
+structural      =   0.06 sec*proc (1 test)
+timing          =   0.24 sec*proc (1 test)
+u03             =   0.25 sec*proc (1 test)
+unit            =   3.29 sec*proc (11 tests)
+verify-port     =   0.21 sec*proc (1 test)
+
+Total Test time (real) =   4.45 sec

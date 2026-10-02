@@ -1,0 +1,15 @@
+Test project D:/pdf/pdf-w2b-reocr/build-rel
+    Start 32: TestOcrRegionReocr
+1/1 Test #32: TestOcrRegionReocr ...............   Passed    0.20 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+headless        =   0.20 sec*proc (1 test)
+ocr             =   0.20 sec*proc (1 test)
+qt              =   0.20 sec*proc (1 test)
+reocr-region    =   0.20 sec*proc (1 test)
+review          =   0.20 sec*proc (1 test)
+unit            =   0.20 sec*proc (1 test)
+
+Total Test time (real) =   0.20 sec
