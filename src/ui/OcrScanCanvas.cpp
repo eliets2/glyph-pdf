@@ -16,6 +16,9 @@ const char* kSurround = "#2a2a2a";
 const char* kPaper = "#f4f1ea";
 const char* kSelectionColor = "#2563eb";
 const char* kRemovedColor = "#8a8a8a";
+// Widget-space movement before a press becomes a REGION drag — below this a
+// release is still the plain word-selection click.
+const qreal kRegionDragThreshold = 4.0;
 } // namespace
 
 OcrScanCanvas::OcrScanCanvas(QWidget* parent)
@@ -50,8 +53,6 @@ void OcrScanCanvas::setSelectedWord(int stableId)
 
 void OcrScanCanvas::clearSelectedRegion()
 {
-    // RED-state stub (pins-first commit): inert until the implementation
-    // commit — see TestOcrRegionReocr for the pins that fail on this body.
     m_regionRect = QRectF();
     update();
 }
@@ -59,14 +60,30 @@ void OcrScanCanvas::clearSelectedRegion()
 QRectF OcrScanCanvas::imageRegionFor(const QRectF& widgetRect, const QImage& image,
                                      const QRectF& pane)
 {
-    // RED-state stub (pins-first commit): inert — the real widget→image
-    // mapping (imageRectFor-derived, clamped, normalized) lands with the
-    // implementation commit and must make the mapping pins GREEN without
-    // touching the empty-result pin's contract.
-    Q_UNUSED(widgetRect);
-    Q_UNUSED(image);
-    Q_UNUSED(pane);
-    return QRectF();
+    const QRectF imgRect = imageRectFor(QSizeF(image.size()), pane);
+    if (imgRect.isEmpty() || image.isNull())
+        return QRectF();
+    // Normalize FIRST (right-to-left / bottom-to-top drags arrive with a
+    // negative extent — checking isEmpty() before normalized() would throw
+    // those legitimate drags away).
+    const QRectF drag = widgetRect.normalized();
+    if (drag.isEmpty())
+        return QRectF();
+    // Widget → pageImage pixel space: the EXACT inverse of paintEvent's
+    // (widgetPos − imgRect.topLeft()) × scale mapping and of wordIdAt()'s
+    // click mapping — all three derive from the same imageRectFor source of
+    // truth, so a dragged region always lands where it was drawn.
+    const qreal scale = imgRect.width() / image.width();
+    QRectF region((drag.left() - imgRect.left()) / scale,
+                  (drag.top() - imgRect.top()) / scale,
+                  drag.width() / scale,
+                  drag.height() / scale);
+    region = region.normalized();
+    // Clamp to the image: a drag that runs off the page is cut to its real
+    // extent; a drag that misses the image entirely stays EMPTY (the garbage
+    // selection is refused downstream, never widened into a whole page).
+    region = region.intersected(QRectF(image.rect()));
+    return region;
 }
 
 QRectF OcrScanCanvas::imageRectFor(const QSizeF& imageSize, const QRectF& pane)
@@ -121,6 +138,11 @@ void OcrScanCanvas::mousePressEvent(QMouseEvent* event)
         event->ignore();
         return;
     }
+    // Row 12: remember the press — real movement from here turns the gesture
+    // into a region drag; a plain release stays a word-selection click.
+    m_pressPos = event->position();
+    m_dragging = false;
+    m_rubberBand = QRectF();
     const int id = wordIdAt(event->position());
     if (id >= 0) {
         // Immediate highlight feedback; OCRMode::selectWord (the funnel) will
@@ -132,16 +154,51 @@ void OcrScanCanvas::mousePressEvent(QMouseEvent* event)
     event->accept();
 }
 
-// ── Region re-OCR drag-select (RED-state stubs; real bodies land with the
-// implementation commit) ─────────────────────────────────────────────────────
 void OcrScanCanvas::mouseMoveEvent(QMouseEvent* event)
 {
-    Q_UNUSED(event);
+    if (!(event->buttons() & Qt::LeftButton)) {
+        event->ignore();
+        return;
+    }
+    if (!m_dragging) {
+        // Only real movement makes the gesture a region drag (click != drag).
+        if ((event->position() - m_pressPos).manhattanLength()
+                < kRegionDragThreshold) {
+            event->accept();
+            return;
+        }
+        m_dragging = true;
+    }
+    m_rubberBand = QRectF(m_pressPos, event->position()).normalized();
+    update();
+    event->accept();
 }
 
 void OcrScanCanvas::mouseReleaseEvent(QMouseEvent* event)
 {
-    Q_UNUSED(event);
+    if (event->button() != Qt::LeftButton) {
+        event->ignore();
+        return;
+    }
+    if (!m_dragging) {
+        // Plain click: no region semantics (word selection already happened
+        // on press). The committed region survives plain clicks.
+        m_rubberBand = QRectF();
+        event->accept();
+        return;
+    }
+    m_dragging = false;
+    m_rubberBand = QRectF();
+    // Commit the drag as a pageImage-space region (row 12). An EMPTY result
+    // (drag missed the image) CLEARS the selection and says so through the
+    // signal — a stale bbox must never scope the next re-OCR run.
+    const QRectF imageRegion =
+        imageRegionFor(QRectF(m_pressPos, event->position()).normalized(),
+                       m_image, QRectF(rect()));
+    m_regionRect = imageRegion;
+    emit regionSelected(imageRegion);
+    update();
+    event->accept();
 }
 
 void OcrScanCanvas::paintEvent(QPaintEvent* /*event*/)
@@ -200,6 +257,32 @@ void OcrScanCanvas::paintEvent(QPaintEvent* /*event*/)
             p.setPen(hitPen);
             p.drawRect(box.adjusted(-2, -2, 2, 2));
         }
+    }
+
+    // ── Row 12: region re-OCR selection ─────────────────────────────────────
+    // The committed region (image space → widget space through the SAME
+    // scale/imgRect mapping the word boxes use) and the live rubber band
+    // (widget space). A dashed outline + light fill distinguishes the
+    // re-OCR scope from a selected word's solid ring.
+    const auto drawRegionRect = [&p, &imgRect, scale](const QRectF& imageRect) {
+        if (imageRect.isEmpty())
+            return;
+        const QRectF w(imgRect.x() + imageRect.x() * scale,
+                       imgRect.y() + imageRect.y() * scale,
+                       imageRect.width() * scale,
+                       imageRect.height() * scale);
+        QColor fill(kSelectionColor);
+        fill.setAlpha(36);
+        p.fillRect(w, fill);
+        p.setPen(QPen(QColor(kSelectionColor), 1, Qt::DashLine));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(w);
+    };
+    drawRegionRect(m_regionRect);
+    if (!m_rubberBand.isEmpty()) {
+        p.setPen(QPen(QColor(kSelectionColor), 1, Qt::DashLine));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(m_rubberBand);
     }
 }
 

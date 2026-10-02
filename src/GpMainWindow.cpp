@@ -545,8 +545,10 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
     connect(_modes, &ModeController::ocrReviewRejected, this, [this]() {
         statusBar()->showMessage(tr("OCR results rejected — overlay cleared."), 3000);
     });
+    // Row 12: the region bbox travels through — a scoped re-OCR run instead of
+    // the discarded-bbox whole-page fallback. Empty bbox = whole page.
     connect(_modes, &ModeController::ocrReRunRegionRequested, _edit,
-            [this](QRectF) { _edit->runOcr(); });
+            [this](QRectF regionBbox) { _edit->runOcrRegion(regionBbox); });
     // §9.8 P0: RedactMode marking feedback lands on the status bar.
     connect(_modes, &ModeController::redactStatusMessage, this,
             [this](const QString& msg) { statusBar()->showMessage(msg, 6000); });

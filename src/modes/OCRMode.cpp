@@ -645,6 +645,10 @@ void OCRMode::buildPanes(QVBoxLayout* col)
     m_scanCanvas->setObjectName("ocrScanCanvas");
     connect(m_scanCanvas, &OcrScanCanvas::wordClicked,
             this, &OCRMode::selectWord);
+    // Row 12: a drag-select on the source canvas commits the re-OCR region
+    // (pageImage pixel space) — the same surface the menu acts on.
+    connect(m_scanCanvas, &OcrScanCanvas::regionSelected,
+            this, &OCRMode::onScanRegionSelected);
     connect(m_scanCanvas, &QWidget::customContextMenuRequested,
             this, &OCRMode::onImagePaneContextMenu);
 
@@ -1036,16 +1040,24 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
     QWidget* origin = qobject_cast<QWidget*>(sender());
     if (!origin) origin = m_scanContentLabel;
 
-    // For the rich-text label, we use a fixed "current page" region
-    // as the re-OCR target.  Future work: map pos to individual LayoutRegion bboxes.
-    m_contextRegionBbox = QRectF();  // empty = whole current page
+    // Row 12: the region comes from the scan canvas's drag-select (stored in
+    // pageImage pixel space by onScanRegionSelected). The menu no longer
+    // resets it — the old unconditional `m_contextRegionBbox = QRectF()` here
+    // threw the selection away before any action could use it.
 
     QMenu menu(this);
 
-    // U03 honesty note: until region operations exist, these actions act on the
-    // WHOLE page — the labels say so instead of implying a bounded region.
+    // Region action exists only when a valid selection is committed; the
+    // whole-page action stays available in every state (its own guard
+    // applies at trigger time).
+    if (!m_contextRegionBbox.isEmpty()) {
+        QAction *reOcrRegionAction = menu.addAction(tr("Re-OCR this region"));
+        connect(reOcrRegionAction, &QAction::triggered, this, &OCRMode::onReOcrRegion);
+        menu.addSeparator();
+    }
+
     QAction *reOcrAction = menu.addAction(tr("Re-OCR entire page"));
-    connect(reOcrAction, &QAction::triggered, this, &OCRMode::onReOcrRegion);
+    connect(reOcrAction, &QAction::triggered, this, &OCRMode::onReOcrWholePage);
 
     menu.addSeparator();
 
@@ -1056,7 +1068,13 @@ void OCRMode::onImagePaneContextMenu(const QPoint &pos)
     QAction *rejectRegion = menu.addAction(tr("Reject entire page"));
     connect(rejectRegion, &QAction::triggered, this, &OCRMode::onRejectResults);
 
-    QAction *scopeNote = menu.addAction(tr("Regional actions act on the whole page until region OCR ships"));
+    // U03 honesty note, updated by row 12: region scoping now EXISTS — the
+    // note teaches the drag gesture (or confirms the committed scope) instead
+    // of denying the feature.
+    QAction *scopeNote = menu.addAction(
+        m_contextRegionBbox.isEmpty()
+            ? tr("Drag a rectangle on the source image to scope re-OCR to a region")
+            : tr("Region selected — “Re-OCR this region” re-recognizes only that area"));
     scopeNote->setEnabled(false);
 
     menu.exec(origin->mapToGlobal(pos));
@@ -1069,18 +1087,25 @@ void OCRMode::onReOcrRegion()
     // while another run was Running/Saving (re-entrancy). Guard it like the
     // accept path: regional re-OCR is a REVIEW action on delivered words.
     if (m_reviewState != ReviewState::ReviewReady) return;
+    // Row 12 honesty: a REGION request without a selection must never fall
+    // through — the empty bbox means WHOLE PAGE downstream, so falling through
+    // would silently re-run the entire page while the action promised a
+    // region. Typed refusal instead (the review state stays retryable).
+    if (m_contextRegionBbox.isEmpty()) {
+        transitionTo(ReviewState::RecoverableError,
+                     tr("Re-OCR region: no region selected — drag a rectangle "
+                        "on the source image first."));
+        return;
+    }
     emit reOcrRegionRequested(m_contextRegionBbox);
 }
 
-// ── Region-scoped re-OCR (§4 row 12) — RED-state stubs ──────────────────────
-// The slots exist so TestOcrRegionReocr compiles and its pins fail at RUNTIME
-// (the honest fail-before). The real store/guard bodies land with the
-// implementation commit.
-
 void OCRMode::onScanRegionSelected(QRectF imageRect)
 {
-    Q_UNUSED(imageRect);
-    // Inert: the selection is NOT stored yet — the region-store pin must fail.
+    // Row 12: the canvas committed a drag — store it verbatim (pageImage
+    // pixel space, the LayoutRegion::bbox coordinate system). An EMPTY rect
+    // (drag missed the image) clears any stale selection.
+    m_contextRegionBbox = imageRect;
 }
 
 void OCRMode::onReOcrWholePage()
@@ -1100,6 +1125,9 @@ void OCRMode::setOcrResults(const QList<MergedOcrWord> &words)
     // B4: session-scoped Skip-All dispositions die with the results — a fresh
     // recognition re-flags everything.
     m_skipAllTokens.clear();
+    // Row 12: a fresh delivery invalidates a stored re-OCR region (same
+    // reasoning as setReviewSession — the bbox belongs to the previous run).
+    m_contextRegionBbox = QRectF();
     // B12: a fresh delivery restarts the page-level triage state.
     setPageVerified(false);
 
@@ -1157,6 +1185,10 @@ void OCRMode::setReviewSession(const OcrReviewSession& session)
     m_currentWords.clear();
     m_reviewWords = session.words;
     m_selectedWordId = -1;
+    // Row 12: a fresh delivery invalidates a stored re-OCR region — the bbox
+    // describes the PREVIOUS run's pixel space; keeping it would scope the
+    // next region request against records it no longer matches.
+    m_contextRegionBbox = QRectF();
     // B4: session-scoped Skip-All dispositions die with the results — a fresh
     // recognition re-flags everything.
     m_skipAllTokens.clear();

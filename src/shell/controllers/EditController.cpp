@@ -768,24 +768,40 @@ QString EditController::ocrDispatchBlocker(const QString& filePath, int page)
 
 // ── PARITY-SCORECARD-2026-09-30 §4 row 12: region-scoped re-OCR seams ───────
 
-// RED-state stubs (pins-first commit): the seams exist so TestOcrRegionReocr
-// compiles and its pins fail at RUNTIME — the honest fail-before — instead of
-// not building at all. The real clamp/translate logic lands with the
-// implementation commit; the negative control (scoped revert of that commit)
-// must reproduce exactly these failures.
+// Map a user-selected region bbox (pageImage pixel space — the LayoutRegion
+// bbox coordinate system) onto the rendered page: normalize, clamp to the
+// image, refuse garbage with a typed reason. Empty rect + reason == refusal.
 QRect EditController::ocrRegionCropRect(const QRectF& regionBbox, const QSize& pageSize,
                                         QString* rejectReason)
 {
-    Q_UNUSED(regionBbox);
-    Q_UNUSED(pageSize);
+    const auto refuse = [rejectReason](const QString& why) {
+        if (rejectReason) *rejectReason = why;
+        return QRect();
+    };
+    if (pageSize.isEmpty() || pageSize.width() <= 0 || pageSize.height() <= 0)
+        return refuse(EditController::tr("the page image is not available."));
+    if (regionBbox.isNull())
+        return refuse(EditController::tr("no region was selected."));
+    // Normalize (right-to-left / bottom-to-top drags), then snap to pixels
+    // and clamp: a drag that runs off the page is cut to its real extent.
+    const QRect crop = regionBbox.normalized().toAlignedRect()
+                           .intersected(QRect(0, 0, pageSize.width(), pageSize.height()));
+    if (crop.isEmpty() || !crop.isValid())
+        return refuse(EditController::tr(
+            "the selected region is empty or lies outside the page image — "
+            "drag a rectangle over the page first."));
     if (rejectReason) rejectReason->clear();
-    return QRect();
+    return crop;
 }
 
+// A scoped run recognizes the crop, so pipeline word boxes land in crop
+// space — translate them back into pageImage pixel space so the delivered
+// review records are identical in shape/coordinates to the whole-page path's.
 QList<MergedOcrWord> EditController::ocrRegionWordsToPageSpace(QList<MergedOcrWord> words,
                                                                const QPoint& cropTopLeft)
 {
-    Q_UNUSED(cropTopLeft);
+    for (auto& w : words)
+        w.boundingBox.translate(cropTopLeft.x(), cropTopLeft.y());
     return words;
 }
 
@@ -977,11 +993,6 @@ PageOcrResult EditController::buildReviewedPageOcrResult(
 void EditController::runOcr() { runOcrRegion(QRectF()); }
 
 void EditController::runOcrRegion(const QRectF& regionBbox) {
-    // RED-state note (pins-first commit): the region parameter is accepted so
-    // the host can pass the review panel's selection through, but it is
-    // deliberately INERT until the implementation commit — the run below is
-    // still whole-page (the honest fail-before for the region pins).
-    Q_UNUSED(regionBbox);
     auto* viewer = _mainWindow->pdfViewer();
     if (!viewer || !_ctx || _ocrRunning) return;
 
@@ -1093,15 +1104,43 @@ void EditController::runOcrRegion(const QRectF& regionBbox) {
     // (pageSize * 2.0).
     const QImage renderedPage = viewer->renderPage(page, 2.0);
 
+    // ── Row 12: scope the run to the requested region ────────────────────────
+    // The selection is a LayoutRegion-style bbox in pageImage pixel space
+    // (OCRMode's drag-select stores exactly that). A region that cannot yield
+    // a crop (degenerate / outside the rendered page) is a typed refusal
+    // BEFORE any dispatch — never a silent whole-page fallback (R07: the
+    // review panel's lifecycle still completes via ocrRunFailed).
+    const bool isRegionRun = !regionBbox.isNull();
+    QRect cropRect;
+    if (isRegionRun) {
+        LayoutRegion userRegion;              // the user's drag IS a layout region
+        userRegion.bbox = regionBbox;
+        userRegion.type = RegionType::Other;
+        userRegion.confidence = 1.0;          // human-drawn: full confidence
+        QString rejectReason;
+        cropRect = ocrRegionCropRect(userRegion.bbox, renderedPage.size(), &rejectReason);
+        if (cropRect.isNull()) {
+            _ocrRunning = false;
+            emit ocrRunFailed(tr("Re-OCR region failed: %1").arg(rejectReason));
+            return;
+        }
+    }
+
     QThread *worker = QThread::create([self, viewerPtr, filePath, page, renderedPage,
                                        wantRapid, wantEnsemble, ocrLang, preprocessPrefs,
                                        jobGeneration, sourcePageCount, sourceRevision,
-                                       sourceDocumentGeneration]() {
+                                       sourceDocumentGeneration, isRegionRun, cropRect]() {
         QString error;
         QList<OcrResult> resultsArr;
         QList<MergedOcrWord> mergedWords;   // also surfaced to the OCR Verify screen
 
+        // Row 12: pageImg is the FULL rendered page (it travels with the review
+        // session and the word boxes are translated back into its pixel space);
+        // ocrImg is what the pipeline actually recognizes — the region crop on
+        // a scoped run, the same full page otherwise.
         const QImage pageImg = renderedPage;
+        const QImage ocrImg = isRegionRun ? renderedPage.copy(cropRect)
+                                          : renderedPage;
         {
             if (pageImg.isNull()) {
                 error = QStringLiteral("OCR failed: could not render page.");
@@ -1183,7 +1222,15 @@ void EditController::runOcrRegion(const QRectF& regionBbox) {
                     // (Auto-Rotate included); word boxes still map back to the
                     // original page via PreprocessedImage::inverseTransform.
                     pipeline.setPreprocessing(preprocessPrefs);
-                    mergedWords = pipeline.run(pageImg);
+                    mergedWords = pipeline.run(ocrImg);
+
+                    // Row 12: a scoped run recognized the CROP — map the word
+                    // boxes back into pageImage pixel space so the delivered
+                    // review records are IDENTICAL in shape/coordinates to the
+                    // whole-page path's (same session image, same overlay).
+                    if (isRegionRun)
+                        mergedWords = EditController::ocrRegionWordsToPageSpace(
+                            std::move(mergedWords), cropRect.topLeft());
 
                     // Convert MergedOcrWord → OcrResult for the viewer layer
                     resultsArr.reserve(mergedWords.size());
@@ -1198,7 +1245,7 @@ void EditController::runOcrRegion(const QRectF& regionBbox) {
             }
         }
 
-        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration, sourcePageCount, sourceRevision, sourceDocumentGeneration]() {
+        QMetaObject::invokeMethod(QCoreApplication::instance(), [self, viewerPtr, filePath, page, pageImg, resultsArr, mergedWords, error, jobGeneration, sourcePageCount, sourceRevision, sourceDocumentGeneration, isRegionRun]() {
             // R07: a destroyed controller (and its panels) receives no callbacks.
             if (!self) return;
 
@@ -1229,6 +1276,19 @@ void EditController::runOcrRegion(const QRectF& regionBbox) {
             }
             if (verdict == OcrJobVerdict::Stale) {
                 emit self->ocrRunAbandoned(message);
+                return;
+            }
+
+            // Row 12 honesty: a REGION run that recognized NOTHING is a typed
+            // failure — never a silent empty delivery. The user's existing
+            // review records stay intact (notifyOcrFailed keeps them) and the
+            // message says what to do instead. The whole-page path keeps its
+            // established empty-delivery contract (Idle, "no text recognized").
+            if (isRegionRun && mergedWords.isEmpty()) {
+                emit self->ocrRunFailed(
+                    tr("Re-OCR region failed: no text recognized in the selected "
+                       "region — drag a larger rectangle over readable text and "
+                       "try again."));
                 return;
             }
 
@@ -1272,7 +1332,14 @@ void EditController::runOcrRegion(const QRectF& regionBbox) {
             // and the zoom pane can crop actual pixels. Emitted after
             // ocrResultsReady so the words path always runs first.
             emit self->ocrReviewReady(session);
-            self->_mainWindow->statusBar()->showMessage(tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
+            // Row 12: the completion status names the run's true scope.
+            if (isRegionRun)
+                self->_mainWindow->statusBar()->showMessage(
+                    tr("Re-OCR region complete: %1 text blocks in the selected region.")
+                        .arg(resultsArr.size()), 5000);
+            else
+                self->_mainWindow->statusBar()->showMessage(
+                    tr("OCR Complete. %1 text blocks detected.").arg(resultsArr.size()), 5000);
         }, Qt::QueuedConnection);
     });
 
