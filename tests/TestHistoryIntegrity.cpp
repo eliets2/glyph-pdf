@@ -45,6 +45,9 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QUndoStack>
+#ifndef Q_OS_WIN
+#include <unistd.h>  // geteuid — the V02 root-environment guard
+#endif
 #include <QSignalSpy>
 #include <QPainter>
 #include <QPdfWriter>
@@ -682,6 +685,16 @@ private slots:
 
         // Deterministic failure injection: the restore's safe-save commit
         // cannot replace a read-only destination.
+        // NATIVE-LINUX (2026-10-02): under root (CI containers) the write to
+        // the read-only destination SUCCEEDS (CAP_DAC_OVERRIDE), so the
+        // refusal — and the V02 reporting contract it drives — is
+        // unexercisable; skipping is the honest record there. The pin stays
+        // live for ordinary users.
+        if (::geteuid() == 0) {
+            QSKIP("running as root: POSIX permission bits do not gate writes "
+                  "(CAP_DAC_OVERRIDE) — the read-only-destination refusal is "
+                  "unexercisable in this environment");
+        }
         setWritable(f, false);
         stack.undo();
 
