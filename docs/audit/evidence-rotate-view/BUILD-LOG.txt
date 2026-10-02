@@ -1,0 +1,4 @@
+BUILD_RC=0 (full tree, Release, LTO ON, -j2, ninja)
+run1: externally killed at [133/142] after transient LTO lto1.exe 'Cannot open ...ltrans1.o' fatal error (machine contention)
+run2: RC=1 — TestRotateView.cpp qRed(const QColor&) compile error (lane test bug, fixed: QColor::red/green/blue)
+run3: RC=0

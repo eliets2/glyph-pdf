@@ -1,0 +1,15 @@
+********* Start testing of TestViewingModes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewingModes::initTestCase()
+PASS   : TestViewingModes::nightModeEffectInvertsPixels()
+PASS   : TestViewingModes::nightModeCoversBothPageSurfaces()
+PASS   : TestViewingModes::eyeCareSurvivesRepeatedToggling()
+PASS   : TestViewingModes::readingFiltersAreMutuallyExclusive()
+PASS   : TestViewingModes::nightModeChangesTheRenderedViewer()
+PASS   : TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
+PASS   : TestViewingModes::loadingADocumentAnnouncesItsFirstPage()
+PASS   : TestViewingModes::renderedPagesArePaperWhite()
+PASS   : TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet()
+PASS   : TestViewingModes::cleanupTestCase()
+Totals: 11 passed, 0 failed, 0 skipped, 0 blacklisted, 495ms
+********* Finished testing of TestViewingModes *********

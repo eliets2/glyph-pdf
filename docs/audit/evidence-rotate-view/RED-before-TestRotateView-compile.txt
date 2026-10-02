@@ -1,0 +1,287 @@
+[1/2] Building CXX object CMakeFiles/TestRotateView.dir/tests/TestRotateView.cpp.obj
+FAILED: [code=1] CMakeFiles/TestRotateView.dir/tests/TestRotateView.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DMINGW_HAS_SECURE_API=1 -DQT_CONCURRENT_LIB -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_PDFWIDGETS_LIB -DQT_PDF_LIB -DQT_TESTCASE_BUILDDIR=\"D:/pdf/pdf-w2b-rotateview/build-rel\" -DQT_TESTCASE_SOURCEDIR=\"D:/pdf/pdf-w2b-rotateview\" -DQT_TESTLIB_LIB -DQT_WIDGETS_LIB -DUNICODE -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -ID:/pdf/pdf-w2b-rotateview/build-rel/TestRotateView_autogen/include -ID:/pdf/pdf-w2b-rotateview/src -ID:/pdf/pdf-w2b-rotateview/tests -isystem C:/msys64/ucrt64/include/qt6/QtCore -isystem C:/msys64/ucrt64/include/qt6 -isystem C:/msys64/ucrt64/share/qt6/mkspecs/win32-g++ -isystem C:/msys64/ucrt64/include/qt6/QtGui -isystem C:/msys64/ucrt64/include/qt6/QtWidgets -isystem C:/msys64/ucrt64/include/qt6/QtTest -isystem C:/msys64/ucrt64/include/qt6/QtPdf -isystem C:/msys64/ucrt64/include/qt6/QtPdfWidgets -isystem C:/msys64/ucrt64/include/qt6/QtConcurrent -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=unused-result -Werror=shadow -fstack-protector-strong -D_FORTIFY_SOURCE=2 -flto=auto -MD -MT CMakeFiles/TestRotateView.dir/tests/TestRotateView.cpp.obj -MF CMakeFiles\TestRotateView.dir\tests\TestRotateView.cpp.obj.d -o CMakeFiles/TestRotateView.dir/tests/TestRotateView.cpp.obj -c D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In static member function 'static bool TestRotateView::isDark(const QImage&, const QPointF&)':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:67:16: error: no matching function for call to 'qRed(const QColor&)'
+   67 |     return qRed(c) < 80 && qGreen(c) < 80 && qBlue(c) < 80;
+      |            ~~~~^~~
+  • there are 2 candidates
+In file included from C:/msys64/ucrt64/include/qt6/QtGui/qcolor.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtGui/QColor:1,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qabstractitemmodeltester.h:14,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:6,
+                 from D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:21:
+    • candidate 1: 'constexpr int qRed(QRgb)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:18:22:
+         18 | inline constexpr int qRed(QRgb rgb)                     // get red part of RGB
+            |                      ^~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgb' {aka 'unsigned int'}
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:18:32:
+           18 | inline constexpr int qRed(QRgb rgb)                     // get red part of RGB
+              |                           ~~~~~^~~
+In file included from C:/msys64/ucrt64/include/qt6/QtGui/qcolor.h:11:
+    • candidate 2: 'constexpr uint qRed(QRgba64)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:200:23:
+        200 | inline constexpr uint qRed(QRgba64 rgb)
+            |                       ^~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgba64'
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:200:36:
+          200 | inline constexpr uint qRed(QRgba64 rgb)
+              |                            ~~~~~~~~^~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:67:34: error: no matching function for call to 'qGreen(const QColor&)'
+   67 |     return qRed(c) < 80 && qGreen(c) < 80 && qBlue(c) < 80;
+      |                            ~~~~~~^~~
+  • there are 2 candidates
+    • candidate 1: 'constexpr int qGreen(QRgb)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:21:22:
+         21 | inline constexpr int qGreen(QRgb rgb)                   // get green part of RGB
+            |                      ^~~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgb' {aka 'unsigned int'}
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:21:34:
+           21 | inline constexpr int qGreen(QRgb rgb)                   // get green part of RGB
+              |                             ~~~~~^~~
+    • candidate 2: 'constexpr uint qGreen(QRgba64)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:203:23:
+        203 | inline constexpr uint qGreen(QRgba64 rgb)
+            |                       ^~~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgba64'
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:203:38:
+          203 | inline constexpr uint qGreen(QRgba64 rgb)
+              |                              ~~~~~~~~^~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:67:51: error: no matching function for call to 'qBlue(const QColor&)'
+   67 |     return qRed(c) < 80 && qGreen(c) < 80 && qBlue(c) < 80;
+      |                                              ~~~~~^~~
+  • there are 2 candidates
+    • candidate 1: 'constexpr int qBlue(QRgb)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:24:22:
+         24 | inline constexpr int qBlue(QRgb rgb)                    // get blue part of RGB
+            |                      ^~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgb' {aka 'unsigned int'}
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:24:33:
+           24 | inline constexpr int qBlue(QRgb rgb)                    // get blue part of RGB
+              |                            ~~~~~^~~
+    • candidate 2: 'constexpr uint qBlue(QRgba64)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:206:23:
+        206 | inline constexpr uint qBlue(QRgba64 rgb)
+            |                       ^~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgba64'
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:206:37:
+          206 | inline constexpr uint qBlue(QRgba64 rgb)
+              |                             ~~~~~~~~^~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In static member function 'static bool TestRotateView::isPaper(const QImage&, const QPointF&)':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:73:16: error: no matching function for call to 'qRed(const QColor&)'
+   73 |     return qRed(c) > 200 && qGreen(c) > 200 && qBlue(c) > 200;
+      |            ~~~~^~~
+  • there are 2 candidates
+    • candidate 1: 'constexpr int qRed(QRgb)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:18:22:
+         18 | inline constexpr int qRed(QRgb rgb)                     // get red part of RGB
+            |                      ^~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgb' {aka 'unsigned int'}
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:18:32:
+           18 | inline constexpr int qRed(QRgb rgb)                     // get red part of RGB
+              |                           ~~~~~^~~
+    • candidate 2: 'constexpr uint qRed(QRgba64)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:200:23:
+        200 | inline constexpr uint qRed(QRgba64 rgb)
+            |                       ^~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgba64'
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:200:36:
+          200 | inline constexpr uint qRed(QRgba64 rgb)
+              |                            ~~~~~~~~^~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:73:35: error: no matching function for call to 'qGreen(const QColor&)'
+   73 |     return qRed(c) > 200 && qGreen(c) > 200 && qBlue(c) > 200;
+      |                             ~~~~~~^~~
+  • there are 2 candidates
+    • candidate 1: 'constexpr int qGreen(QRgb)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:21:22:
+         21 | inline constexpr int qGreen(QRgb rgb)                   // get green part of RGB
+            |                      ^~~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgb' {aka 'unsigned int'}
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:21:34:
+           21 | inline constexpr int qGreen(QRgb rgb)                   // get green part of RGB
+              |                             ~~~~~^~~
+    • candidate 2: 'constexpr uint qGreen(QRgba64)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:203:23:
+        203 | inline constexpr uint qGreen(QRgba64 rgb)
+            |                       ^~~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgba64'
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:203:38:
+          203 | inline constexpr uint qGreen(QRgba64 rgb)
+              |                              ~~~~~~~~^~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:73:53: error: no matching function for call to 'qBlue(const QColor&)'
+   73 |     return qRed(c) > 200 && qGreen(c) > 200 && qBlue(c) > 200;
+      |                                                ~~~~~^~~
+  • there are 2 candidates
+    • candidate 1: 'constexpr int qBlue(QRgb)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:24:22:
+         24 | inline constexpr int qBlue(QRgb rgb)                    // get blue part of RGB
+            |                      ^~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgb' {aka 'unsigned int'}
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgb.h:24:33:
+           24 | inline constexpr int qBlue(QRgb rgb)                    // get blue part of RGB
+              |                            ~~~~~^~~
+    • candidate 2: 'constexpr uint qBlue(QRgba64)'
+      C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:206:23:
+        206 | inline constexpr uint qBlue(QRgba64 rgb)
+            |                       ^~~~~
+      • no known conversion for argument 1 from 'const QColor' to 'QRgba64'
+        C:/msys64/ucrt64/include/qt6/QtGui/qrgba64.h:206:37:
+          206 | inline constexpr uint qBlue(QRgba64 rgb)
+              |                             ~~~~~~~~^~~
+In file included from C:/msys64/ucrt64/include/qt6/QtTest/qtesteventloop.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qsignalspy.h:10,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:10:
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In member function 'void TestRotateView::rotateViewToolResolvesAndRoundTrips()':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:81:27: error: 'RotateViewCW' is not a member of 'ToolId'; did you mean 'RotateCW'?
+   81 |     QCOMPARE(*cw, ToolId::RotateViewCW);
+      |                           ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:84:28: error: 'RotateViewCCW' is not a member of 'ToolId'; did you mean 'RotateCCW'?
+   84 |     QCOMPARE(*ccw, ToolId::RotateViewCCW);
+      |                            ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:85:37: error: 'RotateViewCW' is not a member of 'ToolId'; did you mean 'RotateCW'?
+   85 |     QCOMPARE(toolIdToString(ToolId::RotateViewCW), QStringLiteral("rotateViewCW"));
+      |                                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:86:37: error: 'RotateViewCCW' is not a member of 'ToolId'; did you mean 'RotateCCW'?
+   86 |     QCOMPARE(toolIdToString(ToolId::RotateViewCCW), QStringLiteral("rotateViewCCW"));
+      |                                     ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:88:21: error: 'RotateViewCW' is not a member of 'ToolId'; did you mean 'RotateCW'?
+   88 |     QVERIFY(ToolId::RotateViewCW != ToolId::RotateCW);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:89:21: error: 'RotateViewCCW' is not a member of 'ToolId'; did you mean 'RotateCCW'?
+   89 |     QVERIFY(ToolId::RotateViewCCW != ToolId::RotateCCW);
+      |                     ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In member function 'void TestRotateView::viewRotationIsSessionOnly()':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:100:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  100 |     QCOMPARE(viewer.viewRotation(), 0);
+      |                     ^~~~~~~~~~~~
+In file included from D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:28:
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:109:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  109 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:110:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  110 |     QCOMPARE(viewer.viewRotation(), 90);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:111:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  111 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:112:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  112 |     QCOMPARE(viewer.viewRotation(), 180);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:113:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  113 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:114:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  114 |     QCOMPARE(viewer.viewRotation(), 270);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:115:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  115 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:116:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  116 |     QCOMPARE(viewer.viewRotation(), 0);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:117:12: error: 'class PdfViewerWidget' has no member named 'rotateViewCounterClockwise'; did you mean 'rotateCounterClockwise'?
+  117 |     viewer.rotateViewCounterClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+      |            rotateCounterClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:118:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  118 |     QCOMPARE(viewer.viewRotation(), 270);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:119:12: error: 'class PdfViewerWidget' has no member named 'rotateViewCounterClockwise'; did you mean 'rotateCounterClockwise'?
+  119 |     viewer.rotateViewCounterClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+      |            rotateCounterClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:120:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  120 |     QCOMPARE(viewer.viewRotation(), 180);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:123:12: error: 'class PdfViewerWidget' has no member named 'resetViewRotation'; did you mean 'requestPageRotation'?
+  123 |     viewer.resetViewRotation();
+      |            ^~~~~~~~~~~~~~~~~
+      |            requestPageRotation
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:124:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  124 |     QCOMPARE(viewer.viewRotation(), 0);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In member function 'void TestRotateView::renderPageReflectsViewRotation()':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:143:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  143 |     viewer.rotateViewClockwise();   // session-only 90° CW
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:156:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  156 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:157:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  157 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:158:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  158 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In member function 'void TestRotateView::fallbackSwapsSurfacesAndReverts()':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:182:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  182 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:183:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  183 |     QCOMPARE(viewer.viewRotation(), 90);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:194:12: error: 'class PdfViewerWidget' has no member named 'rotateViewCounterClockwise'; did you mean 'rotateCounterClockwise'?
+  194 |     viewer.rotateViewCounterClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~~~~~~~~
+      |            rotateCounterClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:195:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  195 |     QCOMPARE(viewer.viewRotation(), 0);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp: In member function 'void TestRotateView::viewRotationResetsOnReload()':
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:209:12: error: 'class PdfViewerWidget' has no member named 'rotateViewClockwise'; did you mean 'rotateClockwise'?
+  209 |     viewer.rotateViewClockwise();
+      |            ^~~~~~~~~~~~~~~~~~~
+      |            rotateClockwise
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:210:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  210 |     QCOMPARE(viewer.viewRotation(), 90);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/tests/TestRotateView.cpp:216:21: error: 'class PdfViewerWidget' has no member named 'viewRotation'; did you mean 'int PdfViewerWidget::m_rotation'? (not accessible from this context)
+  216 |     QCOMPARE(viewer.viewRotation(), 0);
+      |                     ^~~~~~~~~~~~
+D:/pdf/pdf-w2b-rotateview/src/ui/PdfViewerWidget.h:284:9: note: declared private here
+  284 |     int m_rotation;
+      |         ^~~~~~~~~~
+ninja: build stopped: subcommand failed.

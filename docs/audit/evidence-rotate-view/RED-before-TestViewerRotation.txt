@@ -1,0 +1,10 @@
+********* Start testing of TestViewerRotation *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewerRotation::initTestCase()
+PASS   : TestViewerRotation::rotateEmitsEngineRequest()
+PASS   : TestViewerRotation::reloadResetsRotationState()
+FAIL!  : TestViewerRotation::rotateViewToolsResolveInRegistry() 'cw.has_value()' returned FALSE. (rotateViewCW must resolve to a ToolId (session-only view rotation is wired))
+D:/pdf/pdf-w2b-rotateview/tests/TestViewerRotation.cpp(66) : failure location
+PASS   : TestViewerRotation::cleanupTestCase()
+Totals: 4 passed, 1 failed, 0 skipped, 0 blacklisted, 461ms
+********* Finished testing of TestViewerRotation *********
