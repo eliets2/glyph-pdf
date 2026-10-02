@@ -2168,6 +2168,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;ocr;reocr-region;review;qt;headless"
+    )
+endif()
+
 # ── TestOcrOutputMode (§4 #5 — searchable vs editable OCR output mode) ───────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrOutputMode.cpp")
     add_executable(TestOcrOutputMode
