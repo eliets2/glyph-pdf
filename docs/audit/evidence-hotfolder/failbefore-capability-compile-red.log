@@ -1,0 +1,13 @@
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:560:21: error: 'class gp::BatchMode' has no member named 'hotFolderPollingEnabled'
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:561:27: error: 'pollingCheck' was not declared in this scope
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:567:20: error: 'class gp::BatchMode' has no member named 'hotFolderPollingEnabled'
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:568:20: error: 'class gp::BatchMode' has no member named 'startHotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:569:21: error: 'class gp::BatchMode' has no member named 'hotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:569:46: error: 'class gp::BatchMode' has no member named 'hotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:571:12: error: 'class gp::BatchMode' has no member named 'hotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:574:21: error: 'class gp::BatchMode' has no member named 'hotFolderPollingEnabled'
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:575:20: error: 'class gp::BatchMode' has no member named 'startHotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:576:21: error: 'class gp::BatchMode' has no member named 'hotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:576:47: error: 'class gp::BatchMode' has no member named 'hotFolderForTest'; did you mean 'armHotFolderForTest'?
+D:/pdf/pdf-w2b-hotfolder/tests/TestHotFolder.cpp:577:28: error: 'class gp::BatchMode' has no member named 'hotFolderForTest'; did you mean 'armHotFolderForTest'?
+capability pins RED (compile): missing BatchMode polling API

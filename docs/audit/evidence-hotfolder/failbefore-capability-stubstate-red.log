@@ -1,0 +1,10 @@
+FAIL!  : TestHotFolder::subdirectoryPdfIsIngestedRecursive() Compared values are not the same
+FAIL!  : TestHotFolder::controllerWatchesSubdirectories() 'watched.contains(hotDir(QStringLiteral("nested")))' returned FALSE. (nested dir not watched: C:/Users/User/AppData/Local/Temp/TestHotFolder-TCVtua/hf-controllerWatchesSubdirectories)
+FAIL!  : TestHotFolder::controllerDiscoversSubdirCreatedAfterStart() 'c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late")))' returned FALSE. (C:/Users/User/AppData/Local/Temp/TestHotFolder-TCVtua/hf-controllerDiscoversSubdirCreatedAfterStart)
+FAIL!  : TestHotFolder::recursiveWatchIngestsNestedDropEndToEnd() '!ingested.isEmpty()' returned FALSE. (nested drop not ingested via fs-events within ceiling)
+FAIL!  : TestHotFolder::pollingFallbackDiscoversNestedDrop() '!ingested.isEmpty()' returned FALSE. (polling fallback missed a nested drop within ceiling)
+FAIL!  : TestHotFolder::pollingDedupsAndFlatDrops() '!ingested.isEmpty()' returned FALSE. (polling missed the flat drop)
+FAIL!  : TestHotFolder::sameStemInDifferentSubdirsBothIngest() '!ingested.isEmpty()' returned FALSE. (nested same-stem drops not ingested)
+Totals: 16 passed, 7 failed, 0 skipped, 0 blacklisted, 43936ms
+
+stub state: polling checkbox + getter + startHotFolderForTest wired, controller scan/watch still flat. 7 recursion-dependent pins RED behaviorally (16 others green). pollingDedupsAndFlatDrops red on a wrong pin premise (pre-start files are seeded by design — pin rewritten to drop after start); the flat-polling premise is re-proven green after the recursion implementation.

@@ -1,0 +1,763 @@
+Test project D:/pdf/pdf-w2b-hotfolder/build-rel
+    Start 44: TestSweepW3UxFlows
+1/1 Test #44: TestSweepW3UxFlows ...............***Failed  145.11 sec
+********* Start testing of TestSweepW3UxFlows *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSweepW3UxFlows::initTestCase()
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 start: fixture D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-mtAKcA/report.pdf
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step1: open landed — page count 1
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step2: highlight tool armed via production dispatch
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step3: DRAG DID NOT PLACE (offscreen harness limitation) — staged via the viewer annotation model
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F4 step4: save-in-place dispatched
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step4 verified: reopen shows 1 annotation(s)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: clicked prompt button 'Yes' on 'Save Document As' (question: 'existing.pdf already exists.
+Do you want to replace it?')
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step5 verified: guard prompt answered Yes; target rewritten (size 14338 ? 11009)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: decline path: the save dialog stayed open for another choice - dismissing
+QINFO  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() UXAUDIT: F1 step6: decline prompt never appeared (noSeen=false); target size now 13496 (was 13496)
+QWARN  : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-mtAKcA" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow1_openAnnotateSave_overwriteGuard()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: F2a start: welcome merge card ? Select PDFs to Merge ? Save Merged PDF
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: modal seen: title='Open Merged PDF' text='Merge complete. Would you like to open the output file? '
+QINFO  : TestSweepW3UxFlows::flow2a_welcomeMerge_route() UXAUDIT: F2a verified: artifact has 1 page(s) and carries the input content; completion modal title='Open Merged PDF' text='Merge complete. Would you like to open the output file?
+'
+PASS   : TestSweepW3UxFlows::flow2a_welcomeMerge_route()
+QWARN  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step1: batch screen reachable from the welcome (standalone link)
+QWARN  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: driving dialog matched by 'presetNameEdit' (title='Save as Preset')
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step2: preset save attempted through the real dialog
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step3: preset picker shows 'uxflowpreset (compress)' (1 saved); steps label: 'Steps (1):
+  1. compress'
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() optimizeDocument: unused-object sweep removed 0 object(s)
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step4: preset run finished — success=1 fail=0 skip=0; log: Starting batch: 1 files — operation: Preset Pipeline
+â?? big_run.pdf
+  â?³ step 1 compress [ok] 13913 B â?? 13389 B Â· 40 ms
+
+BATCH COMPLETE — 1 of 1 succeeded
+QDEBUG : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() optimizeDocument: unused-object sweep removed 0 object(s)
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step5: identical re-run - success=1 fail=0; log: Starting batch: 1 files — operation: Preset Pipeline
+â?? big_rerun.pdf
+  â?³ step 1 compress [ok] 13913 B â?? 13389 B Â· 42 ms
+
+BATCH COMPLETE — 1 of 1 succeeded
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b step5: identical re-run finished green
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b verified: 2 artifact(s) in the preset out dir; both runs green
+QINFO  : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline() UXAUDIT: F2b verified: 2-file batch merge ? 2 page(s), both parts present; output at D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-CkKFqa/mpart1_merged.pdf; completion named it: status='BATCH COMPLETE — 2 of 2 succeeded — merged into mpart1_merged.pdf'
+PASS   : TestSweepW3UxFlows::flow2b_batchAndPresetPipeline()
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 start: fixture with TOPSECRETDATA at a known position
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step1: redact screen activated
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step2: 1 redaction mark(s) placed
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step3: apply dialog configured (sanitize + proof) and accepted
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+Fontconfig error: Cannot load default config file: File not found
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: (transit: progress dialog '')
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: modal seen: title='Redaction Complete' text='The redacted copy has been saved to:
+D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-nbkqrQ/secret-doc_redacted.pdf
+
+A fully sanitized copy (metadata, attachments, JavaScript removed) has been saved to:
+D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step4 verified: redacted output exists; the secret is GONE from all streams
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 completion surface: modal title='Redaction Complete' text='The redacted copy has been saved to:
+D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-nbkqrQ/secret-doc_redacted.pdf
+
+A fully sanitized copy (metadata, attachments, JavaScript removed) has been saved to:
+D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-nbkqrQ/secret-doc_sanitized.pdf
+
+Redaction proof: PASSED — no removed string surv'; statusbar='Redactions applied to saved output: secret-doc_redacted.pdf; sanitized copy: secret-doc_sanitized.pdf; redaction proof: PASSED'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step5: sanitized copy landed as requested
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step6: apply configured with an IMPOSSIBLE sanitize target
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: modal seen: title='Redaction Partially Complete — Sanitization Failed' text='Redacted copy saved to:
+D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-nbkqrQ/secret2_redacted.pdf
+
+Sanitization FAILED: The redacted copy was saved, but sanitization failed: cannot open destination for safe write: The system cannot find the path specified.
+
+The sa'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 partial-failure modal: title='Redaction Partially Complete — Sanitization Failed' text='Redacted copy saved to:
+D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-nbkqrQ/secret2_redacted.pdf
+
+Sanitization FAILED: The redacted copy was saved, but sanitization failed: cannot open destination for safe write: The system cannot find the path specified.
+
+The saved file still contains document metadata, attachments and embedded JavaScript. Keep the redacted fi'
+QINFO  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() UXAUDIT: F3 step6 verified: the failure is not reported as success (verdict in the transcript above)
+QWARN  : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-nbkqrQ" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow3_redaction_fullLoop_andPartialFailure()
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b start: pattern-text fixture (public text + pattern-stream secret)
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() [HomeController] Pruned 1 missing recent file(s).
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b step1: redact screen activated
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b step2: 1 redaction mark(s) placed over the public text
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: driving dialog matched by 'redactApplyDialog' (title='Apply Redactions')
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b step3: apply dialog configured and accepted
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() exciseContentRegions: "The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box." page 0 — aborting (no visual-only half edit).
+QCRITICAL: TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() SECURITY: Redaction on page 0 failed to apply content stream surgery: "The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box." Aborting operation to prevent insecure visual-only overlay.
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: modal seen: title='Redaction Failed' text='Redaction failed. The original file was not modified and no output was written.
+
+Redaction failed on page 1: Failed to apply redactions on page 1. The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted ov'
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b refusal disclosure: title='Redaction Failed' text='Redaction failed. The original file was not modified and no output was written.
+
+Redaction failed on page 1: Failed to apply redactions on page 1. The page draws content through tiling patterns whose streams carry text. Pattern streams cannot be excised, so the page is refused rather than painted over with a black box.. The original document was not modified.
+
+Stage: Redacting'
+QINFO  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() UXAUDIT: F3b verified: labeled refusal naming the pattern reason, no output written, source untouched
+QWARN  : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-TCngTe" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow3b_redaction_patternText_refusalDisclosure()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 start: 3-page fixture; regex [Aa]lpha[a-z]* ? Alpha + alphabet + alpha = 3
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support raise()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step1: dialog open via production entry
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step2: COUNT reported: '4 match(es) on 3 page(s) — count shown before replace.'
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step3: REPLACE ALL reported: 'Replaced 4 of 4 occurrence(s). 4 replacement(s) changed the text width (first on page 1) — check those pages for overlapping text.
+Geometry: 4 of 4 replacement(s) changed the text width.
+Length differs in 4 case(s) (first: 1, 'Alpha' ? 'Zeta').'
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 step4: surviving 'lpha' glyph runs after save: 0 (outcome disclosed: 'Replaced 4 of 4 occurrence(s). 4 replacement(s) changed the text width (first on page 1) — check those pages for overlap')
+QINFO  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() UXAUDIT: F8 verified: count-before-replace + replace accounting are honest (WP-R07)
+QWARN  : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-InQqpo" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow8_findReplace_regex_countHonesty()
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a: dispatching production Sign
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a sign dialog: title='Digital Signature'; credentials filled
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'No' on 'Open Signed PDF' (question: 'Signing complete. Would you like to open the signed file?')
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a verified: 1 signature(s) on the saved artifact; completion prompt seen=1 (dismissed with No)
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: modal seen: title='Validate All Signatures' text='0 of 1 signature(s) are valid:
+
+• (unknown signer) — INVALID (UntrustedChain) '
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4a verify surface: title='Validate All Signatures' text='0 of 1 signature(s) are valid:
+
+• (unknown signer) — INVALID (UntrustedChain)
+'
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 12908 78446 929
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Certify Document' (title='Certify Document')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b certify-on-signed: purpose combo enabled=1 items=2
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b disclosed reason: 'Certify is unavailable: this document already has 1 signature(s). A certification (author) signature must be the FIRST signature in a document, so it cannot be added on top of existing ones. Use Appro'
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4b done: certify-on-signed state recorded (see transcript)
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Certify Document' (title='Certify Document')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4c: Certify purpose + level 2 + credentials set; accepting
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "Signature1" ByteRange: 0 13741 79279 1071
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'No' on 'Open Certified PDF' (question: 'Certification complete. Would you like to open the certified file?')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4c verified: certified artifact carries /DocMDP /P=2; certify dialog seen=1; completion prompt seen=1
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'Prepare Signing Request' (title='Prepare Signing Request')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d: two signers added through the real Add Signer control
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d: Save Request accepted
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support raise()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d verified: sidecar written next to the document
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 1: signature dialog filled
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 1 panel state after 3s: '1. Signer 1 — SIGNED at 2026-10-02T17:36:18Z (field sig1, PAdES B-B) — integrity intact (trust: UntrustedChain)'
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: driving dialog matched by 'signatureCertPathEdit' (title='Digital Signature')
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 2: signature dialog filled
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: clicked prompt button 'Discard' on 'Unsaved Changes' (question: 'The document has unsaved changes.')
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 2 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: ByteRange missing or not an array
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 2 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82512 148050 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 2 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82512 148050 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 2 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82512 148050 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d step 2 panel state after 3s: '2. Signer 2 — SIGNED at 2026-10-02T17:36:21Z (field sig2, PAdES B-B) — integrity intact (trust: UntrustedChain)'
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig1" ByteRange: 0 12575 78113 849
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() DSS not found or not dictionary
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() S-1: Shadow attack detected: "Shadow attack: modified non-catalog object 2 0 R"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() validateSignatures: field "sig2" ByteRange: 0 82512 148050 400
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: catalog keys: false
+QDEBUG : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() extractOcspFromDss: DSS not found or not dictionary
+QINFO  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() UXAUDIT: F4d completion surface: 'Signer 3 of 3: Signer 3 — field sig3 (page 1)'; engine signatures on doc: 2; steps signed: 2
+QWARN  : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-wVZWnR" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow4_signCertifyVerify_andPrepRequest()
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 start: image-only fixture OCRME 42 (FIRST-RUN default prefs — F5-F2 pin)
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F-route: clicking welcome card 'ocr'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() [HomeController] Pruned 3 missing recent file(s).
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step1: OCR verify screen open via the welcome route
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F2 shipped defaults as shown on screen: deskew=0 binarize=0 denoise=0
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5-F1 live lifecycle surface during run1: 'Running OCR — initializing OCR models (first use can take several minutes)…'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 3s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run1(image page): waiting… 6s; Run enabled=1 textLen=8 statusBar='OCR Complete. 2 text blocks detected.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step2 verified: recognized text: 'OCRME 42'
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() MrcPdfA: wrote 19637 bytes to "D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-ZkwxIv/scan_ocr.pdf"
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() MrcPdfA: veraPDF not available — skipping conformance gate
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step3: accept (save dialog driven to D:/pdf/pdf-w2b-hotfolder/build-rel/test-tmp/TestSweepW3UxFlows/TestSweepW3UxFlows-ZkwxIv/searchable-copy.pdf) then reject clicked — status text captured in transcript below
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run2(after reject): waiting… 3s; Run enabled=1 textLen=8 statusBar='OCR Complete. 2 text blocks detected.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step4 verified: re-Ocr after reject completes again
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 3s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 6s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 9s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 12s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 15s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 18s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 21s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 24s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 27s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 30s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 45s; Run enabled=0 textLen=0 statusBar='Processing OCR (Tesseract 5)...'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 run3(already-digital page): waiting… 60s; Run enabled=1 textLen=18 statusBar='OCR Complete. 5 text blocks detected.'
+QINFO  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() UXAUDIT: F5 step5 (text page): OCR on an already-digital page ? text pane now: '“ea, SW deed =f he' (empty = a 'no text recognized' state; content = OCR ran with NO already-text disclosure); terminal after 0s (Run enabled=1)
+QWARN  : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-ZkwxIv" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow5_ocr_imagePage_reject_reOcr_andTextPage()
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QDEBUG : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() [HomeController] Pruned 1 missing recent file(s).
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: driving dialog matched by 'recipientList' (title='Encrypt with Recipient Certificates')
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6: recipient certs accepted=1 count=2; disclosure: 'How recipients work: every recipient receives its own CMS envelope, and all envelopes wrap the SAME session key. Re-encrypting a document that is already encryp'
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() UXAUDIT: F6 verified: encrypted output written; probe: parser could not open output: PdfErrorCode::InvalidPDF, This is not a PDF file.
+Callstack:t#0 Error Source: private/PdfParser.cpp(172), Information: Unable to read PDF header
+FAIL!  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() 'encrypted' returned FALSE. (F6: the output must carry a PubSec /Encrypt dictionary with recipient envelopes)
+D:/pdf/pdf-w2b-hotfolder/tests/TestSweepW3UxFlows.cpp(1886) : failure location
+QWARN  : TestSweepW3UxFlows::flow6_certEncrypt_twoRecipients() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-yGucwY" most likely due to the presence of read-only files.
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 start: fixture without /Lang, without /Title, with an image w/o /Alt
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 disclosure box: 'Detection and tagging. This report shows what a tagged document needs — it never certifies PDF/UA. Auto-tagging builds a best-effort structure tree from layout heuristics: a tagged document is not a conforming document. Reading order is not verified against intent, tables and lists are not tagged, and no conformance verdict of any kind is issued.'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 scan verdict: '? 5 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 0: opening editor for finding #1 (status before: '? 5 gap(s) found')
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 editor: language chosen and Apply clicked
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 0: post-fix status: '? 4 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 1: opening editor for finding #3 (status before: '? 4 gap(s) found')
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 editor: alt text set and Apply clicked
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 1: post-fix status: '? 3 gap(s) found'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 round 2: no enabled FIX buttons remain
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 honesty-refusal recorded: a FIX button is disabled with tooltip: 'No /Title in this document — set one under Document Properties first'
+QINFO  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() UXAUDIT: F7 final status: '? 3 gap(s) found'; unexpected modals during fix loop: OK=0 Yes=0 No=0
+QWARN  : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-ZfuzQy" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7_accessibility_scan_fix_rescan()
+QWARN  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F7b start: untagged fixture, open through the real route
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F7b refusal status: 'Document is read-only — editing is disabled.'
+QINFO  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() UXAUDIT: F7b verified: read-only session refuses tagging; file untouched
+QWARN  : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-ymeITy" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7b_tag_refused_on_read_only_session()
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F-route: clicking welcome card 'open'
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: clicked prompt button 'Cancel' on 'Unsaved Changes' (question: 'The document has unsaved changes.')
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F7c cancel status: 'Tagging not applied: canceled — the document has unsaved changes'
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() This plugin does not support propagateSizeHints()
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: clicked prompt button 'Discard' on 'Unsaved Changes' (question: 'The document has unsaved changes.')
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F7c discard: tagging proceeded past the explicit Discard
+QINFO  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() UXAUDIT: F7c verified: dirty session asks Save/Discard/Cancel at the in-place write boundary
+QWARN  : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt() QTemporaryDir: Unable to remove "D:\\pdf\\pdf-w2b-hotfolder\\build-rel\\test-tmp\\TestSweepW3UxFlows\\TestSweepW3UxFlows-vayisN" most likely due to the presence of read-only files.
+PASS   : TestSweepW3UxFlows::flow7c_dirty_session_save_first_prompt()
+PASS   : TestSweepW3UxFlows::cleanupTestCase()
+Totals: 13 passed, 1 failed, 0 skipped, 0 blacklisted, 144074ms
+********* Finished testing of TestSweepW3UxFlows *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+headless    = 145.11 sec*proc (1 test)
+qt          = 145.11 sec*proc (1 test)
+sweep-w3    = 145.11 sec*proc (1 test)
+ui          = 145.11 sec*proc (1 test)
+unit        = 145.11 sec*proc (1 test)
+ux-audit    = 145.11 sec*proc (1 test)
+
+Total Test time (real) = 145.13 sec
+
+The following tests FAILED:
+	 44 - TestSweepW3UxFlows (Failed)                       headless qt sweep-w3 ui unit ux-audit
+Errors while running CTest
