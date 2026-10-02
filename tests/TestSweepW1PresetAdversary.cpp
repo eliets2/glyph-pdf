@@ -166,7 +166,21 @@ private slots:
                      "directory (joined: %1)").arg(rel)));
 
         const QString abs = QDir(outDir).filePath(QStringLiteral("C:/somewhere/x.pdf"));
-        QCOMPARE(abs, QStringLiteral("C:/somewhere/x.pdf"));   // returned as-is
+#ifdef Q_OS_WIN
+        QCOMPARE(abs, QStringLiteral("C:/somewhere/x.pdf"));   // drive-letter operand: absolute, returned as-is
+#else
+        // NATIVE-LINUX (2026-10-02): on POSIX a drive-letter operand is an
+        // ordinary RELATIVE path — the traversal-safety property this slot
+        // pins is that the joiner keeps it UNDER the output directory, never
+        // treating it as an absolute escape.
+        QVERIFY2(abs != QStringLiteral("C:/somewhere/x.pdf"),
+                 "POSIX: a drive-letter operand must not be treated as absolute");
+        QVERIFY2(QFileInfo(abs).absolutePath().startsWith(
+                     QDir(outDir).canonicalPath()),
+                 qPrintable(QStringLiteral(
+                     "POSIX: the joined operand must stay inside the output "
+                     "directory (joined: %1)").arg(abs)));
+#endif
     }
 };
 
