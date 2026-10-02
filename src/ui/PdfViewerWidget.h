@@ -127,6 +127,22 @@ public:
     // View settings
     void rotateClockwise();
     void rotateCounterClockwise();
+    // ── Rotate View port (session-only display rotation, from the
+    // feature/viewing-parity line) ──────────────────────────────────────────
+    // Turns only how THIS viewer session displays the page: a view-layer
+    // bitmap rotation (0/90/180/270). The document's /Rotate is never
+    // touched, nothing is pushed on the undo stack, and the state resets on
+    // the next document (re)load — unlike rotateClockwise/CounterClockwise
+    // above, which request the engine-side, persisted /Rotate change.
+    // Disclosed limitation: while a rotation is active the page shows as a
+    // fit-to-window bitmap (QPdfView exposes no rotation API), so free
+    // pixel-scrolling pauses; page navigation keeps working.
+    void rotateViewClockwise();
+    void rotateViewCounterClockwise();
+    int viewRotation() const { return m_viewRotation; }
+    /// Back to 0 and the native QPdfView surface. Also part of the
+    /// session-only contract via loadDocument() (close/reload resets).
+    void resetViewRotation();
     void setPageMode(QPdfView::PageMode mode);
     void setTwoPageMode(bool enabled);
     void toggleEyeCareMode();
@@ -290,6 +306,10 @@ private:
     bool m_readOnly = false;
     QString m_filePath;
     int m_rotation;
+    // Rotate View port: session-only display rotation (0/90/180/270). Never
+    // written to the document, never on the undo stack, reset by
+    // loadDocument() so a fresh/(re)loaded document always starts upright.
+    int m_viewRotation = 0;
 
     // Crop selection
     QRubberBand *m_rubberBand = nullptr;
@@ -314,7 +334,22 @@ private:
     // consume — AnnotationLayer's AnnotationItem list for the given page and the
     // live QPdfSearchModel results — onto each page's pixmap. Paints only; never
     // stores a second copy of annotation state.
-    void paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal renderScale) const;
+    void paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal renderScale,
+                              bool includeAnnotations = true) const;
+
+    // Rotate View port: rotation-aware bitmap fallback for the primary
+    // interactive view. QPdfView (QtPdfWidgets) exposes no rotation API, so
+    // while a session view rotation is active the native view is replaced by
+    // a manual, live-updating render of the current page (through the
+    // view-rotation-aware renderPage()) fit into the same rect QPdfView
+    // occupies — AnnotationLayer's rotate-around-center paint/hit-test
+    // transform (which mirrors rotation + viewRotation) then lands on the
+    // centered bitmap. Reverts to the native view at rotation 0 for full
+    // scrolling/search/selection fidelity. Known, disclosed limitation:
+    // free pixel-scrolling is unavailable while the fallback is up (page
+    // navigation via goToPage()/keyboard still works).
+    class QLabel *m_rotatedPageView = nullptr;
+    void updateRotatedPageView();
 
     // Form-builder field placement (M3-PROMPT-1)
     QRubberBand *m_formRubberBand = nullptr;
@@ -338,6 +373,9 @@ private:
         QPixmap pixmap;
         qreal scaleFactor = 0.0;
         int rotation = 0;       // §9.1 P0: cache is rotation-aware
+        int viewRotation = 0;   // Rotate View port: key includes the session
+                                // view rotation so a pre-rotation bitmap can
+                                // never be served stale under the same scale.
         qint64 lastAccessed = 0;
         qint64 bytes = 0;       // cached pixmap size; tracked so eviction needn't re-sum
     };

@@ -403,6 +403,13 @@ bool PdfViewerWidget::loadDocument(const QString &fileName)
     // simply replaced by the load below.)
     m_parkedForWrite = false;
     emit displayedFileChanged(m_filePath);   // K5: the shell's thread-safe copy
+    // Rotate View port: session-only view rotation never survives a document
+    // (re)load — the contract is "rotate how THIS session displays the page",
+    // so a fresh document always starts upright on the native view (and the
+    // overlay rotation below is cleared with it). This is the close/reload
+    // reset path: every document open crosses loadDocument().
+    m_viewRotation = 0;
+    updateRotatedPageView();
     clearPageCache();
     m_linksForPage = -1;   // §9.1: document changed → link cache is stale
     m_document->load(fileName);
@@ -509,6 +516,10 @@ void PdfViewerWidget::zoomIn()
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
+    // Rotate View port: keep the fallback surface in sync with the session
+    // zoom state (the fit-to-view fallback re-renders; the zoom itself takes
+    // visible effect again the moment rotation returns to 0).
+    if (m_viewRotation != 0 && !m_twoPageMode) updateRotatedPageView();
 }
 
 void PdfViewerWidget::zoomOut()
@@ -520,6 +531,7 @@ void PdfViewerWidget::zoomOut()
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
+    if (m_viewRotation != 0 && !m_twoPageMode) updateRotatedPageView();
 }
 
 void PdfViewerWidget::zoomFitWidth()
@@ -546,6 +558,7 @@ void PdfViewerWidget::setZoomLevel(qreal level)
     m_pdfView->setZoomMode(QPdfView::ZoomMode::Custom);
     m_pdfView->setZoomFactor(m_zoomFactor);
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow zoom
+    if (m_viewRotation != 0 && !m_twoPageMode) updateRotatedPageView();
 }
 
 qreal PdfViewerWidget::zoomLevel() const
@@ -562,19 +575,130 @@ void PdfViewerWidget::rotateClockwise()
     // engine-side page rotation (writes /Rotate + reload) — connected in
     // GpMainWindow to PagesController.
     emit requestPageRotation(90);
-    m_annotationLayer->setRotation(m_rotation);
+    // The overlay mirrors the TOTAL display rotation (engine-request offset +
+    // session view rotation); with no view rotation active this is exactly
+    // the m_rotation it always was.
+    m_annotationLayer->setRotation((m_rotation + m_viewRotation) % 360);
 }
 
 void PdfViewerWidget::rotateCounterClockwise()
 {
     m_rotation = (m_rotation + 270) % 360;
     emit requestPageRotation(-90);
-    m_annotationLayer->setRotation(m_rotation);
+    m_annotationLayer->setRotation((m_rotation + m_viewRotation) % 360);
+}
+
+// ── Rotate View port (session-only display rotation) ─────────────────────────
+// Ported from feature/viewing-parity cd82d701 and adapted: in THAT tree
+// rotateClockwise() was the session rotation; HERE it already requests the
+// persisted engine-side /Rotate change, so the session-only rotation lives in
+// its own methods and its own state (m_viewRotation). Contract: no document
+// mutation, no undo-stack entry, reset on the next document (re)load.
+void PdfViewerWidget::rotateViewClockwise()
+{
+    if (!isLoaded()) return;
+    m_viewRotation = (m_viewRotation + 90) % 360;
+    updateRotation();
+}
+
+void PdfViewerWidget::rotateViewCounterClockwise()
+{
+    if (!isLoaded()) return;
+    m_viewRotation = (m_viewRotation + 270) % 360;
+    updateRotation();
+}
+
+void PdfViewerWidget::resetViewRotation()
+{
+    if (m_viewRotation == 0) return;
+    m_viewRotation = 0;
+    updateRotation();
 }
 
 void PdfViewerWidget::updateRotation()
 {
-    m_annotationLayer->setRotation(m_rotation);
+    // AnnotationLayer's rotate-around-center paint/hit-test transform mirrors
+    // the TOTAL display rotation: the transient engine-request offset
+    // (m_rotation — cleared when the /Rotate reload lands) plus the
+    // session-only view rotation (m_viewRotation — never leaves this widget).
+    m_annotationLayer->setRotation((m_rotation + m_viewRotation) % 360);
+
+    // The page-bitmap cache key includes viewRotation (see renderPage()), so
+    // no forced eviction is needed to avoid serving a stale orientation.
+    if (m_twoPageMode) {
+        // The spread renders through renderPage(), which is view-rotation
+        // aware — only a refresh is needed (and only when actually rotated).
+        if (m_viewRotation != 0) updateTwoPageView();
+    } else {
+        updateRotatedPageView();
+    }
+}
+
+// Rotate View port: QPdfView (QtPdfWidgets) exposes no rotation API at all —
+// while a non-zero session view rotation is active, replace the native QPdfView
+// surface with a manual bitmap render of the current page (through the now
+// view-rotation-aware renderPage()), fit into the same rect QPdfView occupies
+// so AnnotationLayer's rotate-around-center transform stays visually aligned
+// with it. Reverts to the native QPdfView at rotation 0.
+//
+// Known limitation (disclosed in the View menu status message, not silently
+// swept under the rug): unlike QPdfView's native continuous scrolling, this
+// fallback displays one fit-to-view page at a time, so free pixel-scrolling is
+// unavailable while rotated — page navigation (Next/Prev, page-number entry,
+// keyboard shortcuts) still works normally via goToPage()/onPageChanged().
+void PdfViewerWidget::updateRotatedPageView()
+{
+    if (m_viewRotation == 0) {
+        if (m_rotatedPageView) m_rotatedPageView->hide();
+        if (!m_twoPageMode) {
+            m_pdfView->show();
+            // §9.7 P0: the badge overlay returns with the native view.
+            syncBadgeOverlayGeometry();
+            m_badgeOverlay->show();
+            m_badgeOverlay->update();
+        }
+        return;
+    }
+    if (m_twoPageMode || !m_document || !isLoaded()) return;
+
+    if (!m_rotatedPageView) {
+        m_rotatedPageView = new QLabel(m_pdfView->parentWidget());
+        m_rotatedPageView->setObjectName(QStringLiteral("rotatedPageView"));
+        m_rotatedPageView->setAlignment(Qt::AlignCenter);
+        // A reading filter installed before this surface existed must cover it
+        // too — re-apply so Night/Eye Care stays truthful on every page surface.
+        if (m_nightMode || m_eyeCareMode) applyReadingFilter();
+    }
+
+    m_pdfView->hide();
+    // §9.7 P0: the badge overlay computes positions from QPdfView's viewport
+    // and zoom — meaningless while the view is hidden. It is replaced by the
+    // badge composite painted into the fallback pixmap below (the same
+    // convention two-page mode uses), so badges never silently vanish.
+    m_badgeOverlay->hide();
+    m_rotatedPageView->setGeometry(m_pdfView->geometry());
+
+    const int page = currentPage();
+    const QSizeF pagePts = m_document->pagePointSize(page);
+    const bool swapped = (m_viewRotation == 90 || m_viewRotation == 270);
+    const qreal pageW = swapped ? pagePts.height() : pagePts.width();
+    const qreal pageH = swapped ? pagePts.width()  : pagePts.height();
+    const qreal availW = qMax<qreal>(1, m_rotatedPageView->width());
+    const qreal availH = qMax<qreal>(1, m_rotatedPageView->height());
+    const qreal fitScale = qBound<qreal>(
+        0.05, qMin(availW / qMax(pageW, 1.0), availH / qMax(pageH, 1.0)), kMaxZoom);
+
+    QImage img = renderPage(page, fitScale);
+    if (img.isNull()) return;   // keep the last good surface rather than blanking
+    // QPdfView (the search-highlight painter) and the badge overlay are both
+    // hidden here, so their content joins the pixmap — the same live models
+    // the native path consumes. Annotations must NOT be composited: they stay
+    // on the visible AnnotationLayer above (its rotate-around-center
+    // transform matches the centered fit), so compositing would paint twice.
+    paintTwoPageOverlays(&img, page, fitScale, /*includeAnnotations=*/false);
+    m_rotatedPageView->setPixmap(QPixmap::fromImage(img));
+    m_rotatedPageView->show();
+    m_annotationLayer->raise();
 }
 
 // ── §9.1 P0: clickable hyperlinks (URI + internal GoTo) ────────────────────
@@ -954,6 +1078,11 @@ void PdfViewerWidget::onPageChanged()
     if (m_badgeOverlay) m_badgeOverlay->update();   // §9.7 P0: badges follow the visible page
     if (m_twoPageMode) {
         updateTwoPageView();
+    } else if (m_viewRotation != 0) {
+        // Rotate View port: the fallback shows one page at a time — a page
+        // change must re-render it (navigation stays fully functional while
+        // the fallback is active).
+        updateRotatedPageView();
     }
 }
 
@@ -966,6 +1095,10 @@ void PdfViewerWidget::resizeEvent(QResizeEvent *event)
         if (m_twoPageScrollArea) {
             m_twoPageScrollArea->resize(size());
         }
+    }
+    // Rotate View port: the fallback is fit to the view rect — keep it fitted.
+    if (m_viewRotation != 0 && !m_twoPageMode) {
+        updateRotatedPageView();
     }
     // §9.7 P0: keep the badge overlay covering the PDF view.
     syncBadgeOverlayGeometry();
@@ -1021,10 +1154,18 @@ void PdfViewerWidget::setTwoPageMode(bool enabled)
         m_pdfView->hide();
         m_annotationLayer->hide();
         m_badgeOverlay->hide();   // §9.7 P0: two-page mode paints badges into the pixmaps
+        if (m_rotatedPageView) m_rotatedPageView->hide();   // Rotate View port: the spread replaces the fallback too
         m_twoPageScrollArea->show();
         updateTwoPageView();
     } else {
         m_twoPageScrollArea->hide();
+        if (m_viewRotation != 0) {
+            // Rotate View port: an active session rotation keeps its fallback
+            // surface up (it re-shows on top of the native view).
+            m_annotationLayer->show();
+            updateRotatedPageView();
+            return;
+        }
         m_pdfView->show();
         m_annotationLayer->show();
         // §9.7 P0: restore the badge overlay over the (possibly resized) view.
@@ -1095,7 +1236,8 @@ void PdfViewerWidget::updateTwoPageView()
 // in view space, so marks do not re-anchor if the zoom changes after drawing;
 // here the overlay and the page pixmap are always rendered from the same
 // m_zoomFactor snapshot, so they stay aligned with each other.
-void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal renderScale) const
+void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal renderScale,
+                                           bool includeAnnotations) const
 {
     if (!pageImg || pageImg->isNull() || pageIndex < 0 || renderScale <= 0)
         return;
@@ -1123,15 +1265,21 @@ void PdfViewerWidget::paintTwoPageOverlays(QImage *pageImg, int pageIndex, qreal
     }
 
     const qreal viewToPixmap = renderScale / qMax<qreal>(m_zoomFactor, 0.01);
-    painter.save();
-    painter.scale(viewToPixmap, viewToPixmap);
-    const QList<AnnotationItem> items = m_annotationLayer->annotations();
-    for (const auto &anno : items) {
-        if (anno.pageIndex != pageIndex)
-            continue;
-        AnnotationLayer::paintShape(painter, anno);
+    // Rotate View port: the rotated-view fallback composites highlights and
+    // badges only (includeAnnotations=false) — its annotations stay on the
+    // visible AnnotationLayer above, so painting them here too would double
+    // them. Two-page mode keeps the default full composite.
+    if (includeAnnotations) {
+        painter.save();
+        painter.scale(viewToPixmap, viewToPixmap);
+        const QList<AnnotationItem> items = m_annotationLayer->annotations();
+        for (const auto &anno : items) {
+            if (anno.pageIndex != pageIndex)
+                continue;
+            AnnotationLayer::paintShape(painter, anno);
+        }
+        painter.restore();
     }
-    painter.restore();
 
     // §9.7 P0: signature badges — page points with the TOP-LEFT origin scale
     // directly by renderScale (the same convention as the search rectangles
@@ -1168,7 +1316,10 @@ void PdfViewerWidget::toggleNightMode()
 // it and the next toggle-on re-installed the dangling pointer.
 void PdfViewerWidget::applyReadingFilter()
 {
-    const QList<QWidget *> surfaces = { m_pdfView, m_twoPageScrollArea };
+    QList<QWidget *> surfaces = { m_pdfView, m_twoPageScrollArea };
+    // Rotate View port: while the rotation fallback is up it IS a page
+    // surface — Night/Eye Care must cover it like the other two.
+    if (m_rotatedPageView) surfaces << m_rotatedPageView;
     for (QWidget *surface : surfaces) {
         if (!surface) continue;
         if (m_nightMode) {
@@ -1350,9 +1501,15 @@ QImage PdfViewerWidget::renderPageUncached(int page, qreal scaleFactor) const
     // QPdfDocument::render — an unchecked allocation for large MediaBoxes,
     // deep zoom or a non-finite programmatic scale.
     const QSizeF pageSize = m_document->pagePointSize(page);
+    // Rotate View port: a 90/270 session view rotation swaps the effective
+    // output aspect, so the bounded-size check (and the render request below)
+    // must run against the swapped page dimensions.
+    const bool viewSwapped = (m_viewRotation == 90 || m_viewRotation == 270);
+    const qreal logicalW = viewSwapped ? pageSize.height() : pageSize.width();
+    const qreal logicalH = viewSwapped ? pageSize.width()  : pageSize.height();
     QSize imageSize;
     bool clamped = false;
-    if (!checkedRenderSize(scaleFactor, pageSize.width(), pageSize.height(),
+    if (!checkedRenderSize(scaleFactor, logicalW, logicalH,
                            &imageSize, &clamped)) {
         qWarning() << "PdfViewerWidget::renderPageUncached: refusing non-finite or "
                       "degenerate render request (page" << page
@@ -1367,11 +1524,24 @@ QImage PdfViewerWidget::renderPageUncached(int page, qreal scaleFactor) const
                       "rendering bounded" << imageSize << "instead";
     }
 
-    // §9.1 P0: no render-options rotation here — orientation lives in the
-    // document /Rotate after an engine-side rotate + reload, and PDFium
-    // applies it during render. Adding opts.setRotation on top would
-    // double-rotate every snapshot.
+    // §9.1 P0 (kept): NO engine-request rotation here — m_rotation's
+    // orientation lives in the document /Rotate after an engine-side rotate +
+    // reload, and PDFium applies it during render. Adding opts.setRotation for
+    // IT would double-rotate every snapshot.
+    // Rotate View port (different state, different treatment): m_viewRotation
+    // is the session-only DISPLAY rotation — it never reaches the file, so it
+    // must be applied to every rendered bitmap here (two-page spread,
+    // thumbnails, snapshots, print, the rotated-view fallback all consume this
+    // one primitive). Qt applies the option's rotation AFTER laying the page
+    // out at the requested size, transposing the output for 90/270 — hence the
+    // swapped request dimensions above.
     QPdfDocumentRenderOptions opts;
+    switch (m_viewRotation) {
+        case 90:  opts.setRotation(QPdfDocumentRenderOptions::Rotation::Clockwise90);  break;
+        case 180: opts.setRotation(QPdfDocumentRenderOptions::Rotation::Clockwise180); break;
+        case 270: opts.setRotation(QPdfDocumentRenderOptions::Rotation::Clockwise270); break;
+        default:  break;
+    }
     QImage result = m_document->render(page, imageSize, opts);
     // PDF pages carry no background of their own: QPdfDocument::render leaves
     // unpainted areas TRANSPARENT, and QPdfView paints white paper beneath its
@@ -1396,10 +1566,13 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     if (page < 0 || page >= m_document->pageCount())
         return QImage();
 
-    // Check cache (Fix 5) -- match scale factor AND rotation exactly
+    // Check cache (Fix 5) -- match scale factor AND both rotation states
+    // (Rotate View port: the session view rotation is part of the key, so a
+    // stale bitmap from a different view rotation can never be served).
     if (m_pageCache.contains(page)
         && qFuzzyCompare(m_pageCache.value(page).scaleFactor, scaleFactor)
-        && m_pageCache.value(page).rotation == m_rotation) {
+        && m_pageCache.value(page).rotation == m_rotation
+        && m_pageCache.value(page).viewRotation == m_viewRotation) {
         m_cacheAccessCounter++;
         m_pageCache[page].lastAccessed = m_cacheAccessCounter;
         return m_pageCache.value(page).pixmap.toImage();
@@ -1417,6 +1590,7 @@ QImage PdfViewerWidget::renderPage(int page, qreal scaleFactor) const
     item.pixmap = QPixmap::fromImage(result);
     item.scaleFactor = scaleFactor;
     item.rotation = m_rotation;
+    item.viewRotation = m_viewRotation;
     item.lastAccessed = m_cacheAccessCounter;
     item.bytes = pixmapSizeInBytes(item.pixmap);
 

@@ -29,7 +29,11 @@ QList<ToolId> ViewController::handledTools() const {
         ToolId::Presentation, ToolId::Fullscreen,
         ToolId::DarkMode, ToolId::EyeCare,
         ToolId::RTL,  // AR-8 D6: shipped — toggles QApplication layout direction
-        ToolId::NightMode
+        ToolId::NightMode,
+        // Rotate View port: session-only view rotation. The implementation
+        // (and the disclosed fit-to-view fallback limitation) lives in
+        // PdfViewerWidget::rotateViewClockwise/rotateViewCounterClockwise.
+        ToolId::RotateViewCW, ToolId::RotateViewCCW
     };
 }
 
@@ -91,6 +95,25 @@ void ViewController::activate(ToolId id) {
         _mainWindow->statusBar()->showMessage(
             viewer->isNightMode() ? tr("Night Mode on.") : tr("Night Mode off."), 3000);
         break;
+    case ToolId::RotateViewCW:
+    case ToolId::RotateViewCCW: {
+        // Rotate View port: session-only display rotation. The message says so
+        // AND discloses the fallback's fit-to-view limitation up front — free
+        // pixel-scrolling pauses while a view rotation is active (page
+        // navigation Next/Prev/keyboard still works), so the mode switch is
+        // never silent.
+        if (id == ToolId::RotateViewCW) viewer->rotateViewClockwise();
+        else                            viewer->rotateViewCounterClockwise();
+        const int deg = viewer->viewRotation();
+        _mainWindow->statusBar()->showMessage(
+            deg == 0
+                ? tr("View rotation reset — upright view restored.")
+                : tr("View rotated %1%2 (session only, not saved to the file; "
+                     "the page shows fit-to-window while rotated — Next/Previous "
+                     "page still works).").arg(deg).arg(QChar(0x00B0)),
+            4000);
+        break;
+    }
     case ToolId::RTL: {
         // AR-8 D6: toggle the application-wide layout direction.
         // Qt propagates the new direction to all widgets automatically.

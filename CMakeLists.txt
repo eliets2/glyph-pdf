@@ -4902,6 +4902,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestViewerRotation.cpp")
     set_tests_properties(TestViewerRotation PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;rotation;qt;headless")
 endif()
 
+# Rotate View port (Wave 2b tail): session-only view rotation — the rendered
+# bitmap genuinely turns (view-rotation-aware renderPage + the disclosed
+# fit-to-view fallback while QPdfView stands down), never touches /Rotate or
+# the undo stack, and resets on document (re)load.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRotateView.cpp")
+    add_executable(TestRotateView tests/TestRotateView.cpp)
+    target_include_directories(TestRotateView PRIVATE src tests)
+    target_link_libraries(TestRotateView PRIVATE
+        pdfws_ui pdfws_core Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
+    )
+    add_test(NAME TestRotateView COMMAND TestRotateView)
+    set_tests_properties(TestRotateView PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 60 LABELS "unit;viewing;rotation;qt;headless")
+endif()
+
 # §9.1 P0 regression test: two-page mode must not silently hide annotations and
 # search highlights — the spread pixmaps composite the same AnnotationItem list
 # and the live QPdfSearchModel results the single-page overlay path consumes.

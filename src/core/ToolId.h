@@ -42,6 +42,14 @@ enum class ToolId {
     // (PdfViewerWidget::toggleNightMode) — distinct from DarkMode (application
     // chrome only) and EyeCare (a sepia tint over a still-white page).
     NightMode,
+    // Session-only "rotate view" (ported from feature/viewing-parity cd82d701):
+    // turns only how the CURRENT viewer session displays the page (a view-layer
+    // bitmap rotation, 0/90/180/270) — the document's /Rotate is never touched,
+    // nothing is pushed on the undo stack, and the state resets on the next
+    // document (re)load. Distinct from RotateCW/RotateCCW in the Pages group
+    // below, which persist a real /Rotate change through RotatePageCommand.
+    RotateViewCW,
+    RotateViewCCW,
 
     // ── Edit ──
     Hand,

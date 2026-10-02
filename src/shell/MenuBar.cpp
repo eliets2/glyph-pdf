@@ -70,6 +70,12 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "rulers",       MenuDispatch::Disabled },  // view guides not shipped
         { "guides",       MenuDispatch::Disabled },
         { "grid",         MenuDispatch::Disabled },
+        // Session-only view rotation (Rotate View port): rotates only how the
+        // session displays the page — never writes /Rotate, never touches the
+        // undo stack, resets on the next document (re)load. The Document group's
+        // rotate-cw / rotate-ccw below is the persisted /Rotate equivalent.
+        { "rotateViewCW", MenuDispatch::Registry },  // → ViewController
+        { "rotateViewCCW",MenuDispatch::Registry },  // → ViewController
 
         // ── Document ──
         { "insert-page",     MenuDispatch::Registry },
@@ -330,6 +336,12 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(viewMenu, tr("&Continuous Scrolling"), "continuous");
     addActionToMenu(viewMenu, tr("&Two-Page View"), "two-page");
     addActionToMenu(viewMenu, tr("&Presentation Mode"), "presentation");
+    viewMenu->addSeparator();
+    // Rotate View port (session-only view rotation — not saved to the file;
+    // see Document ▸ Rotate Clockwise/Counter-Clockwise below for the
+    // persisted, /Rotate-writing equivalent PagesController::rotateLeft/Right).
+    addActionToMenu(viewMenu, tr("Rotate &View Clockwise"), "rotateViewCW");
+    addActionToMenu(viewMenu, tr("Rotate View Co&unter-Clockwise"), "rotateViewCCW");
     viewMenu->addSeparator();
     addActionToMenu(viewMenu, tr("&Full Screen"), "fullscreen", QKeySequence(Qt::Key_F11));
     viewMenu->addSeparator();

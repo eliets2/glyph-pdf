@@ -8,6 +8,7 @@
 #include <QTemporaryDir>
 #include <QPdfWriter>
 #include <QPainter>
+#include "core/ToolId.h"
 #include "ui/PdfViewerWidget.h"
 
 class TestViewerRotation : public QObject {
@@ -15,6 +16,7 @@ class TestViewerRotation : public QObject {
 private slots:
     void rotateEmitsEngineRequest();
     void reloadResetsRotationState();
+    void rotateViewToolsResolveInRegistry();
 };
 void TestViewerRotation::rotateEmitsEngineRequest() {
     PdfViewerWidget viewer;
@@ -53,6 +55,33 @@ void TestViewerRotation::reloadResetsRotationState() {
     QVERIFY(!afterReload.isNull());
     QCOMPARE(afterReload.width(), upright.width());
     QCOMPARE(afterReload.height(), upright.height());
+}
+void TestViewerRotation::rotateViewToolsResolveInRegistry() {
+    // Rotate View port (Wave 2b tail): the SESSION-ONLY View-menu rotation
+    // must exist in the ToolId registry, round-trip its dispatch strings, and
+    // stay distinct from the persisted engine-side rotate tools — expressed
+    // through the dispatch strings alone so this pin also RUNS (red) on a
+    // tree where the RotateView ToolIds are absent.
+    const auto cw = toolIdFromString(QStringLiteral("rotateViewCW"));
+    QVERIFY2(cw.has_value(), "rotateViewCW must resolve to a ToolId (session-only view rotation is wired)");
+    const auto ccw = toolIdFromString(QStringLiteral("rotateViewCCW"));
+    QVERIFY2(ccw.has_value(), "rotateViewCCW must resolve to a ToolId (session-only view rotation is wired)");
+    if (cw.has_value()) {
+        QCOMPARE(toolIdToString(*cw), QStringLiteral("rotateViewCW"));
+        QCOMPARE(toolIdFromString(toolIdToString(*cw)), cw);
+    }
+    if (ccw.has_value()) {
+        QCOMPARE(toolIdToString(*ccw), QStringLiteral("rotateViewCCW"));
+        QCOMPARE(toolIdFromString(toolIdToString(*ccw)), ccw);
+    }
+    // Distinct from the PERSISTED Document▸Rotate tools (dispatched by
+    // "rotate"/"rotate-cw"/"rotate-ccw").
+    const auto persistedCw = toolIdFromString(QStringLiteral("rotate-cw"));
+    const auto persistedCcw = toolIdFromString(QStringLiteral("rotate-ccw"));
+    QVERIFY2(cw.has_value() && persistedCw.has_value() && *cw != *persistedCw,
+             "session-only view rotation must be a distinct tool from the persisted rotate-cw");
+    QVERIFY2(ccw.has_value() && persistedCcw.has_value() && *ccw != *persistedCcw,
+             "session-only view rotation must be a distinct tool from the persisted rotate-ccw");
 }
 QTEST_MAIN(TestViewerRotation)
 #include "TestViewerRotation.moc"
