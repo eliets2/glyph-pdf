@@ -8,6 +8,7 @@
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QLabel>
 #include <QPushButton>
 #include <QSemaphore>
@@ -199,6 +200,12 @@ private slots:
     void closePanelMidTagNoDeadlock();
     void switchDocumentMidTagNoDeadlock();
 
+    // ── Row 15 (wave 2b): exportable results — the compliance artifact ──
+    // The CSV/PDF export carries the LAST DELIVERED report of the CURRENT
+    // identity, and the actions do not exist before a scan has landed
+    // (never dead controls, never an export of a report that was not run).
+    void exportActionsGateOnDeliveredReport();
+
 private:
     // Wait for the panel's async scan to deliver (the default-constructed
     // lastReport() is indistinguishable from a finished clean scan, so tests
@@ -233,6 +240,13 @@ private:
     }
     QPushButton* tagButtonOf(gp::AccessibilityPanel* p) {
         return p->findChild<QPushButton*>(QStringLiteral("a11yTagButton"));
+    }
+    QPushButton* exportCsvButtonOf(gp::AccessibilityPanel* p) {
+        return p->findChild<QPushButton*>(QStringLiteral("a11yExportCsvButton"));
+    }
+    QPushButton* exportPdfButtonOf(gp::AccessibilityPanel* p) {
+        return p->findChild<QPushButton*>(
+            QStringLiteral("a11yExportSummaryButton"));
     }
     QLabel* tagSummaryOf(gp::AccessibilityPanel* p) {
         return p->findChild<QLabel*>(QStringLiteral("a11yTagSummary"));
@@ -823,6 +837,69 @@ void TestAccessibilityPanel::failedTagRunStillAnnouncesTheRunFinished() {
              "a failed tag run must still emit tagRunFinished");
     QVERIFY2(statusOf(&panel)->text().contains(QStringLiteral("tagger said no")),
              qPrintable(statusOf(&panel)->text()));
+}
+
+// ── Row 15 (wave 2b): the exportable results panel ──────────────────────────
+// Gating: before ANY scan has delivered, neither export exists (no dead
+// controls, no export of a report that was never run). After the scan lands,
+// both export paths write real artifacts of the DELIVERED report; switching
+// documents invalidates the report and the actions disappear again (an old
+// report may never describe the new identity).
+void TestAccessibilityPanel::exportActionsGateOnDeliveredReport() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = tmp.filePath("defective.pdf");
+    QVERIFY(makeDefectivePdf(pdf));
+
+    gp::AccessibilityPanel panel;
+    panel.setDocument(QString());
+
+    // Honest empty state: the buttons EXIST (discoverable) but are disabled
+    // with a truthful tooltip — no report, no export.
+    QPushButton* csvBtn = exportCsvButtonOf(&panel);
+    QPushButton* pdfBtn = exportPdfButtonOf(&panel);
+    QVERIFY(csvBtn != nullptr);
+    QVERIFY(pdfBtn != nullptr);
+    QVERIFY2(!csvBtn->isEnabled(), "no scan → no CSV export");
+    QVERIFY2(!pdfBtn->isEnabled(), "no scan → no PDF export");
+    QVERIFY2(!csvBtn->toolTip().isEmpty(), "disabled says why");
+
+    // Refusal seam: exporting without a delivered report fails closed.
+    const QString outCsv = tmp.filePath("should-not-exist.csv");
+    const QString outPdf = tmp.filePath("should-not-exist.pdf");
+    QVERIFY(!panel.exportCsvTo(outCsv));
+    QVERIFY(!panel.exportSummaryPdfTo(outPdf));
+    QVERIFY(!QFileInfo::exists(outCsv));
+    QVERIFY(!QFileInfo::exists(outPdf));
+
+    // A delivered scan arms both actions.
+    panel.setDocument(pdf);
+    QVERIFY(waitForScan(&panel));
+    QVERIFY(panel.lastReport().loadOk);
+    QVERIFY2(csvBtn->isEnabled(), "delivered report → CSV export exists");
+    QVERIFY2(pdfBtn->isEnabled(), "delivered report → PDF export exists");
+
+    // CSV: a real artifact of the delivered report (the same payload the
+    // writer suite pins in depth) — format tag + the checker's findings.
+    QVERIFY(panel.exportCsvTo(outCsv));
+    QFile csv(outCsv);
+    QVERIFY(csv.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString csvText = QString::fromUtf8(csv.readAll());
+    csv.close();
+    QVERIFY2(csvText.contains(QStringLiteral("glyphpdf-a11y-report/1")),
+             "format tag");
+    QVERIFY2(csvText.contains(QStringLiteral("struct-tree")),
+             "the delivered findings travel");
+
+    // PDF: a real artifact of the delivered report.
+    QVERIFY(panel.exportSummaryPdfTo(outPdf));
+    QVERIFY(QFileInfo(outPdf).size() > 0);
+
+    // A document change invalidates the report — the actions disarm again
+    // (the same identity-tie discipline the display itself follows).
+    panel.setDocument(QString());
+    QVERIFY2(!csvBtn->isEnabled(), "invalidated report → no export");
+    QVERIFY2(!pdfBtn->isEnabled(), "invalidated report → no export");
 }
 
 QTEST_MAIN(TestAccessibilityPanel)

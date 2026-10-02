@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/ReviewSummaryWriter.h"
 
+#include "engines/Standard14Text.h"
+
 #include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
@@ -108,99 +110,20 @@ QString ReviewSummaryWriter::proofSummaryLine(const QString& proofPackPath) {
 
 namespace {
 
+// The hoisted standard-14 toolkit (engines/Standard14Text.h).
+using gp::WinAnsiSafeString;
+using gp::sanitizeForStandard14;
+using gp::wrapText;
+
 constexpr double kPageW = 595.0;   // A4 portrait
 constexpr double kPageH = 842.0;
 constexpr double kMargin = 56.0;
 constexpr double kBodySize = 10.0;
 constexpr double kLineStep = 14.0;
 
-// Rough character wrap at ~92 body characters — a printable line, drawn by
-// simple DrawText calls (the same standard-14 drawing the Bates/header-footer
-// writers use).
-QStringList wrapText(const QString& text, int maxChars) {
-    QStringList lines;
-    QString normalized = text;
-    normalized.replace(QLatin1Char('\r'), QString());
-    for (const QString& para : normalized.split(QLatin1Char('\n'))) {
-        if (para.isEmpty()) { lines.append(QString()); continue; }
-        int start = 0;
-        while (start < para.length()) {
-            int len = qMin(maxChars, para.length() - start);
-            if (start + len < para.length()) {
-                // Back off to the last space so words are not split.
-                const int lastSpace = para.lastIndexOf(QLatin1Char(' '), start + len);
-                if (lastSpace > start)
-                    len = lastSpace - start;
-            }
-            lines.append(para.mid(start, len));
-            start += len;
-            while (start < para.length() && para.at(start) == QLatin1Char(' '))
-                ++start;
-        }
-    }
-    return lines;
-}
-
-// ── W1-04: per-string encoding sanitizer at the ONE draw boundary ────────────
-// The writer draws through PoDoFo 1.1.0's standard-14 Helvetica (WinAnsi /
-// CP1252). A per-string encoding fault there THROWS
-// (PdfErrorCode::InvalidFontData, "The provided string can't be converted to
-// CID encoding") and used to abort the ENTIRE export because one comment
-// carried a TAB (0x09), another C0 control, CJK text or an emoji — ordinary
-// annotation content, no malice required. The honest failure mode degrades
-// the STRING, never the FILE: every codepoint the WinAnsi table cannot
-// encode is replaced 1:1 before it reaches the font —
-//   TAB / CR / LF      → space (whitespace stays whitespace in print)
-//   NUL and the rest
-//   of the C0/C1 range,
-//   DEL, noncharacters,
-//   surrogates, all
-//   non-WinAnsi text   → '?' (a visible hole, counted for disclosure)
-// and the draw site reports the substitution total so the artifact carries an
-// explicit "shown as ?" note instead of silently mangling content. Kept
-// verbatim: printable ASCII, the Latin-1 supplement (0xA0-0xFF, identical in
-// CP1252) and the 27 CP1252-specific codepoints (€, typographic quotes,
-// dashes, ‰ …) — a document reviewed in Western European text loses nothing.
-// 1:1 replacement is deliberate: the wrap/pagination bounds are char-counted.
-struct WinAnsiSafeString {
-    QString text;
-    int substituted = 0;
-};
-
-WinAnsiSafeString sanitizeForStandard14(const QString& in) {
-    static const char16_t kCp1252Specials[] = {
-        0x20AC, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6,
-        0x2030, 0x0160, 0x2039, 0x0152, 0x017D, 0x2018, 0x2019, 0x201C,
-        0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A,
-        0x0153, 0x017E, 0x0178 };
-    static const QSet<char16_t> kSpecials = [] {
-        QSet<char16_t> s;
-        for (char16_t c : kCp1252Specials) s.insert(c);
-        return s;
-    }();
-
-    WinAnsiSafeString out;
-    out.text.reserve(in.size());
-    for (const QChar& qc : in) {
-        const char16_t ch = qc.unicode();
-        bool keep = false;
-        if (ch == 0x09 || ch == 0x0A || ch == 0x0D) {
-            out.text += QLatin1Char(' ');          // whitespace → whitespace
-            ++out.substituted;
-            continue;
-        }
-        if (ch >= 0x20 && ch <= 0x7E) keep = true;             // printable ASCII
-        else if (ch >= 0xA0 && ch <= 0xFF) keep = true;        // Latin-1 = CP1252 here
-        else if (kSpecials.contains(ch)) keep = true;          // CP1252 specials
-        if (keep) {
-            out.text += qc;
-        } else {
-            out.text += QLatin1Char('?');   // NUL, C0/C1 rest, DEL, CJK, emoji…
-            ++out.substituted;
-        }
-    }
-    return out;
-}
+// gp::wrapText and gp::sanitizeForStandard14 (W1-04) live in
+// engines/Standard14Text.h — the single contract every standard-14 writer
+// draws through (this file, the accessibility summary writer).
 
 // Renders the summary into the document already attached to the painter's
 // canvas stream: header block, redaction-proof availability line, table of

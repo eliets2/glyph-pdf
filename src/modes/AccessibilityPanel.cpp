@@ -2,13 +2,17 @@
 #include "AccessibilityPanel.h"
 
 #include "engines/AccessibilityTagger.h"
+#include "engines/A11yReportWriter.h"
 #include "shell/EditPolicy.h"    // PR-review §3.1: one read-only wording
 #include "util/GpTheme.h"
 
 #include <QComboBox>
+#include <QFileDialog>
+#include <QFileInfo>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QPointer>
 #include <QPushButton>
 #include <QScrollArea>
@@ -143,6 +147,26 @@ AccessibilityPanel::AccessibilityPanel(QWidget* parent) : QFrame(parent) {
         "review the result afterwards; it is a heuristic, not a claim"));
     col->addWidget(m_tagBtn);
 
+    // Row 15: the export actions — the last delivered report as a
+    // compliance artifact. Both arm only after a scan delivered for the
+    // current identity (updateExportActionState); before that they are
+    // disabled and say why (never dead controls).
+    auto* exportRow = new QHBoxLayout;
+    exportRow->setSpacing(6);
+    m_exportCsvBtn = new QPushButton(tr("Export CSV…"));
+    m_exportCsvBtn->setObjectName(QStringLiteral("a11yExportCsvButton"));
+    m_exportCsvBtn->setEnabled(false);
+    m_exportCsvBtn->setToolTip(tr(
+        "Export the last check result as a machine-readable CSV"));
+    exportRow->addWidget(m_exportCsvBtn);
+    m_exportPdfBtn = new QPushButton(tr("Summary PDF…"));
+    m_exportPdfBtn->setObjectName(QStringLiteral("a11yExportSummaryButton"));
+    m_exportPdfBtn->setEnabled(false);
+    m_exportPdfBtn->setToolTip(tr(
+        "Export the last check result as a print-ready PDF summary"));
+    exportRow->addWidget(m_exportPdfBtn);
+    col->addLayout(exportRow);
+
     // The pre-flight confirmation surface (inline, not a modal dialog — the
     // disclosure content is identical and stays testable offscreen).
     m_tagConfirm = new QWidget;
@@ -178,6 +202,44 @@ AccessibilityPanel::AccessibilityPanel(QWidget* parent) : QFrame(parent) {
             &AccessibilityPanel::onApplyClicked);
     connect(cancelBtn, &QPushButton::clicked, this,
             &AccessibilityPanel::onTagCancelClicked);
+
+    // Row 15: the dialogs are click adapters over the path-taking export
+    // seams (the CommentsWidget export idiom). The suggested names follow
+    // the document, like the review-summary export.
+    connect(m_exportCsvBtn, &QPushButton::clicked, this, [this]() {
+        QString suggested = QStringLiteral("accessibility-report.csv");
+        if (!m_currentDocPath.isEmpty())
+            suggested = QFileInfo(m_currentDocPath).completeBaseName()
+                        + QStringLiteral("-a11y-report.csv");
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Accessibility Report CSV"), suggested,
+            tr("CSV files (*.csv);;All files (*)"));
+        if (path.isEmpty()) return;
+        if (exportCsvTo(path))
+            QMessageBox::information(this, tr("Accessibility Report"),
+                                     tr("Report saved:\n%1").arg(path));
+        else
+            QMessageBox::warning(this, tr("Accessibility Report"),
+                                 tr("Could not write the accessibility "
+                                    "report CSV."));
+    });
+    connect(m_exportPdfBtn, &QPushButton::clicked, this, [this]() {
+        QString suggested = QStringLiteral("accessibility-summary.pdf");
+        if (!m_currentDocPath.isEmpty())
+            suggested = QFileInfo(m_currentDocPath).completeBaseName()
+                        + QStringLiteral("-a11y-summary.pdf");
+        const QString path = QFileDialog::getSaveFileName(
+            this, tr("Export Accessibility Summary PDF"), suggested,
+            tr("PDF files (*.pdf);;All files (*)"));
+        if (path.isEmpty()) return;
+        if (exportSummaryPdfTo(path))
+            QMessageBox::information(this, tr("Accessibility Summary"),
+                                     tr("Summary saved:\n%1").arg(path));
+        else
+            QMessageBox::warning(this, tr("Accessibility Summary"),
+                                 tr("Could not write the accessibility "
+                                    "summary PDF."));
+    });
 }
 
 AccessibilityPanel::~AccessibilityPanel() {
@@ -218,7 +280,10 @@ void AccessibilityPanel::setDocument(const QString& path) {
     }
     // A document change invalidates the previous report — do not let an old
     // report describe the new identity, even before the new scan lands.
+    // The export actions disarm with it (same identity-tie discipline).
     m_lastReport = A11yReport{};
+    m_hasReport = false;
+    updateExportActionState();
     hideTagConfirmation();
     if (path.isEmpty()) {
         m_statusLabel->setText(tr("No document loaded."));
@@ -323,6 +388,45 @@ void AccessibilityPanel::updateTagActionState() {
 }
 
 void AccessibilityPanel::hideTagConfirmation() { m_tagConfirm->hide(); }
+
+// ── Row 15: export the last delivered report ────────────────────────────────
+// Both seams fail closed when no scan has delivered for the current identity
+// (m_hasReport): a report that was never run is never exported. The writer
+// carries the honest verdict — a failed scan exports as failed, zero
+// findings never word a conformance claim, truncation is disclosed.
+bool AccessibilityPanel::exportCsvTo(const QString& filePath) const {
+    if (!m_hasReport) return false;
+    QString err;
+    return A11yReportWriter::writeCsv(filePath, m_lastReport, &err);
+}
+
+bool AccessibilityPanel::exportSummaryPdfTo(const QString& filePath) const {
+    if (!m_hasReport) return false;
+    QString err;
+    return A11yReportWriter::writePdf(filePath, m_currentDocPath,
+                                      m_lastReport, &err);
+}
+
+void AccessibilityPanel::updateExportActionState() {
+    if (!m_exportCsvBtn || !m_exportPdfBtn) return;
+    if (m_hasReport) {
+        m_exportCsvBtn->setEnabled(true);
+        m_exportCsvBtn->setToolTip(tr(
+            "Export the last check result as a machine-readable CSV"));
+        m_exportPdfBtn->setEnabled(true);
+        m_exportPdfBtn->setToolTip(tr(
+            "Export the last check result as a print-ready PDF summary"));
+        return;
+    }
+    const QString why = m_currentDocPath.isEmpty()
+        ? tr("Run a check first — the export carries the last check result")
+        : tr("Waiting for the check to finish — the export carries the last "
+             "check result");
+    m_exportCsvBtn->setEnabled(false);
+    m_exportCsvBtn->setToolTip(why);
+    m_exportPdfBtn->setEnabled(false);
+    m_exportPdfBtn->setToolTip(why);
+}
 
 void AccessibilityPanel::onTagClicked() {
     if (!m_tagRunner || m_currentDocPath.isEmpty()) return;
@@ -604,6 +708,12 @@ void AccessibilityPanel::showEditorForFinding(int findingIndex) {
 void AccessibilityPanel::updateDisplay(const A11yReport& report) {
     clearFindings();
     m_lastReport = report;
+    // A scan DELIVERED for the current identity (onScanFinished checked the
+    // ARC06 tie before calling here) — the export actions arm, whatever the
+    // scan's outcome: a failed scan exports as failed (honest verdict), it
+    // is never hidden.
+    m_hasReport = true;
+    updateExportActionState();
 
     if (!report.loadOk) {
         m_statusLabel->setText(tr("Cannot scan: %1").arg(report.loadError));

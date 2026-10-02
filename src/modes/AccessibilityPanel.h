@@ -92,6 +92,17 @@ public:
     // click-time check is skipped (tests / hosts that guarantee mutability).
     void setReadOnlyGate(std::function<bool()> gate);
 
+    // Row 15 (wave 2b): export the LAST DELIVERED report of the CURRENT
+    // identity as a compliance artifact — CSV (machine-readable) or PDF
+    // (print-ready summary), both written by engines/A11yReportWriter with
+    // the checker's honest verdict (failed scan exports as failed; zero
+    // findings never word a conformance claim; truncation disclosed).
+    // The dialogs are the click adapters; these path-taking seams are the
+    // testable surface (the CommentsWidget::exportDisplayedCsv idiom).
+    // Fail closed when no scan has delivered for the current identity.
+    bool exportCsvTo(const QString& filePath) const;
+    bool exportSummaryPdfTo(const QString& filePath) const;
+
 public slots:
     void setDocument(const QString& path);
     // One fix, end to end: run it, report the outcome honestly in the status
@@ -121,6 +132,10 @@ private slots:
 private:
     void updateDisplay(const A11yReport& report);
     void updateTagActionState();
+    // Row 15: the export actions arm only when a scan DELIVERED for the
+    // current identity (m_hasReport); a document change disarms them —
+    // an old report may never describe the new identity.
+    void updateExportActionState();
     void clearFindings();
     void hideTagConfirmation();
     // Inline editor row (combo for /Lang, line edit for /Alt and /TU)
@@ -137,6 +152,9 @@ private:
     std::function<TaggerSessionState()> m_tagStateReader;   // CX-04 (GUI thread)
     std::function<bool()> m_readOnlyGate;   // PR-review §3.1 (injected)
     bool m_tagRunning = false;   // CX-04: a tag future is in flight
+    // Row 15: true only after updateDisplay delivered a report whose
+    // identity tie held — the export actions' arm condition.
+    bool m_hasReport = false;
 
     QFutureWatcher<A11yReport>* m_scanWatcher = nullptr;
     QFutureWatcher<TaggerPreflight>* m_preflightWatcher = nullptr;
@@ -150,6 +168,8 @@ private:
     QVBoxLayout* m_findingsLayout = nullptr;
     QPushButton* m_scanBtn = nullptr;
     QPushButton* m_tagBtn = nullptr;
+    QPushButton* m_exportCsvBtn = nullptr;    // Row 15
+    QPushButton* m_exportPdfBtn = nullptr;    // Row 15
     QWidget* m_tagConfirm = nullptr;
     QLabel* m_tagSummary = nullptr;
     QPushButton* m_tagApplyBtn = nullptr;

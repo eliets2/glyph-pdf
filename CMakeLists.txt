@@ -424,6 +424,8 @@ add_library(pdfws_engines STATIC
     src/engines/PatternRedactor.h       src/engines/PatternRedactor.cpp
     src/engines/TextMatchFinder.h       src/engines/TextMatchFinder.cpp
     src/engines/ReviewSummaryWriter.h   src/engines/ReviewSummaryWriter.cpp
+    src/engines/Standard14Text.h
+    src/engines/A11yReportWriter.h      src/engines/A11yReportWriter.cpp
     src/engines/HeadingOutlineDetector.h src/engines/HeadingOutlineDetector.cpp
     src/core/StampLibrary.h             src/core/StampLibrary.cpp
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
@@ -2539,6 +2541,34 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAccessibilityPanel.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 120
         LABELS "unit;accessibility;a11y-panel;qt;headless"
+    )
+endif()
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestA11yReportWriter.cpp")
+    add_executable(TestA11yReportWriter
+        tests/TestA11yReportWriter.cpp
+    )
+    target_include_directories(TestA11yReportWriter PRIVATE src tests)
+    target_link_libraries(TestA11yReportWriter PRIVATE
+        pdfws_engines pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets
+    )
+    add_custom_command(TARGET TestA11yReportWriter POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestA11yReportWriter>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestA11yReportWriter>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestA11yReportWriter"
+    )
+    add_test(NAME TestA11yReportWriter COMMAND TestA11yReportWriter)
+    set_tests_properties(TestA11yReportWriter PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        # SafeSave seam class FU-2 (process-global commit fault + shared
+        # candidate temp dir), same as TestPrintableSummary — run alone.
+        RUN_SERIAL TRUE
+        LABELS "unit;accessibility;a11y-report-writer;qt;headless"
     )
 endif()
 
