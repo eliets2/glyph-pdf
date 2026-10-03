@@ -1,0 +1,52 @@
+Test project D:/pdf/pdf-f-code/build-rel
+    Start 69: TestHotFolder
+1/1 Test #69: TestHotFolder ....................***Failed   13.82 sec
+********* Start testing of TestHotFolder *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestHotFolder::initTestCase()
+PASS   : TestHotFolder::unarmedIngestIsNoop()
+PASS   : TestHotFolder::seededFilesAreNotIngested()
+PASS   : TestHotFolder::newDropIngestedOnceThenDeduped()
+PASS   : TestHotFolder::multipleDropsIngestedInOnePass()
+PASS   : TestHotFolder::modifiedSameNameReingestsButModelDedupes()
+PASS   : TestHotFolder::uppercaseExtensionIngested()
+PASS   : TestHotFolder::nonPdfDropIgnored()
+PASS   : TestHotFolder::subdirectoryPdfIsIngestedRecursive()
+PASS   : TestHotFolder::missingWatchDirIsSilentNoop()
+PASS   : TestHotFolder::armForcesAutoRunOn()
+PASS   : TestHotFolder::controllerWatchWiringAndDebounce()
+PASS   : TestHotFolder::controllerDebounceCoalesces()
+PASS   : TestHotFolder::controllerFlatDropEndToEnd()
+PASS   : TestHotFolder::controllerStopClearsState()
+PASS   : TestHotFolder::controllerWatchesSubdirectories()
+PASS   : TestHotFolder::controllerDiscoversSubdirCreatedAfterStart()
+PASS   : TestHotFolder::recursiveWatchIngestsNestedDropEndToEnd()
+PASS   : TestHotFolder::pollingFallbackDiscoversNestedDrop()
+PASS   : TestHotFolder::pollingDedupsAndFlatDrops()
+PASS   : TestHotFolder::sameStemInDifferentSubdirsBothIngest()
+FAIL!  : TestHotFolder::pollingRewriteForgedMtimeDifferentSizeReingests() '!ingested.isEmpty()' returned FALSE. (mtime-preserved size-changing rewrite never re-ingested (F-5))
+D:/pdf/pdf-f-code/tests/TestHotFolder.cpp(643) : failure location
+FAIL!  : TestHotFolder::controllerBulkFileEventsDoNotWalkPerEvent() 'c.watchWalkCountForTest() == walksAtStart' returned FALSE. (directory-changed walked the whole tree synchronously per event (F-7))
+D:/pdf/pdf-f-code/tests/TestHotFolder.cpp(672) : failure location
+PASS   : TestHotFolder::batchModePollingOptionWiring()
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 23 passed, 2 failed, 0 skipped, 0 blacklisted, 13780ms
+********* Finished testing of TestHotFolder *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+batch        =  13.82 sec*proc (1 test)
+headless     =  13.82 sec*proc (1 test)
+hotfolder    =  13.82 sec*proc (1 test)
+modes        =  13.82 sec*proc (1 test)
+qt           =  13.82 sec*proc (1 test)
+ui           =  13.82 sec*proc (1 test)
+unit         =  13.82 sec*proc (1 test)
+
+Total Test time (real) =  13.83 sec
+
+The following tests FAILED:
+	 69 - TestHotFolder (Failed)                            batch headless hotfolder modes qt ui unit
+Errors while running CTest

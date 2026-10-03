@@ -1,0 +1,26 @@
+Test project D:/pdf/pdf-f-code/build-rel
+    Start  65: TestPageLabels
+1/3 Test  #65: TestPageLabels ...................   Passed    0.70 sec
+    Start  69: TestHotFolder
+2/3 Test  #69: TestHotFolder ....................   Passed   11.08 sec
+    Start 113: TestFillFormNoOp
+3/3 Test #113: TestFillFormNoOp .................   Passed    0.54 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+batch          =  11.08 sec*proc (1 test)
+core           =   0.70 sec*proc (1 test)
+form-fields    =   0.54 sec*proc (1 test)
+forms          =   0.54 sec*proc (1 test)
+headless       =  12.32 sec*proc (3 tests)
+hotfolder      =  11.08 sec*proc (1 test)
+modes          =  11.08 sec*proc (1 test)
+pagelabels     =   0.70 sec*proc (1 test)
+pages          =   0.70 sec*proc (1 test)
+persistence    =   0.54 sec*proc (1 test)
+qt             =  12.32 sec*proc (3 tests)
+ui             =  11.08 sec*proc (1 test)
+unit           =  12.32 sec*proc (3 tests)
+
+Total Test time (real) =  12.59 sec
