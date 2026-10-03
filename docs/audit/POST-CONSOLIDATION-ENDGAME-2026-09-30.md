@@ -247,7 +247,16 @@ non-fast-forward; repaired by rebasing local's lane-A/hygiene commits onto
 origin's line; the reunited tree gated 202/202
 (evidence-wave2-closing/waveend-serial-2026-10-03.txt). Process note: lane
 agents must NEVER run git reset/checkout against the main worktree — the
-r3 briefs now say so explicitly.
+r3 briefs now say so explicitly. FORENSIC CLOSE-OUT (no-loss proof): all 5
+rolled-back commits are patch-equivalent in main (git cherry: all `-`) and
+ancestors of it; byte-level containment — every one of the 913 payload
+lines of `git diff 81bf9728 774ada26` is present in `git diff 81bf9728
+main` (0 missing); the 455 unreachable objects are historical
+cherry-pick originals (pre-reset), and the 6 created inside the reset
+window are the lane-A/lane-B branch originals, all folded with -x
+provenance. Zero content loss. The resetter is not identifiable from the
+reflog (entry records only the target SHA); the reset window sits between
+the lane-B push and the lane-A picks.
 NATIVE LINUX (wave 2c): feat/linux-native merged via its lane — vendored
 podofo from source, tesseract/leptonica/libsecret ON, pdfium/rapidocr/
 qpdf/quickjs honestly OFF; offscreen gate at its honest floor 155/200
