@@ -1,0 +1,60 @@
+Test project D:/pdf/pdf-r3-sec/build-rel
+    Start 69: TestHotFolder
+1/1 Test #69: TestHotFolder ....................***Failed   11.51 sec
+********* Start testing of TestHotFolder *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestHotFolder::initTestCase()
+PASS   : TestHotFolder::unarmedIngestIsNoop()
+PASS   : TestHotFolder::seededFilesAreNotIngested()
+PASS   : TestHotFolder::newDropIngestedOnceThenDeduped()
+PASS   : TestHotFolder::multipleDropsIngestedInOnePass()
+PASS   : TestHotFolder::modifiedSameNameReingestsButModelDedupes()
+PASS   : TestHotFolder::uppercaseExtensionIngested()
+PASS   : TestHotFolder::nonPdfDropIgnored()
+PASS   : TestHotFolder::subdirectoryPdfIsIngestedRecursive()
+PASS   : TestHotFolder::missingWatchDirIsSilentNoop()
+PASS   : TestHotFolder::armForcesAutoRunOn()
+PASS   : TestHotFolder::controllerWatchWiringAndDebounce()
+PASS   : TestHotFolder::controllerDebounceCoalesces()
+PASS   : TestHotFolder::controllerFlatDropEndToEnd()
+PASS   : TestHotFolder::controllerStopClearsState()
+PASS   : TestHotFolder::controllerWatchesSubdirectories()
+PASS   : TestHotFolder::controllerDiscoversSubdirCreatedAfterStart()
+PASS   : TestHotFolder::recursiveWatchIngestsNestedDropEndToEnd()
+PASS   : TestHotFolder::pollingFallbackDiscoversNestedDrop()
+PASS   : TestHotFolder::pollingDedupsAndFlatDrops()
+PASS   : TestHotFolder::sameStemInDifferentSubdirsBothIngest()
+PASS   : TestHotFolder::pollingRewriteForgedMtimeDifferentSizeReingests()
+PASS   : TestHotFolder::controllerBulkFileEventsDoNotWalkPerEvent()
+FAIL!  : TestHotFolder::controllerWatchCapEngagesPollingForDegradedSubtree() '!c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late")))' returned FALSE. (premise: the capped subtree is not under native watch)
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(717) : failure location
+FAIL!  : TestHotFolder::controllerWatchCapDisclosureFiresOncePerSubtree() Compared values are not the same
+   Actual   (disclosures.size()): 0
+   Expected (1)                 : 1
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(767) : failure location
+FAIL!  : TestHotFolder::controllerRootWatchFailureDegradesToPolling() 'c.isPolling()' returned FALSE. (a refused root must degrade the whole watch to polling (F-6))
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(792) : failure location
+PASS   : TestHotFolder::batchModePollingOptionWiring()
+FAIL!  : TestHotFolder::batchModeDisclosesWatchDegradationInLog() 'hot->isPolling()' returned FALSE. (BatchMode's controller did not engage the polling backstop)
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(845) : failure location
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 25 passed, 4 failed, 0 skipped, 0 blacklisted, 11301ms
+********* Finished testing of TestHotFolder *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+batch        =  11.51 sec*proc (1 test)
+headless     =  11.51 sec*proc (1 test)
+hotfolder    =  11.51 sec*proc (1 test)
+modes        =  11.51 sec*proc (1 test)
+qt           =  11.51 sec*proc (1 test)
+ui           =  11.51 sec*proc (1 test)
+unit         =  11.51 sec*proc (1 test)
+
+Total Test time (real) =  11.54 sec
+
+The following tests FAILED:
+	 69 - TestHotFolder (Failed)                            batch headless hotfolder modes qt ui unit
+Errors while running CTest

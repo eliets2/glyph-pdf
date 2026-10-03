@@ -1,0 +1,81 @@
+Test project D:/pdf/pdf-r3-sec/build-rel
+    Start 42: TestSevenZipBundle
+1/2 Test #42: TestSevenZipBundle ...............***Failed    0.27 sec
+********* Start testing of TestSevenZipBundle *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSevenZipBundle::initTestCase()
+PASS   : TestSevenZipBundle::vendoredBinariesAreCommittedAndHashPinned()
+PASS   : TestSevenZipBundle::resolverPrefersAppOwnedBinary()
+PASS   : TestSevenZipBundle::resolverDisclosesAbsenceHonestly()
+FAIL!  : TestSevenZipBundle::tamperedBundledPairIsRefusedWithIntegrityDisclosure() 'resolved.isEmpty()' returned FALSE. (a tampered bundled 7z.exe must be REFUSED at resolution — it would receive the document bytes and the package password)
+D:/pdf/pdf-r3-sec/tests/TestSevenZipBundle.cpp(226) : failure location
+PASS   : TestSevenZipBundle::goodBundledPairPassesRuntimeVerification()
+FAIL!  : TestSevenZipBundle::integrityCheckRunsOncePerSession() 'SafeSave::locateSevenZip(probeDir.path(), &probeErr).isEmpty()' returned FALSE. (control failed: the tamper is not being detected at all)
+D:/pdf/pdf-r3-sec/tests/TestSevenZipBundle.cpp(295) : failure location
+PASS   : TestSevenZipBundle::bundledBinaryEndToEndStdinPassword()
+PASS   : TestSevenZipBundle::cleanupTestCase()
+Totals: 7 passed, 2 failed, 0 skipped, 0 blacklisted, 161ms
+********* Finished testing of TestSevenZipBundle *********
+
+    Start 69: TestHotFolder
+2/2 Test #69: TestHotFolder ....................***Failed   11.43 sec
+********* Start testing of TestHotFolder *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestHotFolder::initTestCase()
+PASS   : TestHotFolder::unarmedIngestIsNoop()
+PASS   : TestHotFolder::seededFilesAreNotIngested()
+PASS   : TestHotFolder::newDropIngestedOnceThenDeduped()
+PASS   : TestHotFolder::multipleDropsIngestedInOnePass()
+PASS   : TestHotFolder::modifiedSameNameReingestsButModelDedupes()
+PASS   : TestHotFolder::uppercaseExtensionIngested()
+PASS   : TestHotFolder::nonPdfDropIgnored()
+PASS   : TestHotFolder::subdirectoryPdfIsIngestedRecursive()
+PASS   : TestHotFolder::missingWatchDirIsSilentNoop()
+PASS   : TestHotFolder::armForcesAutoRunOn()
+PASS   : TestHotFolder::controllerWatchWiringAndDebounce()
+PASS   : TestHotFolder::controllerDebounceCoalesces()
+PASS   : TestHotFolder::controllerFlatDropEndToEnd()
+PASS   : TestHotFolder::controllerStopClearsState()
+PASS   : TestHotFolder::controllerWatchesSubdirectories()
+PASS   : TestHotFolder::controllerDiscoversSubdirCreatedAfterStart()
+PASS   : TestHotFolder::recursiveWatchIngestsNestedDropEndToEnd()
+PASS   : TestHotFolder::pollingFallbackDiscoversNestedDrop()
+PASS   : TestHotFolder::pollingDedupsAndFlatDrops()
+PASS   : TestHotFolder::sameStemInDifferentSubdirsBothIngest()
+PASS   : TestHotFolder::pollingRewriteForgedMtimeDifferentSizeReingests()
+PASS   : TestHotFolder::controllerBulkFileEventsDoNotWalkPerEvent()
+FAIL!  : TestHotFolder::controllerWatchCapEngagesPollingForDegradedSubtree() 'c.isPolling()' returned FALSE. (silent addPaths refusal must engage the polling fallback (F-6))
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(719) : failure location
+FAIL!  : TestHotFolder::controllerWatchCapDisclosureFiresOncePerSubtree() Compared values are not the same
+   Actual   (disclosures.size()): 0
+   Expected (1)                 : 1
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(767) : failure location
+FAIL!  : TestHotFolder::controllerRootWatchFailureDegradesToPolling() 'c.isPolling()' returned FALSE. (a refused root must degrade the whole watch to polling (F-6))
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(792) : failure location
+PASS   : TestHotFolder::batchModePollingOptionWiring()
+FAIL!  : TestHotFolder::batchModeDisclosesWatchDegradationInLog() 'hot->isPolling()' returned FALSE. (BatchMode's controller did not engage the polling backstop)
+D:/pdf/pdf-r3-sec/tests/TestHotFolder.cpp(845) : failure location
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 25 passed, 4 failed, 0 skipped, 0 blacklisted, 11254ms
+********* Finished testing of TestHotFolder *********
+
+
+0% tests passed, 2 tests failed out of 2
+
+Label Time Summary:
+batch          =  11.43 sec*proc (1 test)
+controllers    =   0.27 sec*proc (1 test)
+headless       =  11.70 sec*proc (2 tests)
+hotfolder      =  11.43 sec*proc (1 test)
+modes          =  11.43 sec*proc (1 test)
+qt             =  11.70 sec*proc (2 tests)
+security       =   0.27 sec*proc (1 test)
+ui             =  11.43 sec*proc (1 test)
+unit           =  11.70 sec*proc (2 tests)
+
+Total Test time (real) =  11.71 sec
+
+The following tests FAILED:
+	 42 - TestSevenZipBundle (Failed)                       controllers headless qt security unit
+	 69 - TestHotFolder (Failed)                            batch headless hotfolder modes qt ui unit
+Errors while running CTest

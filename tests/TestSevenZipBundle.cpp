@@ -295,7 +295,7 @@ private slots:
         QVERIFY(plantRealBundle(probeDir.path()));
         QVERIFY(flipByte(probeDir.path() + QStringLiteral("/7z.exe"), kTamperOffset));
         QString probeErr;
-        QVERIFY2(SafeSave::locateSevenZip(probeDir.path(), &probeErr).isEmpty(),
+        QVERIFY2(gp::SevenZipLocator::locateVerifiedForTesting(probeDir.path(), &probeErr).isEmpty(),
                  "control failed: the tamper is not being detected at all");
         QVERIFY(!probeErr.isEmpty());
 
