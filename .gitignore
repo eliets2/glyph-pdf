@@ -47,6 +47,12 @@ desktop.ini
 # Vendor import libraries (MinGW .dll.a stubs) — small and needed for linking
 !third_party/**/*.dll.a
 !third_party/**/*.lib
+# L03 (native-Linux artifact manifest): the PDFium runtime shared object is
+# staged by scripts/bootstrap-vendor-deps.sh (pinned SHA-256, see
+# third_party/pdfium/PROVENANCE.md) — same discipline as bin/pdfium.dll on
+# Windows (*.dll above). The headers and the PROVENANCE record stay tracked.
+third_party/pdfium/lib/*.so
+third_party/pdfium/lib/*.so.*
 
 # Vendor SDKs (large binaries — obtain via CMake FetchContent or vcpkg)
 onnxruntime-win-x64-*/

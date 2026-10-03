@@ -431,11 +431,30 @@ void TestEngineSave::commitBlockedByOpenHandlePreservesSource() {
     QVERIFY(editor.loadDocumentForEditing(pdf));
 
     const bool ok = editor.saveDocument(pdf);
+#ifdef Q_OS_WIN
     QVERIFY2(!ok, "a replacement blocked by an open handle must FAIL, "
                   "not silently fall back to a direct write that truncates");
 
     QCOMPARE(sha256(pdf), shaBefore);       // original byte-identical
     QCOMPARE(pdfPageCount(pdf), 2u);        // and still a readable two-page PDF
+#else
+    // NATIVE-LINUX (2026-10-04, L03): POSIX has no sharing-violation class —
+    // the same finding as the K1/K2/K4 pins in TestFileHandleCoordination
+    // (e23abed). The held ReadOnly handle cannot block the atomic replace, so
+    // the bounded commit legitimately LANDS. Pin the mechanism-consistent
+    // triple instead of the Windows outcome: the commit reports ok, the PATH
+    // carries the committed (new) content, and the READER's open handle still
+    // reads the pre-commit bytes (rename(2) swapped the directory entry; the
+    // fd keeps the old inode) — the never-truncate invariant via the POSIX
+    // mechanism. Windows keeps its refusal pins verbatim above.
+    QVERIFY2(ok, "POSIX: the held ReadOnly handle must not block the atomic "
+                 "replace (no sharing-violation class on POSIX)");
+    QCOMPARE(pdfPageCount(pdf), 2u);        // the committed path is readable
+    QVERIFY2(extractedText(pdf, 0).contains(QStringLiteral("EC01 page one marker")),
+             "the committed content must be extractable from the replaced path");
+    held.seek(0);
+    QCOMPARE(shaOfBytes(held.readAll()), shaBefore);   // the open reader keeps the pre-commit bytes
+#endif
     held.close();
 }
 
@@ -1135,7 +1154,12 @@ void TestEngineSave::externalChangeWithPreservedMtimeIsStillDetected() {
         QFile f(pdf);
         QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
         f.write(colleague);
-        f.setFileTime(originalMtime, QFile::FileModificationTime);  // preserve timestamps
+        f.flush();   // L03 (2026-10-04): push the buffered bytes to the kernel
+                     // BEFORE restoring mtime — otherwise the destructor's
+                     // close-flush write(2) lands after the restore and bumps
+                     // mtime back (the +6 ms red on Linux).
+        QVERIFY2(f.setFileTime(originalMtime, QFile::FileModificationTime),
+                 "setFileTime must succeed for the preserved-mtime pin");
     }
     QCOMPARE(QFileInfo(pdf).lastModified(), originalMtime);
 

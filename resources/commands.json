@@ -2481,6 +2481,20 @@
    "status": "new-toolid",
    "toolId": "RotateOrFlipImage"
   },
+  "rotateViewCCW": {
+   "label": "Rotate View Counter-Clockwise",
+   "name": "Rotate View Counter-Clockwise",
+   "description": "Rotate how the page is DISPLAYED 90 degrees counter-clockwise for this session. The file is not changed: this is view rotation, not page rotation. While rotated the page shows fit-to-window and free pixel-scrolling pauses; Next/Previous page still works.",
+   "action": "fn:rotateViewCounterClockwise",
+   "status": "toolid"
+  },
+  "rotateViewCW": {
+   "label": "Rotate View Clockwise",
+   "name": "Rotate View Clockwise",
+   "description": "Rotate how the page is DISPLAYED 90 degrees clockwise for this session. The file is not changed: this is view rotation, not page rotation. While rotated the page shows fit-to-window and free pixel-scrolling pauses; Next/Previous page still works.",
+   "action": "fn:rotateViewClockwise",
+   "status": "toolid"
+  },
   "rtl": {
    "action": "toast",
    "control": "tg",
