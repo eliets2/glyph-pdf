@@ -578,6 +578,35 @@ if(WIN32 AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-win-x64-1.17.3")
     set(onnxruntime_FOUND TRUE)
 endif()
 
+# L03 (native-Linux artifact manifest): the same staged-tree import for the
+# NATIVE Linux tree (onnxruntime-linux-x64-1.17.3: ELF artifacts, staged by
+# scripts/bootstrap-vendor-deps.sh from the microsoft/onnxruntime v1.17.3
+# release). The real file carries its version in the SONAME
+# (libonnxruntime.so.1.17.3); the build RPATH picks the staged lib/ dir up
+# automatically (L05: no Windows-style runtime staging on Linux). Configure-
+# time SHA-256 pin — 7z-lane discipline (third_party/onnxruntime/PROVENANCE.md).
+if(NOT onnxruntime_FOUND AND UNIX AND EXISTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-1.17.3/lib/libonnxruntime.so")
+    set(GLYPHPDF_ORT_LINUX_SHA256 "8bdcd79ab25e38d1d7646948e07a7d87ed95c2164a04e43dd685147fd5c86b4c")
+    file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-1.17.3/lib/libonnxruntime.so"
+         _ort_linux_actual)
+    if(NOT _ort_linux_actual STREQUAL GLYPHPDF_ORT_LINUX_SHA256)
+        message(FATAL_ERROR
+            "onnxruntime-linux-x64-1.17.3/lib/libonnxruntime.so checksum mismatch: observed "
+            "${_ort_linux_actual}, the enforced pin is ${GLYPHPDF_ORT_LINUX_SHA256}. The staged "
+            "bytes must come from https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/"
+            "onnxruntime-linux-x64-1.17.3.tgz — re-run scripts/bootstrap-vendor-deps.sh; see "
+            "third_party/onnxruntime/PROVENANCE.md.")
+    endif()
+    add_library(onnxruntime SHARED IMPORTED)
+    set_target_properties(onnxruntime PROPERTIES
+        IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-1.17.3/lib/libonnxruntime.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${CMAKE_CURRENT_SOURCE_DIR}/onnxruntime-linux-x64-1.17.3/include"
+    )
+    set(onnxruntime_FOUND TRUE)
+    message(STATUS "onnxruntime 1.17.3 staged tree (linux-x64, SHA-256 pinned) — RapidOCR PP-OCRv5 enabled")
+endif()
+
 if(onnxruntime_FOUND OR TARGET onnxruntime)
     target_link_libraries(pdfws_engines PUBLIC onnxruntime)
     target_compile_definitions(pdfws_engines PUBLIC HAS_RAPIDOCR)

@@ -34,10 +34,13 @@ JOBS="${JOBS:-2}"
 # pdfium.dll, onnxruntime-win-x64); Linux builds podofo 1.1.0 from source into
 # its OWN prefix (third_party/podofo/install-linux) so the Windows-only tree
 # is never clobbered and the Linux build can never pick up Windows binaries.
-# PDFium and ONNX Runtime native Linux artifacts are NOT yet provisioned —
-# on Linux those steps are skipped and the corresponding features are
-# honestly disabled (HAS_PDFIUM=OFF, HAS_RAPIDOCR=OFF) until the artifact
-# manifest work (L03) lands.
+# L03 (native-Linux artifact manifest, 2026-10-04): Linux stages its OWN
+# pdfium + onnxruntime artifacts — pdfium-linux-x64.tgz (bblanchon
+# chromium/7834: the SAME release as the Windows pin) and
+# onnxruntime-linux-x64-1.17.3.tgz (microsoft/onnxruntime v1.17.3: the SAME
+# version as the Windows pin). Every archive and every extracted payload is
+# SHA-256-pinned below; the provenance narratives live in
+# third_party/pdfium/PROVENANCE.md and third_party/onnxruntime/PROVENANCE.md.
 UNAME_S="$(uname -s 2>/dev/null || echo Windows_NT)"
 case "$UNAME_S" in
   Linux*) GLYPH_HOST_OS=linux ;;
@@ -67,6 +70,25 @@ ORT_ZIP_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/
 ORT_ZIP_SHA256="356a33d024f2709786bebd5d4ca06cd5392875da95daa0455aae72edc8993256"
 QUICKJS_PKG="mingw-w64-ucrt-x86_64-quickjs-ng"   # MIT; pinned 0.15.0 via pacman
 
+# L03 native-Linux artifacts (same release/version discipline as above; both
+# the ARCHIVE and the EXTRACTED PAYLOAD are pinned — the G18 two-object rule).
+PDFIUM_LINUX_SO="third_party/pdfium/lib/libpdfium.so"
+PDFIUM_LINUX_TGZ_URL="https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F7834/pdfium-linux-x64.tgz"
+PDFIUM_LINUX_TGZ_SHA256="e10b18234af3e988b3021547786e574b8905a24511067f14773f29c9cac12365"
+PDFIUM_LINUX_SO_SHA256="246872bdd5e05843b70051e6378216cc584535a1f4a7248b9f88059715d70f7c"
+ORT_LINUX_DIR="onnxruntime-linux-x64-1.17.3"
+ORT_LINUX_TGZ_URL="https://github.com/microsoft/onnxruntime/releases/download/v1.17.3/onnxruntime-linux-x64-1.17.3.tgz"
+# No published upstream SHA exists for this asset (checked: the GitHub release
+# API carries no asset digests for v1.17.3 and the release notes publish none);
+# the pin below is the OBSERVED hash of the 2026-10-04 download, recorded per
+# the lane honesty rules and enforced from now on. See
+# third_party/onnxruntime/PROVENANCE.md.
+ORT_LINUX_TGZ_SHA256="f2f11f9da1e3e19b22a8b378b9af57a58433f40e3db6a803e75c0ec0eba97a20"
+ORT_LINUX_SO_SHA256="8bdcd79ab25e38d1d7646948e07a7d87ed95c2164a04e43dd685147fd5c86b4c"
+# Download-once cache (container/lane convenience): a directory of
+# hash-verified archives the fetches reuse instead of re-downloading.
+GLYPHPDF_ARTIFACT_CACHE="${GLYPHPDF_ARTIFACT_CACHE:-/opt/glyphpdf-artifact-cache}"
+
 # Platform-specific artifact checks. Windows validates the vendored DLL; Linux
 # validates the equivalent shared-object artifact (L04: same pinning rigor,
 # different binary format).
@@ -77,8 +99,13 @@ if [ "$GLYPH_HOST_OS" = "linux" ]; then
 else
   podofo_ok() { [ -f "$PODOFO_DIR/bin/libpodofo.dll" ] && [ -f "$PODOFO_DIR/lib/cmake/podofo/podofo-config.cmake" ]; }
 fi
-pdfium_ok()   { [ -f "$PDFIUM_DLL" ]; }
-onnx_ok()     { [ -f "$ORT_DIR/lib/onnxruntime.dll" ]; }
+if [ "$GLYPH_HOST_OS" = "linux" ]; then
+  pdfium_ok()   { [ -f "$PDFIUM_LINUX_SO" ]; }
+  onnx_ok()     { [ -f "$ORT_LINUX_DIR/lib/libonnxruntime.so" ]; }
+else
+  pdfium_ok()   { [ -f "$PDFIUM_DLL" ]; }
+  onnx_ok()     { [ -f "$ORT_DIR/lib/onnxruntime.dll" ]; }
+fi
 # Resolve the UCRT64 prefix from inside MSYS2 (/ucrt64) or any host shell
 # (C:/msys64/ucrt64) — the script is also run from Git Bash/CI steps.
 UCRT64_ROOT=""
@@ -92,6 +119,23 @@ fetch() { # url sha256 dest
   echo "  downloading $url"
   curl -fL --retry 3 -o "$dest" "$url"
   echo "$sha  $dest" | sha256sum -c - >/dev/null
+}
+
+# fetch_cached: fetch() plus a download-once cache (GLYPHPDF_ARTIFACT_CACHE,
+# L03). A cached copy is used only if it still matches its pin; otherwise the
+# archive is (re-)downloaded straight into the cache and verified THERE, so a
+# re-run never re-downloads and a corrupted cache can never be used.
+fetch_cached() { # url sha256 cachename dest
+  local url="$1" sha="$2" cachefile="$GLYPHPDF_ARTIFACT_CACHE/$3" dest="$4"
+  mkdir -p "$GLYPHPDF_ARTIFACT_CACHE"
+  if [ -f "$cachefile" ] && echo "$sha  $cachefile" | sha256sum -c - >/dev/null 2>&1; then
+    echo "  using cached $cachefile (SHA-256 OK)"
+  else
+    echo "  downloading $url"
+    curl -fL --retry 3 -o "$cachefile" "$url"
+    echo "$sha  $cachefile" | sha256sum -c - >/dev/null
+  fi
+  cp "$cachefile" "$dest"
 }
 
 install_podofo() {
@@ -125,6 +169,25 @@ install_podofo() {
   rm -rf "$PODOFO_SRC"
 }
 
+install_pdfium_linux() {
+  echo "== [2/3] Staging PDFium shared object (chromium/7834, linux-x64) =="
+  local tmp="third_party/pdfium_dl_linux.tmp"
+  rm -rf "$tmp"; mkdir -p "$tmp" third_party/pdfium/lib
+  # G18 two-object rule: validate the ARCHIVE hash at download time...
+  fetch_cached "$PDFIUM_LINUX_TGZ_URL" "$PDFIUM_LINUX_TGZ_SHA256" \
+    pdfium-linux-x64-chromium7834.tgz "$tmp/pdfium.tgz"
+  tar -xzf "$tmp/pdfium.tgz" -C "$tmp"
+  # ...and the EXTRACTED shared object before staging. The tracked
+  # third_party/pdfium/include headers are byte-identical to this artifact's
+  # (verified 2026-10-04, same release) and stay the committed pin; only the
+  # runtime/link .so is staged (gitignored).
+  echo "$PDFIUM_LINUX_SO_SHA256  $tmp/lib/libpdfium.so" | sha256sum -c - >/dev/null \
+    || { echo "ERROR: extracted libpdfium.so hash mismatch (expected $PDFIUM_LINUX_SO_SHA256)" >&2; rm -rf "$tmp"; return 1; }
+  cp "$tmp/lib/libpdfium.so" "$PDFIUM_LINUX_SO"
+  rm -rf "$tmp"
+  pdfium_ok || { echo "ERROR: libpdfium.so missing after staging" >&2; return 1; }
+}
+
 install_pdfium() {
   echo "== [2/3] Staging PDFium runtime DLL (chromium/7834) =="
   local tmp="third_party/pdfium_dl.tmp"
@@ -154,6 +217,22 @@ install_onnx() {
   onnx_ok || { echo "ERROR: $ORT_DIR/lib/onnxruntime.dll missing after extraction" >&2; return 1; }
 }
 
+install_onnx_linux() {
+  echo "== [3/3] Staging ONNX Runtime 1.17.3 (linux-x64) =="
+  local tmp="onnxruntime_dl_linux.tmp"
+  rm -rf "$tmp"; mkdir -p "$tmp"
+  fetch_cached "$ORT_LINUX_TGZ_URL" "$ORT_LINUX_TGZ_SHA256" \
+    onnxruntime-linux-x64-1.17.3.tgz "$tmp/ort.tgz"
+  tar -xzf "$tmp/ort.tgz" -C "$tmp"
+  # The tgz's top-level directory IS the expected tree name.
+  echo "$ORT_LINUX_SO_SHA256  $tmp/$ORT_LINUX_DIR/lib/libonnxruntime.so" | sha256sum -c - >/dev/null \
+    || { echo "ERROR: extracted libonnxruntime.so hash mismatch (expected $ORT_LINUX_SO_SHA256)" >&2; rm -rf "$tmp"; return 1; }
+  rm -rf "$ORT_LINUX_DIR"
+  mv "$tmp/$ORT_LINUX_DIR" "$ORT_LINUX_DIR"
+  rm -rf "$tmp"
+  onnx_ok || { echo "ERROR: $ORT_LINUX_DIR/lib/libonnxruntime.so missing after extraction" >&2; return 1; }
+}
+
 # Not a vendored tree — an MSYS2 pacman package (same channel as Qt/qpdf/
 # OpenSSL). Form-JS execution is OPTIONAL at build time: without it, the
 # build stays green and CapabilityRegistry discloses the limitation.
@@ -177,14 +256,14 @@ case "${1:-install}" in
     ok=1
     if [ "$GLYPH_HOST_OS" = "linux" ]; then
       podofo_ok || { echo "MISSING: $PODOFO_DIR (lib/libpodofo.so or cmake config)"; ok=0; }
-      # Linux: pdfium/onnxruntime/quickjs native artifacts are NOT yet
-      # provisioned (L03 artifact manifest is the next step). Their absence
-      # is an honest feature disable, not a bootstrap failure.
-      pdfium_ok   || echo "NOTE (linux): $PDFIUM_DLL absent — HAS_PDFIUM=OFF (no native Linux pdfium artifact provisioned yet, L03)"
-      onnx_ok     || echo "NOTE (linux): $ORT_DIR absent — HAS_RAPIDOCR=OFF (no native Linux onnxruntime artifact provisioned yet)"
+      # L03: the native pdfium/onnxruntime artifacts are one script-run away
+      # (pinned in this script) — their absence is now a bootstrap miss, not
+      # an honest feature disable. quickjs stays an honest note (MSYS2-only).
+      pdfium_ok   || { echo "MISSING: $PDFIUM_LINUX_SO — run '$0 install' (HAS_PDFIUM would stay OFF)"; ok=0; }
+      onnx_ok     || { echo "MISSING: $ORT_LINUX_DIR/lib/libonnxruntime.so — run '$0 install' (HAS_RAPIDOCR would stay OFF)"; ok=0; }
       echo "NOTE (linux): quickjs-ng via pacman is MSYS2-only — HAS_QUICKJS depends on a system/dev provisioned libqjs"
       if [ "$ok" = 1 ]; then
-        echo "OK (linux): vendored podofo present at $PODOFO_DIR"
+        echo "OK (linux): vendored podofo + pdfium + onnxruntime present at $PODOFO_DIR, $PDFIUM_LINUX_SO, $ORT_LINUX_DIR"
         exit 0
       fi
       echo "!! podofo missing — run '$0 install' to build podofo $PODOFO_VER from source." >&2
@@ -205,7 +284,8 @@ case "${1:-install}" in
   install)
     podofo_ok || install_podofo
     if [ "$GLYPH_HOST_OS" = "linux" ]; then
-      echo "skip (linux): pdfium/onnxruntime staging is Windows-only (HAS_PDFIUM=OFF, HAS_RAPIDOCR=OFF recorded honestly — L03 native artifacts are future work)"
+      pdfium_ok || install_pdfium_linux
+      onnx_ok   || install_onnx_linux
       echo "skip (linux): quickjs-ng pacman install is MSYS2-only (HAS_QUICKJS off unless provisioned natively)"
     else
       pdfium_ok || install_pdfium
@@ -220,8 +300,8 @@ case "${1:-install}" in
 esac
 
 if [ "$GLYPH_HOST_OS" = "linux" ]; then
-  echo "bootstrap complete (linux): podofo $PODOFO_VER built from source into $PODOFO_DIR."
-  echo "Feature state on linux: HAS_PDFIUM=OFF, HAS_RAPIDOCR=OFF (no native artifacts yet, L03)."
+  echo "bootstrap complete (linux): podofo $PODOFO_VER built from source into $PODOFO_DIR; pdfium chromium/7834 + onnxruntime 1.17.3 staged (linux-x64, SHA-256-pinned)."
+  echo "Feature state on linux: HAS_PDFIUM=ON, HAS_RAPIDOCR=ON expected (L03 artifact manifest) — the configure feature summary is the authoritative record."
   echo "Now configure: cmake -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release"
 else
   echo "bootstrap complete: podofo $PODOFO_VER + pdfium chromium/7834 + onnxruntime 1.17.3 are staged."
