@@ -96,11 +96,16 @@ QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int page
 // trees). A pre-existing /PageLabels entry (and its stale /Nums) is removed
 // first. /S and /St are always written explicitly. `prefix` is written as the
 // range's /P text string (Table 159: it precedes the computed label number)
-// ONLY when non-empty — an empty prefix must never produce a /P key. Returns
-// false — touching nothing — for invalid input (pageCount <= 0 or
-// startValue < 1) or a PoDoFo error.
+// ONLY when non-empty — an empty prefix must never produce a /P key
+// (ABSENT, never present with an empty value; readers see no /P at all).
+// Returns false — touching nothing — for invalid input (pageCount <= 0 or
+// startValue < 1) or a PoDoFo error. `err` (optional) receives a
+// user-presentable reason for EVERY false — the same single-refusal-channel
+// contract as the sibling utility writers (ReviewSummaryWriter,
+// A11yReportWriter), so a caller never has to guess which refusal fired.
 bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
-                     int pageCount, const QString& prefix = QString());
+                     int pageCount, const QString& prefix = QString(),
+                     QString* err = nullptr);
 
 // File convenience: write the tree for the document at `pdfPath` (the page
 // count is taken from the document itself) and replace `pdfPath` with the
@@ -111,8 +116,11 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
 // and committed through the R01 safe-save primitives (SafeSave): on any
 // failure the destination is byte-identical. Direct API callers cannot lose
 // their file, and the PagesMode staged-candidate flow is itself safe.
+// Same return/reason contract as the document overload: false with a reason
+// in `err` (when non-null) for every refusal — invalid range, unreadable
+// document, candidate validation mismatch, or a refused commit.
 bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
-                     const QString& prefix = QString());
+                     const QString& prefix = QString(), QString* err = nullptr);
 
 } // namespace PageLabels
 } // namespace gp

@@ -2061,7 +2061,21 @@ bool FormManager::importFormData(const QString &pdfFilePath, const QString &data
 
     // R01: import lands on the same transactional boundary via fillForm
     // (import + flatten paths must not direct-write either).
-    return fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true, unsupportedFields, jsFailures);
+    const bool ok = fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true,
+                             unsupportedFields, jsFailures);
+    if (!ok && err && err->isOk()) {
+        // ONE refusal channel: every false must leave a typed reason in `err`.
+        // The parsers above populate it for input refusals; this covers the
+        // remaining false — a CLEAN file whose save transaction was refused
+        // (load failure, change validation, checked-commit refusal). Never a
+        // bare false beside a silent channel.
+        *err = ErrorInfo::error(
+            QObject::tr("The form data file was read successfully, but the "
+                        "document could not be saved — nothing was imported."),
+            QStringLiteral("importFormData: the fillForm save transaction "
+                           "refused the import (no output written)"));
+    }
+    return ok;
 }
 
 bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputPath)

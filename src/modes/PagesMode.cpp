@@ -1667,8 +1667,15 @@ void PagesMode::onApplyPageLabels()
                              PagesMode::tr("Could not stage the document for labeling."));
         return;
     }
-    if (!gp::PageLabels::writeNumberTree(candidate, start->value(), chosenStyle, prefixText)) {
+    QString writeErr;
+    if (!gp::PageLabels::writeNumberTree(candidate, start->value(), chosenStyle, prefixText,
+                                         &writeErr)) {
         QFile::remove(candidate);
+        // The writer's typed refusal (invalid range, unreadable document,
+        // validation mismatch) names the cause — logged beside the dialog's
+        // stable wording, never swallowed into a bare false.
+        qWarning("PagesMode::onApplyPageLabels: writeNumberTree refused: %s",
+                 qPrintable(writeErr));
         QMessageBox::warning(this, PagesMode::tr("Apply Page Labels"),
                              PagesMode::tr("Writing the page labels failed (invalid range or unreadable PDF)."));
         return;

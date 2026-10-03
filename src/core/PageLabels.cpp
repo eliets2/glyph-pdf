@@ -165,13 +165,16 @@ QList<PageLabelNumEntry> numberTreeEntries(int startValue, Style style, int page
 }
 
 bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
-                     int pageCount, const QString& prefix)
+                     int pageCount, const QString& prefix, QString* err)
 {
     // Validate FIRST: an invalid range must leave the catalog untouched.
     const QList<PageLabelNumEntry> entries =
         numberTreeEntries(startValue, style, pageCount, prefix);
-    if (entries.isEmpty())
+    if (entries.isEmpty()) {
+        if (err) *err = QStringLiteral("invalid labeling request (pageCount <= 0 "
+                                       "or startValue < 1) — nothing was written");
         return false;
+    }
 
     try {
         auto& objects = doc.GetObjects();
@@ -229,12 +232,14 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
         return true;
     } catch (const PoDoFo::PdfError& e) {
         qWarning("PageLabels::writeNumberTree: %s", e.what());
+        if (err) *err = QStringLiteral("the page-label tree could not be written: %1")
+                            .arg(QString::fromUtf8(e.what()));
         return false;
     }
 }
 
 bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
-                     const QString& prefix)
+                     const QString& prefix, QString* err)
 {
     // G13 (QUALITY-GATE-2026-09-09): this overload used to Load() and Save()
     // the SAME path. PoDoFo keeps the source device open for lazy object
@@ -247,13 +252,17 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
     // candidate by re-reading it, then commit the checked bytes. A
     // lazy-loaded file is never saved over itself, and a failed commit
     // leaves the destination byte-identical.
-    if (startValue < 1)
+    if (startValue < 1) {
+        if (err) *err = QStringLiteral("invalid labeling request (startValue < 1) "
+                                       "— nothing was written");
         return false;
+    }
 
     QString candidate;
-    QString err;
-    if (!SafeSave::makeUniqueCandidate(&candidate, &err)) {
-        qWarning("PageLabels::writeNumberTree: %s", qPrintable(err));
+    QString errLocal;
+    QString& reason = err ? *err : errLocal;   // one sink either way
+    if (!SafeSave::makeUniqueCandidate(&candidate, &reason)) {
+        qWarning("PageLabels::writeNumberTree: %s", qPrintable(reason));
         return false;
     }
     QFile::remove(candidate);   // the reserved handle is released; we own the path now
@@ -263,7 +272,7 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
         PoDoFo::PdfMemDocument doc;
         doc.Load(pdfPath.toUtf8().constData());
         const int pageCount = static_cast<int>(doc.GetPages().GetCount());
-        if (writeNumberTree(doc, startValue, style, pageCount, prefix)) {
+        if (writeNumberTree(doc, startValue, style, pageCount, prefix, &reason)) {
             doc.Save(candidate.toUtf8().constData());
 
             // Validate the candidate: it must re-open (proving no lazy-stream
@@ -308,22 +317,31 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
     } catch (const PoDoFo::PdfError& e) {
         qWarning("PageLabels::writeNumberTree(%s): %s",
                  qPrintable(pdfPath), e.what());
+        reason = QStringLiteral("the document could not be labeled: %1")
+                     .arg(QString::fromUtf8(e.what()));
         ok = false;
     } catch (const std::exception& e) {
         qWarning("PageLabels::writeNumberTree(%s): %s",
                  qPrintable(pdfPath), e.what());
+        reason = QStringLiteral("the document could not be labeled: %1")
+                     .arg(QString::fromUtf8(e.what()));
         ok = false;
     }
     if (!ok) {
+        // Every false leaves a reason: a written tree that failed its own
+        // read-back validation names the mismatch (no silent path).
+        if (reason.isEmpty())
+            reason = QStringLiteral("the labeled candidate failed validation "
+                                    "— nothing was written");
         QFile::remove(candidate);
         return false;
     }
 
     // Checked commit: the candidate atomically replaces the destination; on a
     // refused commit the original stays byte-identical.
-    if (!SafeSave::commitFileToDestination(candidate, pdfPath, &err)) {
+    if (!SafeSave::commitFileToDestination(candidate, pdfPath, &reason)) {
         qWarning("PageLabels::writeNumberTree: commit to %s failed: %s",
-                 qPrintable(pdfPath), qPrintable(err));
+                 qPrintable(pdfPath), qPrintable(reason));
         QFile::remove(candidate);
         return false;
     }
