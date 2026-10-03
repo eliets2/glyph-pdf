@@ -22,6 +22,7 @@
 #include <QFile>
 #include <QIODevice>
 #include <QImage>
+#include <QImageReader>
 #include <QListWidget>
 #include <QPushButton>
 #include <QSignalSpy>
@@ -60,6 +61,43 @@ private:
         img.fill(Qt::red);
         img.save(path, "PNG");
         return path;
+    }
+
+    // PNG CRC-32 (the zlib polynomial, as the PNG spec chunks require).
+    static quint32 pngCrc32(const char* data, int len) {
+        quint32 c = 0xFFFFFFFFu;
+        for (int i = 0; i < len; ++i) {
+            c ^= static_cast<quint8>(data[i]);
+            for (int k = 0; k < 8; ++k)
+                c = (c >> 1) ^ (0xEDB88320u & (0u - (c & 1u)));
+        }
+        return c ^ 0xFFFFFFFFu;
+    }
+
+    // Rewrites the IHDR-declared dimensions of a real PNG (and fixes the
+    // chunk CRC) without touching the pixel data: the classic dimension bomb
+    // — tiny on disk, enormous to decode.
+    static bool patchPngDimensions(const QString& path, quint32 w, quint32 h) {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadWrite)) return false;
+        QByteArray buf = f.readAll();
+        f.close();
+        if (buf.size() < 33 || buf.mid(12, 4) != QByteArrayLiteral("IHDR"))
+            return false;
+        auto putU32 = [&buf](int at, quint32 v) {
+            buf[at]     = static_cast<char>(v >> 24);
+            buf[at + 1] = static_cast<char>(v >> 16);
+            buf[at + 2] = static_cast<char>(v >> 8);
+            buf[at + 3] = static_cast<char>(v);
+        };
+        putU32(16, w);
+        putU32(20, h);
+        const QByteArray chunk = buf.mid(12, 17);  // "IHDR" + 13 data bytes
+        putU32(29, pngCrc32(chunk.constData(), chunk.size()));
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+        const bool ok = f.write(buf) == buf.size();
+        f.close();
+        return ok;
     }
 
 private slots:
@@ -189,6 +227,62 @@ private slots:
                  || QDir(StampLibrary::imageStampsDirFor(json))
                         .entryList(QDir::Files).isEmpty(),
                  "refused imports must not leave copied images behind");
+    }
+
+    // ── r4-misc dynamic probe (adversary: "needs dynamic probe") ────────────
+    // A dimension bomb through the stamp-import path: a PNG whose IHDR
+    // declares 20000x20000 (a ~1.6 GB ARGB32 decode) while the file stays
+    // tiny on disk. With Qt's reader allocation limit pulled down (the probe
+    // tasking), the import must refuse BEFORE decoding AND the refusal must
+    // be honest — the file IS a valid image, so "unsupported or corrupt"
+    // would be a lie; the refusal names the declared size. (RED pre-fix:
+    // Qt's limit fired inside read() and the null image was lumped into the
+    // corrupt/unsupported wording.)
+    void dimensionBombRefusedWithHonestSizeDisclosure() {
+        const QString bomb = m_tmpDir.filePath(QStringLiteral("dimension-bomb.png"));
+        {
+            QImage img(40, 20, QImage::Format_ARGB32);
+            img.fill(Qt::green);
+            QVERIFY(img.save(bomb, "PNG"));
+        }
+        QVERIFY2(patchPngDimensions(bomb, 20000, 20000),
+                 "IHDR patch failed — probe premise broken");
+        // Premise: the reader reports the bomb's DECLARED header size without
+        // decoding it.
+        QCOMPARE(QImageReader(bomb).size(), QSize(20000, 20000));
+
+        const QString json = m_tmpDir.filePath(QStringLiteral("bomb-catalog.json"));
+        QVERIFY(StampLibrary::saveCustomTo(json, {}));
+
+        const int defaultLimitMb = QImageReader::allocationLimit();
+        struct RestoreLimit {
+            int mb;
+            explicit RestoreLimit(int m) : mb(m) {}
+            ~RestoreLimit() { QImageReader::setAllocationLimit(mb); }
+        } restoreLimit(defaultLimitMb);
+        QImageReader::setAllocationLimit(1);  // MB — Qt's own guard, tiny
+
+        QString error;
+        const auto t = StampLibrary::addImageStampTo(json, QStringLiteral("Bomb"),
+                                                     bomb, &error);
+        QVERIFY2(!t.has_value(), "a dimension bomb must not import as a stamp");
+        QVERIFY2(!error.isEmpty(), "the refusal must carry a reason");
+        QVERIFY2(error.contains(QStringLiteral("20000")),
+                 qPrintable(QStringLiteral("the refusal must name the declared "
+                                          "dimension, not claim corruption: %1")
+                                .arg(error)));
+        QVERIFY2(error.contains(QStringLiteral("large"), Qt::CaseInsensitive)
+                     || error.contains(QStringLiteral("limit"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("the refusal must be honest about "
+                                          "the size problem: %1").arg(error)));
+
+        // No half-import: the catalog stays empty and no copied image leaks.
+        QVERIFY2(StampLibrary::loadCustomFrom(json).isEmpty(),
+                 "the refused bomb must not leave a catalog entry");
+        QVERIFY2(!QDir(StampLibrary::imageStampsDirFor(json)).exists()
+                 || QDir(StampLibrary::imageStampsDirFor(json))
+                        .entryList(QDir::Files).isEmpty(),
+                 "the refused bomb must not leave a copied image behind");
     }
 
     // ── the happy path: pick image → name → lands in the catalog ─────────

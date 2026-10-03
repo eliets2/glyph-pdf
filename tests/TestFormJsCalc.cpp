@@ -486,6 +486,12 @@ private slots:
     // state (a replaced end-event helper) may bleed into the next operation.
 
     void abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun();
+
+    // ── r4-misc (security-auditor finding 4): the linked-library gate ────────
+    // The configure-time pin reads quickjs.h macros; the sandbox re-verifies
+    // the LINKED engine at runtime (JS_GetVersion) and refuses on divergence.
+    void sandboxRefusesLinkedRuntimeVersionMismatch();
+    void sandboxConstructsWhenRuntimeVersionMatchesPin();
 };
 
 void TestFormJsCalc::goldenNumberFormat()
@@ -1864,6 +1870,71 @@ void TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun()
     FormManager fm2;
     const QString formatted = fm2.formatFieldValue(hostileOut, QStringLiteral("fmt"));
     QCOMPARE(formatted, QStringLiteral("$1,234.50"));
+}
+
+// ── r4-misc (security-auditor finding 4): the LINKED-library runtime gate ────
+// The configure-time pin parses quickjs.h macros — it proves the HEADERS
+// advertise the pinned version, not that the LINKED libqjs-0.dll is that
+// engine. The sandbox closes the gap at the execution choke point: the
+// constructor verifies JS_GetVersion() (the linked engine's own report)
+// against the enforced pin and refuses to construct on divergence — the 7z
+// runtime-verification discipline applied to the scripting engine.
+
+namespace {
+// Restores the expected-version seam no matter how the pin exits — a leaked
+// override would poison every later sandbox in the suite.
+struct ExpectedRuntimeVersionGuard {
+    explicit ExpectedRuntimeVersionGuard(const QString& v)
+    {
+        FormJsSandbox::setExpectedRuntimeVersionForTest(v);
+    }
+    ~ExpectedRuntimeVersionGuard()
+    {
+        FormJsSandbox::setExpectedRuntimeVersionForTest(QString());
+    }
+};
+} // namespace
+
+void TestFormJsCalc::sandboxRefusesLinkedRuntimeVersionMismatch()
+{
+    ExpectedRuntimeVersionGuard guard(QStringLiteral("0.0.0-adversary"));
+    FormJsSandbox sandbox;
+    QVERIFY2(!sandbox.isValid(),
+             "a libqjs whose RUNTIME version diverges from the build's "
+             "enforced pin must refuse to construct (the configure-time "
+             "check only proves the headers)");
+    const QString reason = sandbox.unavailableReason();
+    QVERIFY2(reason.contains(QStringLiteral("version mismatch")),
+             qPrintable(QStringLiteral("honest refusal must name the version "
+                                      "mismatch: %1").arg(reason)));
+    QVERIFY2(reason.contains(QStringLiteral("0.0.0-adversary")),
+             qPrintable(QStringLiteral("the refusal must name the runtime's "
+                                      "own report: %1").arg(reason)));
+    QVERIFY2(reason.contains(QStringLiteral("0.15.1")),
+             qPrintable(QStringLiteral("the refusal must name the enforced "
+                                      "pin: %1").arg(reason)));
+
+    // No entry point executes on a mismatched engine.
+    JsEvalResult r = sandbox.runEvent(QStringLiteral("1+1"), QStringLiteral("f"),
+                                      QStringLiteral("Calculate"), QStringLiteral("0"), 250);
+    QVERIFY2(!r.ok && !r.message.isEmpty(),
+             "a mismatched runtime must refuse to evaluate, not silently run");
+}
+
+void TestFormJsCalc::sandboxConstructsWhenRuntimeVersionMatchesPin()
+{
+    // No override: the REAL linked engine's JS_GetVersion against the REAL
+    // build pin — the healthy path this gate exists to protect.
+    FormJsSandbox sandbox;
+    QVERIFY2(sandbox.isValid(),
+             "the linked runtime matches the build pin — the sandbox must "
+             "construct (guard: the mismatch gate must never refuse an "
+             "honest engine)");
+    QVERIFY2(sandbox.unavailableReason().isEmpty(),
+             "a valid sandbox carries no unavailable-reason");
+    QString result, error;
+    QVERIFY(sandbox.evalHelper(QStringLiteral("1+1"), &result, &error));
+    QCOMPARE(result, QStringLiteral("2"));
 }
 
 QTEST_MAIN(TestFormJsCalc)

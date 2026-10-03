@@ -15,6 +15,14 @@
 
 namespace gp::formjs {
 
+// r4-misc (security-auditor finding 4): the expected LINKED-engine version.
+// Empty = the compiled-in GLYPHPDF_QUICKJS_VERSION pin (CMake parses the
+// HEADERS — quickjs.h — but the LINKED libqjs is a separate artifact; the
+// constructor consults this against JS_GetVersion and refuses to run
+// scripts on divergence). TestFormJsCalc overrides it to drive the mismatch
+// refusal deterministically; production never touches it.
+static QString g_expectedRuntimeVersion;
+
 // quickjs-ng object files must never carry host-I/O primitives into our link;
 // the engine core (libqjs) does not reference them — only the opt-in
 // quickjs-libc module does, and it is never initialized here. The behavioral
@@ -213,6 +221,25 @@ FormJsSandbox::~FormJsSandbox() = default;
 bool FormJsSandbox::isValid() const
 {
     return m_impl && m_impl->ctx != nullptr;
+}
+
+// r4-misc (security-auditor finding 4): the honest why-unavailable — EMPTY
+// when the sandbox is valid (a healthy engine carries no unavailable-reason).
+// The fallback string is EXACTLY the wording every FormJsRunner call site
+// used before this accessor existed — call sites switch to it in the
+// enforcement commit so a version-mismatch refusal names the mismatch, not
+// a lie.
+QString FormJsSandbox::unavailableReason() const
+{
+    if (isValid()) return QString();
+    return m_unavailableReason.isEmpty()
+        ? QStringLiteral("quickjs runtime is unavailable in this build")
+        : m_unavailableReason;
+}
+
+void FormJsSandbox::setExpectedRuntimeVersionForTest(const QString& version)
+{
+    g_expectedRuntimeVersion = version;
 }
 
 bool FormJsSandbox::installShim(QString* error)
@@ -606,6 +633,13 @@ FormJsSandbox::FormJsSandbox(const SandboxLimits& limits)
     : m_limits(limits), m_impl(std::make_unique<Impl>()) {}
 FormJsSandbox::~FormJsSandbox() = default;
 bool FormJsSandbox::isValid() const { return false; }
+// r4-misc: a no-engine build has no linked runtime to verify — the honest
+// disclosure is the no-engine reason (the version gate is meaningless here).
+QString FormJsSandbox::unavailableReason() const
+{
+    return QStringLiteral("quickjs runtime is unavailable in this build");
+}
+void FormJsSandbox::setExpectedRuntimeVersionForTest(const QString&) {}
 bool FormJsSandbox::installShim(QString* error)
 {
     if (error) *error = QStringLiteral("this build was compiled without a JavaScript engine");

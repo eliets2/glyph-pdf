@@ -76,6 +76,22 @@ public:
 
     bool isValid() const;
 
+    // r4-misc (security-auditor finding 4): the honest reason the sandbox is
+    // unavailable — the build-history string ("quickjs runtime is unavailable
+    // in this build") when the engine could not be constructed, or the
+    // runtime-version mismatch disclosure when the LINKED libqjs reports a
+    // version other than the build's enforced pin (the configure-time check
+    // reads the HEADERS; this gate reads the engine itself via JS_GetVersion).
+    // Empty when isValid().
+    QString unavailableReason() const;
+
+    // r4-misc test seam: overrides the EXPECTED runtime version (empty or a
+    // null string = the compiled-in GLYPHPDF_QUICKJS_VERSION pin). Exists so
+    // TestFormJsCalc can drive the mismatch refusal deterministically — the
+    // real linked engine cannot be swapped in a test. NEVER set outside
+    // TestFormJsCalc.
+    static void setExpectedRuntimeVersionForTest(const QString& version);
+
     // Installs the AF shim + host glue (once, before any runEvent). Fails
     // only if the shim source itself does not parse — a build-time defect.
     bool installShim(QString* error);
@@ -162,6 +178,11 @@ private:
     SandboxLimits m_limits;
     std::unique_ptr<Impl> m_impl;
     QVariantMap m_fieldValues;
+    // r4-misc (security-auditor finding 4): set when the sandbox refuses to
+    // construct because the LINKED engine's runtime version (JS_GetVersion)
+    // diverges from the build's enforced pin. Empty = constructed normally
+    // (or the build has no engine — the stub carries its own disclosure).
+    QString m_unavailableReason;
 };
 
 // Canonical string for a computed number when it is written back to /V:

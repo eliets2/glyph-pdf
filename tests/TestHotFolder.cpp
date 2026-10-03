@@ -33,10 +33,18 @@
 #include <QCheckBox>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTextEdit>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "modes/BatchMode.h"
 #include "modes/HotFolderController.h"
@@ -876,6 +884,195 @@ private slots:
                  "a re-entrant ingestDeliver ran a second full-tree scan "
                  "(RED pre-fix: the handler's nested call re-walked the "
                  "whole tree)");
+        c.stop();
+    }
+
+    // ── r4-misc (security-auditor finding 3): the processed-set is BOUNDED ───
+    // A months-long enterprise watch accumulates one entry per ingested file
+    // forever — a slow memory leak. The set is now bounded two ways: a TTL
+    // sweep (an entry whose file stopped being OBSERVED expires) and a hard
+    // entry cap (oldest-observed evicted past the cap). The re-ingest
+    // tradeoff is deliberate and honest: once an entry is evicted, a
+    // byte-identical re-drop of the same file (same relpath|mtime|size key)
+    // re-ingests — at-least-once delivery after eviction, never memory
+    // without bound.
+
+    // TTL eviction: a key whose file vanished (or changed) stops being
+    // refreshed; past the TTL the sweep evicts it, and an identical re-drop
+    // of the same file WORKS again (re-ingests). Pre-fix RED: the key lived
+    // forever, so the identical re-drop stayed deduped and never re-ingested.
+    void processedSetEvictsEntriesPastTtlAndReingests() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        c.setProcessedLimitsForTest(/*ttlMs=*/150, /*maxEntries=*/0);
+        c.arm(hotDir());
+
+        // Drop + ingest: the key enters the set (lastSeen = now).
+        const QDateTime forged = QDateTime::currentDateTimeUtc().addSecs(-60);
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("evict.pdf")).isEmpty());
+        QVERIFY2(forgeMTime(hotDir() + QStringLiteral("/evict.pdf"), forged),
+                 "mtime forge failed — pin premise broken");
+        QCOMPARE(c.ingestDeliver().size(), 1);
+        QCOMPARE(c.processedCountForTest(), 1);
+
+        // The file VANISHES: the scan stops observing (refreshing) the key.
+        QVERIFY(QFile::remove(hotDir() + QStringLiteral("/evict.pdf")));
+        QTest::qWait(400);  // ≥ 2 TTL windows with the key unobserved
+        QVERIFY(c.ingestDeliver().isEmpty());  // the sweep pass: nothing present
+
+        // Byte-identical re-drop with the SAME forged mtime → the SAME key.
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("evict.pdf")).isEmpty());
+        QVERIFY2(forgeMTime(hotDir() + QStringLiteral("/evict.pdf"), forged),
+                 "mtime forge failed — pin premise broken");
+        const QStringList redelivered = c.ingestDeliver();
+        QVERIFY2(redelivered.size() == 1,
+                 "an EVICTED identity must be re-ingestable (the set evicted "
+                 "it past the TTL — pre-fix the key lived forever and the "
+                 "identical re-drop stayed deduped)");
+        QVERIFY(redelivered.first().contains(QStringLiteral("evict.pdf")));
+        QCOMPARE(c.processedCountForTest(), 1);  // bounded again, not 2
+        c.stop();
+    }
+
+    // Guard for the TTL design: a file that stays PRESENT is refreshed by
+    // every scan pass and NEVER expires — a static archive in the watched
+    // tree must not re-ingest every TTL window. Green pre-fix (nothing
+    // evicted at all) and post-fix (the refresh keeps the entry alive).
+    void presentFilesAreNotReingestedAcrossTtlWindows() {
+        HotFolderController c;
+        QDir().mkpath(hotDir());
+        c.setProcessedLimitsForTest(/*ttlMs=*/100, /*maxEntries=*/0);
+        c.arm(hotDir());
+
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("static.pdf")).isEmpty());
+        QCOMPARE(c.ingestDeliver().size(), 1);
+
+        QTest::qWait(300);  // 3 TTL windows, file present throughout
+        QVERIFY2(c.ingestDeliver().isEmpty(),
+                 "a present file must not re-ingest past the TTL (the scan "
+                 "refreshes its entry)");
+        QTest::qWait(300);
+        QVERIFY2(c.ingestDeliver().isEmpty(),
+                 "a present file must not re-ingest past the TTL");
+        QCOMPARE(c.processedCountForTest(), 1);
+        c.stop();
+    }
+
+    // Entry cap: drops beyond the cap are all DELIVERED (delivery is never
+    // throttled) but the set trims its oldest-observed entries to stay
+    // bounded — and the trimmed identities are honestly re-ingestable on the
+    // next pass (documented at-least-once tradeoff). Pre-fix RED: the set
+    // kept every entry, unbounded.
+    void processedSetEntryCapBoundsMemoryWhileDeliveringAll() {
+        HotFolderController c;
+        QDir().mkpath(hotDir());
+        c.setProcessedLimitsForTest(/*ttlMs=*/0, /*maxEntries=*/3);
+        c.arm(hotDir());
+
+        for (int i = 0; i < 5; ++i)
+            QVERIFY(!createMinimalPdf(hotDir(),
+                                      QStringLiteral("cap%1.pdf").arg(i)).isEmpty());
+        const QStringList delivered = c.ingestDeliver();
+        QCOMPARE(delivered.size(), 5);  // the cap never throttles delivery
+        QVERIFY2(c.processedCountForTest() <= 3,
+                 qPrintable(QStringLiteral("processed set grew past the entry "
+                                          "cap: %1 entries (unbounded memory, "
+                                          "security-auditor finding 3)")
+                                .arg(c.processedCountForTest())));
+
+        // The trimmed identities are honestly re-ingestable: the next pass
+        // re-delivers exactly the evicted remainder and trims again.
+        const QStringList second = c.ingestDeliver();
+        QVERIFY2(second.size() == 2,
+                 qPrintable(QStringLiteral("expected exactly the 2 evicted "
+                                          "identities to re-ingest, got %1")
+                                .arg(second.size())));
+        QVERIFY2(c.processedCountForTest() <= 3,
+                 "bounded after the re-ingest pass too");
+        c.stop();
+    }
+
+    // ── r4-misc dynamic probe (adversary: "needs dynamic probe") ─────────────
+    // A directory JUNCTION LOOP inside the hot-folder root (root/loop → root)
+    // must not hang, crash or infinitely enumerate the ingest scan / watch
+    // walk. QDirIterator does not descend links without FollowSymlinks; this
+    // probe pins that the adversary's loop shape stays bounded end-to-end.
+    void directoryJunctionLoopScanTerminatesBounded() {
+        QDir().mkpath(hotDir(QStringLiteral("real")));
+        const QString loop = hotDir(QStringLiteral("loop"));
+#ifdef Q_OS_WIN
+        // A junction needs no privileges — exactly what an adversary dropping
+        // folders into the watched share can create.
+        const bool created =
+            QProcess::execute(QStringLiteral("cmd.exe"),
+                              {QStringLiteral("/c"), QStringLiteral("mklink"),
+                               QStringLiteral("/J"),
+                               QDir::toNativeSeparators(loop),
+                               QDir::toNativeSeparators(hotDir())}) == 0;
+#else
+        const bool created =
+            ::symlink(QFile::encodeName(hotDir()).constData(),
+                      QFile::encodeName(loop).constData()) == 0;
+#endif
+        if (!created)
+            QSKIP("directory loop could not be created on this filesystem — "
+                  "probe premise unavailable");
+        // The loop must not outlive the probe (QTemporaryDir cannot remove a
+        // reparse point — the residue would fail the suite's temp cleanup).
+        struct LoopCleanup {
+            QString path;
+            ~LoopCleanup() {
+#ifdef Q_OS_WIN
+                QDir().rmdir(path);   // RemoveDirectory: removes the junction, not the target
+#else
+                ::unlink(QFile::encodeName(path).constData());
+#endif
+            }
+        } loopCleanup{loop};
+
+        // Arm FIRST (the seed walk already traverses the loop shape), then
+        // drop: the timed scan must find exactly the real drop through the
+        // real path.
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+        c.arm(hotDir());
+
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("real")),
+                                  QStringLiteral("real.pdf")).isEmpty());
+        QElapsedTimer timer;
+        timer.start();
+        const QStringList delivered = c.ingestDeliver();
+        QVERIFY2(timer.elapsed() < 30000,
+                 qPrintable(QStringLiteral("the ingest scan over a directory "
+                                          "loop ran %1 ms — unbounded")
+                                .arg(timer.elapsed())));
+        QCOMPARE(delivered.size(), 1);  // the real drop, exactly once
+        QVERIFY(delivered.first().contains(QStringLiteral("real.pdf")));
+        QVERIFY2(!delivered.first().contains(QStringLiteral("/loop/")),
+                 qPrintable(QStringLiteral("the junction must not be descended "
+                                          "into: %1").arg(delivered.first())));
+        QVERIFY2(c.ingestDeliver().isEmpty(),
+                 "a second pass must not re-deliver through the loop");
+
+        // The watch-mode walk (start = seed + full-tree watch refresh) over
+        // the same loop terminates too.
+        HotFolderController w;
+        QElapsedTimer watchTimer;
+        watchTimer.start();
+        QVERIFY(w.start(hotDir()));
+        QVERIFY2(watchTimer.elapsed() < 30000,
+                 qPrintable(QStringLiteral("the watch walk over a directory "
+                                          "loop ran %1 ms — unbounded")
+                                .arg(watchTimer.elapsed())));
+        w.stop();
         c.stop();
     }
 

@@ -1,0 +1,634 @@
+[1/238] Automatic MOC and UIC for target docmodel
+[2/238] Automatic MOC and UIC for target liblua
+[3/238] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/docmodel_autogen/mocs_compilation.cpp.obj
+[4/238] Building CXX object third_party/CMakeFiles/liblua.dir/liblua_autogen/mocs_compilation.cpp.obj
+[5/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lauxlib.c.obj
+[6/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lapi.c.obj
+[7/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lbaselib.c.obj
+[8/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lcorolib.c.obj
+[9/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lcode.c.obj
+[10/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lctype.c.obj
+[11/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldblib.c.obj
+[12/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldebug.c.obj
+[13/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldo.c.obj
+[14/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ldump.c.obj
+[15/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lfunc.c.obj
+[16/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/linit.c.obj
+[17/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lgc.c.obj
+[18/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/liolib.c.obj
+[19/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/llex.c.obj
+[20/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lmathlib.c.obj
+[21/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lmem.c.obj
+[22/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lobject.c.obj
+[23/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lopcodes.c.obj
+[24/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/loslib.c.obj
+[25/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lparser.c.obj
+[26/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstate.c.obj
+[27/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstring.c.obj
+[28/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/loadlib.c.obj
+[29/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lstrlib.c.obj
+[30/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltablib.c.obj
+[31/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltable.c.obj
+[32/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/ltm.c.obj
+[33/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lundump.c.obj
+[34/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lutf8lib.c.obj
+[35/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lzio.c.obj
+[36/238] Building C object third_party/CMakeFiles/liblua.dir/lua-5.4/src/lvm.c.obj
+[37/238] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/Inline.cpp.obj
+[38/238] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/Block.cpp.obj
+[39/238] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/SemanticDocument.cpp.obj
+[40/238] Linking CXX static library third_party\libliblua.a
+[41/238] Automatic MOC and UIC for target libjbig2enc
+[42/238] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/libjbig2enc_autogen/mocs_compilation.cpp.obj
+[43/238] Building CXX object src/docmodel/CMakeFiles/docmodel.dir/DocumentFuzzer.cpp.obj
+[44/238] Linking CXX static library src\docmodel\libdocmodel.a
+[45/238] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2arith.cc.obj
+D:/pdf/pdf-r4-misc/third_party/jbig2enc/src/jbig2arith.cc: In function 'void jbig2enc_refine(jbig2enc_ctx*, const uint8_t*, int, int, const uint8_t*, int, int, int, int)':
+D:/pdf/pdf-r4-misc/third_party/jbig2enc/src/jbig2arith.cc:605:14: warning: variable 'image_counter' set but not used [-Wunused-but-set-variable=]
+  605 |   static int image_counter = 0;
+      |              ^~~~~~~~~~~~~
+[46/238] Automatic MOC and UIC for target pdfws_djot
+[47/238] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/pdfws_djot_autogen/mocs_compilation.cpp.obj
+[48/238] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/ProvenanceGuard.cpp.obj
+[49/238] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2comparator.cc.obj
+[50/238] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/LuaDjotCodec.cpp.obj
+[51/238] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/DjotToRichTextXhtml.cpp.obj
+[52/238] Building CXX object src/pdfws_djot/CMakeFiles/pdfws_djot.dir/PdfStructureMapper.cpp.obj
+[53/238] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2sym.cc.obj
+[54/238] Linking CXX static library src\pdfws_djot\libpdfws_djot.a
+[55/238] Automatic MOC and UIC for target pdfws_commands
+[56/238] Building CXX object third_party/jbig2enc/CMakeFiles/libjbig2enc.dir/src/jbig2enc.cc.obj
+[57/238] Building CXX object CMakeFiles/pdfws_commands.dir/pdfws_commands_autogen/mocs_compilation.cpp.obj
+[58/238] Linking CXX static library third_party\jbig2enc\liblibjbig2enc.a
+[59/238] Automatic MOC and UIC for target pdfws_engines
+[60/238] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/ReorderPermutationCommand.cpp.obj
+[61/238] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/CropPageCommand.cpp.obj
+[62/238] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/AutoDetectPlacement.cpp.obj
+[63/238] Linking CXX static library libpdfws_commands.a
+[64/238] Building CXX object CMakeFiles/pdfws_engines.dir/cmake_pch.hxx.gch
+[65/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/AnnotationSerializer.cpp.obj
+[66/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/ErrorInfo.cpp.obj
+[67/238] Building CXX object CMakeFiles/pdfws_engines.dir/pdfws_engines_autogen/mocs_compilation.cpp.obj
+[68/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/PageLabels.cpp.obj
+[69/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/Capability.cpp.obj
+[70/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/FormStaleFieldTracker.cpp.obj
+[71/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/PolicyController.cpp.obj
+[72/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/CredentialManager.cpp.obj
+[73/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/TempFileManager.cpp.obj
+[74/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/VersionedJson.cpp.obj
+[75/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/BatchPreset.cpp.obj
+[76/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/EncryptedFileSecretStore.cpp.obj
+D:/pdf/pdf-r4-misc/src/core/EncryptedFileSecretStore.cpp:70:6: warning: 'bool {anonymous}::permsAreOwnerOnlyFile(const QString&)' defined but not used [-Wunused-function]
+   70 | bool permsAreOwnerOnlyFile(const QString& path)
+      |      ^~~~~~~~~~~~~~~~~~~~~
+[77/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/OcrEngine.cpp.obj
+[78/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/FormManager.cpp.obj
+[79/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SafeSave.cpp.obj
+[80/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PdfEditorEngine.cpp.obj
+[81/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SevenZipLocator.cpp.obj
+[82/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AccessibilityChecker.cpp.obj
+[83/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AccessibilityFixes.cpp.obj
+[84/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/AFormShim.cpp.obj
+[85/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/FormJsSandbox.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/formjs/FormJsSandbox.cpp: In member function 'gp::formjs::JsEvalResult gp::formjs::FormJsSandbox::runScriptedEvent(const QString&, const QString&, const QString&, const QJsonObject&, int)':
+D:/pdf/pdf-r4-misc/src/engines/formjs/FormJsSandbox.cpp:482:40: warning: comparison of integer expressions of different signedness: 'int64_t' {aka 'long long int'} and 'size_t' {aka 'long long unsigned int'} [-Wsign-compare]
+  482 |                     if (mu.malloc_size >= size_t(m_limits.memoryLimitBytes * 0.9)) {
+      |                         ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[86/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/FormJsRunner.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/formjs/FormJsRunner.cpp:40:24: warning: 'PoDoFo::PdfDictionary& gp::formjs::{anonymous}::fieldDict(PoDoFo::PdfField&)' defined but not used [-Wunused-function]
+   40 | PoDoFo::PdfDictionary& fieldDict(PoDoFo::PdfField& f) { return f.GetDictionary(); }
+      |                        ^~~~~~~~~
+[87/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AccessibilityTagger.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/AccessibilityTagger.cpp: In function 'std::map<int, std::map<int, gp::{anonymous}::GroupEdge> > gp::{anonymous}::assignGroups(WalkOutput&, QList<ElementRec>&)':
+D:/pdf/pdf-r4-misc/src/engines/AccessibilityTagger.cpp:1269:18: warning: comparison of integer expressions of different signedness: 'size_t' {aka 'long long unsigned int'} and 'qsizetype' {aka 'long long int'} [-Wsign-compare]
+ 1269 |         while (i < evs.size()) {
+      |                ~~^~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/src/engines/AccessibilityTagger.cpp:1272:26: warning: comparison of integer expressions of different signedness: 'size_t' {aka 'long long unsigned int'} and 'qsizetype' {aka 'long long int'} [-Wsign-compare]
+ 1272 |             while (j + 1 < evs.size()
+      |                    ~~~~~~^~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/src/engines/AccessibilityTagger.cpp: At global scope:
+D:/pdf/pdf-r4-misc/src/engines/AccessibilityTagger.cpp:127:5: warning: 'gp::{anonymous}::Mat gp::{anonymous}::dictMatrix(const PoDoFo::PdfDictionary&, const char*)' defined but not used [-Wunused-function]
+  127 | Mat dictMatrix(const PdfDictionary& dict, const char* key) {
+      |     ^~~~~~~~~~
+[88/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RedactOperation.cpp.obj
+[89/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/RedactionProof.cpp.obj
+D:/pdf/pdf-r4-misc/src/core/RedactionProof.cpp: In function 'QString gp::RedactionProof::{anonymous}::sha256Hex(const QString&, qint64*)':
+D:/pdf/pdf-r4-misc/src/core/RedactionProof.cpp:49:21: warning: 'void QCryptographicHash::addData(const char*, qsizetype)' is deprecated: Use the QByteArrayView overload instead [-Wdeprecated-declarations]
+   49 |         hash.addData(buf, int(n));
+      |         ~~~~~~~~~~~~^~~~~~~~~~~~~
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/QCryptographicHash:1,
+                 from D:/pdf/pdf-r4-misc/src/core/RedactionProof.cpp:4:
+C:/msys64/ucrt64/include/qt6/QtCore/qcryptographichash.h:77:10: note: declared here
+   77 |     void addData(const char *data, qsizetype length);
+      |          ^~~~~~~
+In file included from C:/msys64/ucrt64/include/qt6/QtCore/qstringview.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qchar.h:730,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/qstring.h:15,
+                 from C:/msys64/ucrt64/include/qt6/QtCore/QString:1,
+                 from D:/pdf/pdf-r4-misc/build-rel/CMakeFiles/pdfws_engines.dir/cmake_pch.hxx:5,
+                 from <command-line>:
+D:/pdf/pdf-r4-misc/src/core/RedactionProof.cpp: In function 'bool gp::RedactionProof::{anonymous}::hasCompressedContainerSignature(const QByteArray&)':
+D:/pdf/pdf-r4-misc/src/core/RedactionProof.cpp:370:27: warning: hex escape sequence out of range
+  370 |         QByteArrayLiteral("\xfd7zXZ\x00"),
+      |                           ^~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/src/core/RedactionProof.cpp:370:27: warning: hex escape sequence out of range
+  370 |         QByteArrayLiteral("\xfd7zXZ\x00"),
+      |                           ^~~~~~~~~~~~~~
+[90/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SignatureManager.cpp.obj
+[91/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/SigningRequestModel.cpp.obj
+[92/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/SigningLabels.cpp.obj
+[93/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/SigningRequestRunner.cpp.obj
+[94/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/SignatureFieldCreator.cpp.obj
+[95/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/DocumentSession.cpp.obj
+[96/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ConversionManager.cpp.obj
+[97/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AutosaveManager.cpp.obj
+[98/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/BackendRouter.cpp.obj
+[99/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PatternRedactor.cpp.obj
+[100/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/TextMatchFinder.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/TextMatchFinder.cpp: In static member function 'static QList<QRectF> TextMatchFinder::lineRectsInRegion(const QString&, int, const QRectF&, MatchBudget*)':
+D:/pdf/pdf-r4-misc/src/engines/TextMatchFinder.cpp:294:18: warning: unused variable 'effectiveBudget' [-Wunused-variable]
+  294 |     MatchBudget* effectiveBudget = budget ? budget : &defaultBudget;
+      |                  ^~~~~~~~~~~~~~~
+[101/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ReviewSummaryWriter.cpp.obj
+[102/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/A11yReportWriter.cpp.obj
+[103/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/HeadingOutlineDetector.cpp.obj
+[104/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfStringEscape.cpp.obj
+[105/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/StampLibrary.cpp.obj
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp: In static member function 'static QList<StampTemplate> StampLibrary::builtIns()':
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+   26 |     };
+      |     ^
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+[106/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/GlyphAdvanceCalculator.cpp.obj
+[107/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/ContentSpans.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/podofo/ContentSpans.cpp:344:5: warning: 'int gp::content::{anonymous}::innermostBlockOpen(const QList<gp::content::Token>&, int)' defined but not used [-Wunused-function]
+  344 | int innermostBlockOpen(const QList<Token> &toks, int at)
+      |     ^~~~~~~~~~~~~~~~~~
+[108/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfEncryptPubSec.cpp.obj
+[109/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PdfPageOps.cpp.obj
+[110/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/pdfium/PdfiumEnvironment.cpp.obj
+[111/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PoDoFoBackend.cpp.obj
+[112/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/pdfium/PdfiumBackend.cpp.obj
+[113/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/qpdf/QpdfBackend.cpp.obj
+[114/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/DiffEngine.cpp.obj
+[115/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/MyersDiff.cpp.obj
+[116/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RenderCache.cpp.obj
+[117/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/VeraPdfValidator.cpp.obj
+[118/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpDocLayoutDetector.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/ocr/PpDocLayoutDetector.cpp:45:12: warning: 'RegionType {anonymous}::classToRegionType(int)' defined but not used [-Wunused-function]
+   45 | RegionType classToRegionType(int classIdx)
+      |            ^~~~~~~~~~~~~~~~~
+[119/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/SuryaDetector.cpp.obj
+[120/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/scheduling/LaneScheduler.cpp.obj
+[121/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPreprocessor.cpp.obj
+[122/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/LayoutEnsemble.cpp.obj
+[123/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPipeline.cpp.obj
+[124/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpOcrDecoder.cpp.obj
+[125/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrDjotMapper.cpp.obj
+[126/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/RapidOcrEngine.cpp.obj
+[127/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/conversion/DjvuImporter.cpp.obj
+[128/238] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/mrc/MrcPageProcessor.cpp.obj
+[129/238] Linking CXX static library libpdfws_engines.a
+[130/238] Automatic MOC and UIC for target TestFormJsCalc
+[131/238] Building CXX object CMakeFiles/TestFormJsCalc.dir/TestFormJsCalc_autogen/mocs_compilation.cpp.obj
+[132/238] Building CXX object CMakeFiles/TestFormJsCalc.dir/tests/TestFormJsCalc.cpp.obj
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'QString TestFormJsCalc::makeOrderForm(const QString&)':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+  281 |         return makeFormPdf(name,
+      |                ~~~~~~~~~~~^~~~~~
+  282 |         {
+      |         ~                  
+  283 |             { QStringLiteral("qty1"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  284 |             { QStringLiteral("price1"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  285 |             { QStringLiteral("qty2"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  286 |             { QStringLiteral("price2"), {}, {}, {} },
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  287 |             { QStringLiteral("line1"),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  288 |               QStringLiteral("AFSimple_Calculate('PROD', new Array('qty1','price1'));"), {}, {} },
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  289 |             { QStringLiteral("line2"),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  290 |               QStringLiteral("AFSimple_Calculate('PROD', new Array('qty2','price2'));"), {}, {} },
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  291 |             { QStringLiteral("total"),
+      |             ~~~~~~~~~~~~~~~~~~~~~~~~~~
+  292 |               QStringLiteral("AFSimple_Calculate('SUM', new Array('line1','line2'));"),
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  293 |               QStringLiteral("AFNumber_Format(2, 0, 0, 0, \"$\", true);"), {} },
+      |               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  294 |         },
+      |         ~~                 
+  295 |         { QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") });
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:281:27: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:942:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+  942 |     const QString form = makeFormPdf(QStringLiteral("order-endhook.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  943 |     {
+      |     ~                                
+  944 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  945 |         { QStringLiteral("blocker"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~ 
+  946 |           QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  947 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+  948 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('qty1'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  949 |     },
+      |     ~~                               
+  950 |     { QStringLiteral("blocker"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:942:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:942:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:942:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:942:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:942:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1057 |     const QString form = makeFormPdf(QStringLiteral("order-syntax.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1058 |     {
+      |     ~                                
+ 1059 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1060 |         { QStringLiteral("price1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1061 |         { QStringLiteral("qty2"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1062 |         { QStringLiteral("price2"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1063 |         { QStringLiteral("line1"), QStringLiteral("AFSimple_Calculate('PROD'"), {}, {} }, // syntax error
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1064 |         { QStringLiteral("line2"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1065 |           QStringLiteral("AFSimple_Calculate('PROD', new Array('qty2','price2'));"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1066 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1067 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('line1','line2'));"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1068 |     },
+      |     ~~                               
+ 1069 |     { QStringLiteral("line1"), QStringLiteral("line2"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1057:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1094:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1094 |     const QString form = makeFormPdf(QStringLiteral("order-loop.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1095 |     {
+      |     ~                                
+ 1096 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1097 |         { QStringLiteral("total"), QStringLiteral("while (true) {}"), {}, QStringLiteral("99") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1098 |     },
+      |     ~~                               
+ 1099 |     { QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1094:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1094:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1094:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::cyclicCalculationOrderTerminates()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1126:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1126 |     const QString form = makeFormPdf(QStringLiteral("cyclic-co.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1127 |     {
+      |     ~                                
+ 1128 |         { QStringLiteral("a"), QStringLiteral("event.value = 1;"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1129 |         { QStringLiteral("b"), QStringLiteral("AFSimple_Calculate('SUM', new Array('a'));"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1130 |     },
+      |     ~~                               
+ 1131 |     { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("a") }); // cycle
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1126:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1126:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1126:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1296 |     const QString form = makeFormPdf(QStringLiteral("chain-exception.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1297 |     {
+      |     ~                                
+ 1298 |         { QStringLiteral("input"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1299 |         { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1300 |         { QStringLiteral("b"), QStringLiteral("throw new Error('boom');"), {}, QStringLiteral("7") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1301 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1302 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1303 |     },
+      |     ~~                               
+ 1304 |     { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1296:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1339 |     const QString form = makeFormPdf(QStringLiteral("chain-timeout.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1340 |     {
+      |     ~                                
+ 1341 |         { QStringLiteral("input"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1342 |         { QStringLiteral("a"), QStringLiteral("event.value = Number(this.getField('input').value);"), {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1343 |         { QStringLiteral("b"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~       
+ 1344 |           QStringLiteral("while (true) {}"), {}, QStringLiteral("7") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1345 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1346 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('a','b'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1347 |     },
+      |     ~~                               
+ 1348 |     { QStringLiteral("a"), QStringLiteral("b"), QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1339:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1383:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1383 |     const QString form = makeFormPdf(QStringLiteral("chain-precascade.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1384 |     {
+      |     ~                                
+ 1385 |         big,
+      |         ~~~~                         
+ 1386 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1387 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('big'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1388 |     },
+      |     ~~                               
+ 1389 |     { QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1383:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1423:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1423 |     const QString form = makeFormPdf(QStringLiteral("validate-reject.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1424 |     {
+      |     ~                                
+ 1425 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("3"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1426 |           QStringLiteral("if (Number(event.value) > 10) { event.rc = false; }") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1427 |         { QStringLiteral("note"), {}, {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1428 |     },
+      |     ~~                               
+ 1429 |     {});
+      |     ~~~                              
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1423:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::validateTransformsTheValueAcrobatSemantics()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1456:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1456 |     const QString form = makeFormPdf(QStringLiteral("validate-transform.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1457 |     {
+      |     ~                                
+ 1458 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("0"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1459 |           QStringLiteral("event.value = Number(event.value) * 2;") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1460 |     },
+      |     ~~                               
+ 1461 |     {});
+      |     ~~~                              
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1477:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1477 |     const QString form = makeFormPdf(QStringLiteral("validate-timeout.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1478 |     {
+      |     ~                                
+ 1479 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("3"), QStringLiteral("while (true) {}") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1480 |         { QStringLiteral("total"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~   
+ 1481 |           QStringLiteral("AFSimple_Calculate('SUM', new Array('qty'));"), {}, QStringLiteral("0") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1482 |     },
+      |     ~~                               
+ 1483 |     { QStringLiteral("total") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~     
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1477:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1477:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::fillWithoutValidateScriptNeverBlocks()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1525:37: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1525 |     const QString form = makeFormPdf(QStringLiteral("validate-none.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1526 |     {
+      |     ~                                
+ 1527 |         { QStringLiteral("qty"), {}, {}, QStringLiteral("0") },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1528 |     },
+      |     ~~                               
+ 1529 |     {});
+      |     ~~~                              
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1525:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::keystrokeWithoutScriptNeverRunsAndTypingStands()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1727:37: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+ 1727 |     const QString form = makeFormPdf(QStringLiteral("keystroke-none.pdf"),
+      |                          ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1728 |     {
+      |     ~                                
+ 1729 |         { QStringLiteral("qty"), {}, {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1730 |     },
+      |     ~~                               
+ 1731 |     {});
+      |     ~~~                              
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp: In member function 'void TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun()':
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1837:40: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+ 1837 |     const QString hostile = makeFormPdf(QStringLiteral("closure-hostile.pdf"),
+      |                             ~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1838 |     {
+      |     ~                                   
+ 1839 |         { QStringLiteral("qty1"), {}, {}, {} },
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1840 |         { QStringLiteral("blocker"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~    
+ 1841 |           QStringLiteral("globalThis.__gpEndEvent = function () { while (true) {} }; event.value = 'x';"), {}, {} },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1842 |         { QStringLiteral("fmt"),
+      |         ~~~~~~~~~~~~~~~~~~~~~~~~        
+ 1843 |           {}, QStringLiteral("AFNumber_Format(2, 0, 0, 0, \"$\", true);"), QStringLiteral("1234.5") },
+      |           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ 1844 |     },
+      |     ~~                                  
+ 1845 |     { QStringLiteral("blocker") });
+      |     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~      
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1837:40: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1837:40: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1837:40: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1837:40: warning: missing initializer for member '{anonymous}::FieldSpec::validateScript' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp:1837:40: warning: missing initializer for member '{anonymous}::FieldSpec::keystrokeScript' [-Wmissing-field-initializers]
+[133/238] Automatic MOC and UIC for target pdfws_ui
+[134/238] Automatic RCC for resources/commands.qrc
+[135/238] Building CXX object CMakeFiles/pdfws_ui.dir/cmake_pch.hxx.gch
+[136/238] Linking CXX executable TestFormJsCalc.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormJsCalc; Deploying podofo 1.1.0 DLL for TestFormJsCalc; Deploying quickjs-ng runtime DLL for TestFormJsCalc
+lto-wrapper.exe: warning: using serial compilation of 11 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[137/238] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/mocs_compilation.cpp.obj
+[138/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditAnnotationCommand.cpp.obj
+[139/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PrintJob.cpp.obj
+[140/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PdfViewerWidget.cpp.obj
+[141/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/WelcomeWidget.cpp.obj
+[142/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/FindBar.cpp.obj
+[143/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/FindReplaceDialog.cpp.obj
+[144/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/StampLibraryDialog.cpp.obj
+[145/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ResizeDialog.cpp.obj
+[146/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/HeaderFooterDialog.cpp.obj
+[147/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AutoBookmarkDialog.cpp.obj
+[148/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BatesNumberingDialog.cpp.obj
+[149/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditToolBar.cpp.obj
+[150/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CompareWidget.cpp.obj
+[151/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/InspectorWidget.cpp.obj
+[152/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BookmarkPanel.cpp.obj
+[153/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/DocumentPropertiesWidget.cpp.obj
+[154/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignaturesWidget.cpp.obj
+[155/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CommentsWidget.cpp.obj
+[156/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PageManagementDialog.cpp.obj
+[157/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EncryptionDialog.cpp.obj
+[158/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PermissionsDialog.cpp.obj
+[159/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignatureDialog.cpp.obj
+[160/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SigningRequestDialog.cpp.obj
+[161/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SigningProgressPanel.cpp.obj
+[162/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/RecipientPickerDialog.cpp.obj
+[163/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SignaturePicker.cpp.obj
+[164/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/SanitizeSummaryDialog.cpp.obj
+[165/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcspConsentDialog.cpp.obj
+[166/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/MetadataDialog.cpp.obj
+[167/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AnnotationLayer.cpp.obj
+[168/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ThumbnailSidebar.cpp.obj
+[169/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ShortcutHelpDialog.cpp.obj
+[170/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/UpdateDialog.cpp.obj
+[171/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/RecoveryDialog.cpp.obj
+[172/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PreferencesDialog.cpp.obj
+[173/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ErrorDialog.cpp.obj
+[174/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PageSetupDialog.cpp.obj
+[175/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ExportPresetsPanel.cpp.obj
+[176/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/SupportBundle.cpp.obj
+[177/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/UpdateChecker.cpp.obj
+[178/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/NetworkTouchpoints.cpp.obj
+[179/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/ToolId.cpp.obj
+[180/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/core/CommandRegistry.cpp.obj
+[181/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ToolRegistry.cpp.obj
+[182/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/HomeController.cpp.obj
+[183/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/GpMainWindow.cpp.obj
+[184/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ViewController.cpp.obj
+[185/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/PagesController.cpp.obj
+[186/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/EditController.cpp.obj
+[187/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/FormsController.cpp.obj
+[188/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ConvertController.cpp.obj
+[189/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/CertEncryptController.cpp.obj
+[190/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SendForSigningController.cpp.obj
+[191/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SecurityController.cpp.obj
+[192/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/TaskNavController.cpp.obj
+[193/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Icons.cpp.obj
+[194/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Badge.cpp.obj
+[195/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/util/Slider.cpp.obj
+[196/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Ribbon.cpp.obj
+[197/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/MenuBar.cpp.obj
+[198/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/RibbonModel.cpp.obj
+[199/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ScreenNav.cpp.obj
+[200/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/FlowToolbarLayout.cpp.obj
+[201/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/ModeStrip.cpp.obj
+[202/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/StatusBar.cpp.obj
+[203/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/TaskNav.cpp.obj
+[204/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/TaskStateSync.cpp.obj
+[205/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Sidebar.cpp.obj
+[206/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/ModeController.cpp.obj
+[207/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OcrConfidence.cpp.obj
+[208/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcrScanCanvas.cpp.obj
+D:/pdf/pdf-r4-misc/src/ui/OcrScanCanvas.cpp:16:13: warning: 'gp::{anonymous}::kPaper' defined but not used [-Wunused-variable]
+   16 | const char* kPaper = "#f4f1ea";
+      |             ^~~~~~
+[209/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/OcrWordMagnifier.cpp.obj
+[210/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OCRMode.cpp.obj
+D:/pdf/pdf-r4-misc/src/modes/OCRMode.cpp: In member function 'void gp::OCRMode::updateInfoStrip()':
+D:/pdf/pdf-r4-misc/src/modes/OCRMode.cpp:1697:9: warning: variable 'verifiedCount' set but not used [-Wunused-but-set-variable=]
+ 1697 |     int verifiedCount = 0;
+      |         ^~~~~~~~~~~~~
+[211/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactApplyDialog.cpp.obj
+[212/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactMode.cpp.obj
+[213/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PagesMode.cpp.obj
+[214/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompareMode.cpp.obj
+[215/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/HotFolderController.cpp.obj
+[216/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PresetManagerDialog.cpp.obj
+[217/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PresetEditorDialog.cpp.obj
+[218/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormBuilderMode.cpp.obj
+[219/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormFieldPropertiesPanel.cpp.obj
+[220/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/AIChatPanel.cpp.obj
+[221/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/BatchMode.cpp.obj
+[222/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/engines/ai/OllamaProvider.cpp.obj
+[223/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/SignaturesPanel.cpp.obj
+[224/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/AccessibilityPanel.cpp.obj
+[225/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PdfAValidationPanel.cpp.obj
+[226/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/MeasureMode.cpp.obj
+[227/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/WatermarkDialog.cpp.obj
+[228/238] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/3YJK5W5UP7/qrc_commands.cpp.obj
+[229/238] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompressDialog.cpp.obj
+[230/238] Linking CXX static library libpdfws_ui.a
+[231/238] Automatic MOC and UIC for target TestStampImageImport
+[232/238] Building CXX object CMakeFiles/TestStampImageImport.dir/TestStampImageImport_autogen/mocs_compilation.cpp.obj
+[233/238] Automatic MOC and UIC for target TestHotFolder
+[234/238] Building CXX object CMakeFiles/TestHotFolder.dir/TestHotFolder_autogen/mocs_compilation.cpp.obj
+[235/238] Building CXX object CMakeFiles/TestStampImageImport.dir/tests/TestStampImageImport.cpp.obj
+[236/238] Building CXX object CMakeFiles/TestHotFolder.dir/tests/TestHotFolder.cpp.obj
+[237/238] Linking CXX executable TestStampImageImport.exe; Deploying qoffscreen platform plugin for TestStampImageImport
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[238/238] Linking CXX executable TestHotFolder.exe; Deploying qoffscreen platform plugin for TestHotFolder
+lto-wrapper.exe: warning: using serial compilation of 32 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+BUILD_RC=0

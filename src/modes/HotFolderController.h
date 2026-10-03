@@ -124,6 +124,19 @@ public:
     // must not run a second concurrent full-tree scan once the re-entrancy
     // guard lands; it returns empty instead of re-walking.
     int ingestScansForTest() const { return m_ingestScans; }
+    // r4-misc (security-auditor finding 3) seams: the processed-set is
+    // BOUNDED (TTL sweep for entries whose file stopped being observed +
+    // a hard entry cap) so a months-long enterprise watch cannot grow
+    // memory without limit. Production code never reads the count and
+    // never overrides the limits — both exist so TestHotFolder can pin
+    // the bounded-set semantics deterministically (a real TTL is days; a
+    // test cannot wait that out, so the limits are overridable here and
+    // ONLY here).
+    int processedCountForTest() const { return m_processed.size(); }
+    void setProcessedLimitsForTest(qint64 ttlMs, int maxEntries) {
+        m_ttlForTest = ttlMs;      // 0 = the production TTL
+        m_capForTest = maxEntries; // 0 = the production entry cap
+    }
 
 private slots:
     void onDirectoryChanged();
@@ -163,6 +176,11 @@ private:
 
     QString m_dir;
     QSet<QString> m_processed;          // already-seen file keys
+    // r4-misc (security-auditor finding 3): retention-limit overrides for the
+    // bounded-processed-set pins. 0 = the production defaults. Consulted by
+    // the retention pass ONLY — inert in production (no caller sets them).
+    qint64 m_ttlForTest = 0;
+    int m_capForTest = 0;
     QFileSystemWatcher* m_watcher = nullptr;
     QTimer* m_debounce = nullptr;       // single-shot kDebounceMs
     QTimer* m_pollTimer = nullptr;      // polling fallback (network shares)
