@@ -99,6 +99,19 @@ public:
     qint64 cacheMisses() const { return m_misses.loadRelaxed(); }
     void resetStats();
 
+    // R3-perf test seams (behavior-neutral counters): how many renderPageAsync
+    // WORKERS were actually scheduled (one per non-coalesced miss), how many
+    // duplicate requests attached to an already in-flight render for the same
+    // (page, scale) key, and how many workers have RUN TO COMPLETION (any
+    // exit path). Before duplicate-request coalescing every miss schedules
+    // its own worker (coalesced stays 0); with coalescing a duplicate request
+    // attaches to the in-flight job, so the worker count is bounded by the
+    // distinct keys in flight. The completion counter lets a pin wait until
+    // every scheduled worker has exited before asserting cache state.
+    int asyncWorkerRunsForTest() const { return m_asyncWorkerRuns.loadRelaxed(); }
+    int asyncCoalescedRequestsForTest() const { return m_asyncCoalescedRequests.loadRelaxed(); }
+    int asyncWorkerCompletionsForTest() const { return m_asyncWorkerCompletions.loadRelaxed(); }
+
     // Tier 1: Metadata (always resident)
     void setPageSize(int page, const QSizeF &size);
     QSizeF pageSize(int page, IPdfRenderer* renderer = nullptr);
@@ -166,6 +179,10 @@ private:
     // Performance Stats
     mutable QAtomicInt m_hits{0};
     mutable QAtomicInt m_misses{0};
+    // R3-perf seams: renderPageAsync worker scheduling / coalescing counters.
+    mutable QAtomicInt m_asyncWorkerRuns{0};
+    mutable QAtomicInt m_asyncCoalescedRequests{0};
+    mutable QAtomicInt m_asyncWorkerCompletions{0};
 
     // Viewport prefetch cancellation token
     QAtomicInt m_prefetchCancelToken{0};

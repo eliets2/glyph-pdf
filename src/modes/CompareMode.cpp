@@ -293,11 +293,14 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     // through the promise. The test hook is captured by value; the member is
     // never read cross-thread (m_mergeBoundaryHook's discipline).
     const std::function<void(int, int)> stageHook = m_stageBoundaryHook;
-    auto worker = [file1, file2, stageHook](QPromise<DiffResult>& promise) {
+    // R3-perf seam: shared with the worker BY VALUE so the increment cannot
+    // dangle if the mode is torn down mid-run.
+    const QSharedPointer<QAtomicInt> promiseReports = m_promiseReports;
+    auto worker = [file1, file2, stageHook, promiseReports](QPromise<DiffResult>& promise) {
         const std::function<bool()> cancelled =
             [&promise]() { return promise.isCanceled(); };
         const auto report =
-            [&promise, &stageHook](int stage, int done, int total) {
+            [&promise, &stageHook, promiseReports](int stage, int done, int total) {
                 // Boundary hook BEFORE the report: a parked test sees the
                 // dialog state of everything reported so far, never the
                 // boundary's own report (deterministic stage observation).
@@ -305,6 +308,7 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
                     stageHook(stage, done);
                 if (total <= 0)
                     return;
+                promiseReports->fetchAndAddRelaxed(1);  // R3-perf seam
                 promise.setProgressRange(0, total);
                 // "starting unit done+1 of total": QFutureInterface suppresses
                 // value-0 progress reports (probed on Qt 6.11 — a 0/N report

@@ -258,6 +258,7 @@ QStringList HotFolderController::ingestDeliver() {
     QStringList newFiles;
     if (m_dir.isEmpty()) return newFiles;
 
+    ++m_ingestScans;  // R3-perf seam: one full-tree scan per pass
     for (const QFileInfo& fi : recursivePdfEntries()) {
         const QString key = hotFileKey(fi);
         if (!m_processed.contains(key)) {

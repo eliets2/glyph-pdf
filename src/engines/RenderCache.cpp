@@ -4,6 +4,7 @@
 #include <QFuture>
 #include <QThread>
 #include <QDebug>
+#include <QScopeGuard>
 #include <algorithm>
 
 #ifdef Q_OS_WIN
@@ -399,10 +400,21 @@ bool RenderCache::renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
     const int currentToken = m_prefetchCancelToken.loadRelaxed();
     std::weak_ptr<RenderCache> weakThis = weak_from_this();
 
+    // R3-perf seam: one counter tick per worker actually scheduled. With
+    // duplicate-request coalescing this stays at one per distinct key while
+    // duplicates land on m_asyncCoalescedRequests instead.
+    m_asyncWorkerRuns.fetchAndAddRelaxed(1);
+
     auto future = QtConcurrent::run([weakThis, page, scale, renderer,
                                      currentToken, onRendered]() {
         auto self = weakThis.lock();
         if (!self) return;
+
+        // R3-perf seam: every worker exit path ticks the completion counter
+        // exactly once (pins wait on it before asserting cache state).
+        const auto workerDone = qScopeGuard([&self]() {
+            self->m_asyncWorkerCompletions.fetchAndAddRelaxed(1);
+        });
 
         // AR-6 D1 (same discipline as prefetchViewport): the backend serializes
         // renders behind one mutex, so background renders run at the lowest

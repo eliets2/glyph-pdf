@@ -103,6 +103,7 @@ public:
     // Wave-2b F-7 pin seam: the refresh must run once per debounce fire,
     // never once per fs-event.
     int watchWalkCountForTest() const { return m_watchWalks; }
+<<<<<<< HEAD
     // r3-sec F-6 seams. The hook, when set, REPLACES
     // QFileSystemWatcher::addPaths and returns exactly the paths that "hit
     // the OS watch budget" — a deterministic cap simulation (real addPaths
@@ -117,6 +118,14 @@ public:
     // Cumulative count of refused addPaths entries (every refresh re-learns
     // the same losses; the disclosure fires once per subtree, not per pass).
     int watchFailureCountForTest() const { return m_watchFailures; }
+=======
+    // R3-perf seam: full-tree ingest SCANS actually performed by
+    // ingestDeliver (poll ticks + debounce fires + explicit calls). A
+    // re-entrant call — the ingest handler walking back into ingestDeliver —
+    // must not run a second concurrent full-tree scan once the re-entrancy
+    // guard lands; it returns empty instead of re-walking.
+    int ingestScansForTest() const { return m_ingestScans; }
+>>>>>>> 9189d0cd (feat(seams): three behavior-neutral observable counters for the r3-perf pins — RenderCache::renderPageAsync worker-runs/coalesced/completions, HotFolderController full-tree ingest scans, CompareMode posted QPromise progress reports)
 
 private slots:
     void onDirectoryChanged();
@@ -160,6 +169,7 @@ private:
     int m_watchFailures = 0;
     int m_debouncePasses = 0;
     int m_watchWalks = 0;               // full-tree walk counter (F-7 seam)
+    int m_ingestScans = 0;              // full-tree ingest scans (R3-perf seam)
 };
 
 } // namespace gp
