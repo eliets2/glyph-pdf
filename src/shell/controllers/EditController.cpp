@@ -1805,12 +1805,20 @@ void EditController::onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewed
     if (ok)
         emit ocrSaveFinished(true, false,
             ocrSavedStatus(totalPages, pageIndex, QFileInfo(outPath).fileName(), mode));
-    else if (mode == OcrOutputMode::Editable)
+    else {
+        // BOTH writers report failure through the engine's typed channel
+        // (lastError — the same refusal semantics as every IPdfEditorEngine
+        // mutator). Surface the engine's reason instead of a generic string:
+        // "no recognized words to write" and "cannot create output file" are
+        // different failures the user can act on. The mode-specific fallback
+        // keeps the old wording when the engine somehow left no reason.
+        const ErrorInfo why = _ctx->pdfEditor->lastError();
+        const QString fallback = (mode == OcrOutputMode::Editable)
+            ? tr("Could not write the editable text copy. See the application log.")
+            : tr("Could not write the searchable MRC PDF/A copy. See the application log.");
         emit ocrSaveFinished(false, false,
-            tr("Could not write the editable text copy. See the application log."));
-    else
-        emit ocrSaveFinished(false, false,
-            tr("Could not write the searchable MRC PDF/A copy. See the application log."));
+            why.userMessage.isEmpty() ? fallback : why.userMessage);
+    }
 }
 
 void EditController::onOcrAcceptRequested() {
