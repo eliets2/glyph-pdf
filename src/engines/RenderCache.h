@@ -6,6 +6,7 @@
 #include <QHashFunctions>
 #include <QList>
 #include <QReadWriteLock>
+#include <QSharedPointer>
 #include <QSizeF>
 #include <QRectF>
 #include <QString>
@@ -151,6 +152,16 @@ public:
     // serves, but a STALE entry can never survive the wipe and nothing is
     // ever misattributed to new content. Pinned by TestThumbnailOffGui
     // clearCancelsInFlightRenderJoinsAndDeliversNothing (pin 3).
+    // the result is neither inserted nor delivered: a stale render is never
+    // shown to the consumer. Unlike prefetchViewport this does NOT bump the
+    // cancel token per request — a thumbnail grid fires N concurrent requests
+    // and none may cancel the others.
+    //
+    // R3-perf (audit finding 2): duplicate requests COALESCE — a request for
+    // a (page, scale) already being rendered attaches to the in-flight job
+    // and is delivered by THE one worker when it completes (no second worker,
+    // no wasted render). clear()/drainPrefetches() therefore joins at most
+    // one worker per DISTINCT key, never one per request (finding 3's bound).
     bool renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
                          std::function<void(const QImage&)> onRendered);
 
@@ -170,6 +181,24 @@ public:
 private:
     void evictIfNeeded();
     qint64 imageSizeInBytes(const QImage &image) const;
+
+    // R3-perf (audit finding 2): one shared job per (page, scale) render
+    // already in flight through renderPageAsync. A duplicate request attaches
+    // its callback to the job (under m_lock) instead of queueing a second
+    // worker whose result would be discarded at the insert-time TOCTOU
+    // re-check. An entry lives EXACTLY as long as its worker: the worker
+    // removes it (under m_lock, before delivering) so a post-completion
+    // request cache-hits or starts fresh instead of attaching to a dead job.
+    struct AsyncRenderJob {
+        QList<std::function<void(const QImage&)>> waiters;
+    };
+    QHash<RenderCacheKey, QSharedPointer<AsyncRenderJob>> m_asyncJobs;
+    // The worker's render half: lookup -> render outside the lock -> epoch
+    // check BEFORE the insert (audit finding 7) -> insert under the lock.
+    // Returns the image to deliver (null = superseded or failed: deliver
+    // nothing). Rendering + insertion only; job retirement is the caller's.
+    QImage renderForAsyncWorker(int page, qreal scale, IPdfRenderer* renderer,
+                                int currentToken, const RenderCacheKey &key);
 
     mutable QReadWriteLock m_lock;
 

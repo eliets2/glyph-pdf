@@ -456,6 +456,52 @@ private slots:
                               "structural row); got pages=%1 pageChanges=%2")
                                 .arg(applied.pages.size())
                                 .arg(applied.pageChanges.size())));
+    // ── R3-perf (audit finding 5): promise progress posts are throttled ───────
+    // Every QPromise progress post is a queued cross-thread delivery to the
+    // GUI thread plus a dialog repaint; posting one per page-pair boundary is
+    // a repaint storm on a large comparison. The worker's stage-boundary hook
+    // (and with it the engine's cancel-probe granularity) stays PER-BOUNDARY
+    // — pinned unchanged below — while the promise posts are capped: at most
+    // one per kProgressEveryNBoundaries boundaries, with a forced post at
+    // every stage change and at every stage completion (a stage's range
+    // switch and its final value must never be swallowed — the stage pins
+    // above still observe them).
+    void promisePostsThrottledPerBoundaryStorm()
+    {
+        // 6 pages per side, one word of page 0 changed (similarity 5/6 —
+        // stays aligned, no structural noise). Extraction runs 6+6 per-page
+        // boundaries + its completion, the 6 aligned pairs add 6 boundaries +
+        // their completion: 20 hook calls in total.
+        QStringList texts;
+        for (int i = 0; i < 6; ++i)
+            texts << QStringLiteral("page %1 alpha bravo charlie delta echo").arg(i);
+        const QString base = pagePdf("throttle_base.pdf", texts);
+        QStringList revised = texts;
+        revised[0] = QStringLiteral("page 0 alpha bravo CHARLIE delta echo");
+        const QString rev = pagePdf("throttle_rev.pdf", revised);
+        QVERIFY(!base.isEmpty() && !rev.isEmpty());
+
+        gp::CompareMode mode;
+        int hookCalls = 0;
+        mode.setStageBoundaryHookForTest([&hookCalls](int, int) { ++hookCalls; });
+        mode.compareFiles(base, rev);
+        waitForDiffFinished(mode);
+
+        // Cancel-probe granularity UNCHANGED: the hook still fires at every
+        // single boundary (pre- and post-throttle).
+        QCOMPARE(hookCalls, 20);
+
+        // THE pin (RED pre-fix): promise posts must fall below the boundary
+        // count. Post shape with the per-8-boundaries cap: extraction posts
+        // at boundaries 0 (stage change), 8 (cap), 12 (completion); pairs at
+        // 0 (stage change) and 6 (completion) — exactly 5.
+        QVERIFY2(mode.promiseReportCountForTest() < hookCalls,
+                 "promise progress posts were not throttled: one queued "
+                 "GUI-thread delivery per page-pair boundary");
+        QCOMPARE(mode.promiseReportCountForTest(), 5);
+
+        // The run completed honestly (throttling changed nothing else).
+        QCOMPARE(mode.lastResult().pages.size(), 6);
     }
 
     // ── (a) two identical documents → no changes, isIdentical ────────────────

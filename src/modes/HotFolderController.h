@@ -31,6 +31,7 @@
 
 class QFileSystemWatcher;
 class QTimer;
+class QDir;
 
 namespace gp {
 
@@ -103,7 +104,6 @@ public:
     // Wave-2b F-7 pin seam: the refresh must run once per debounce fire,
     // never once per fs-event.
     int watchWalkCountForTest() const { return m_watchWalks; }
-<<<<<<< HEAD
     // r3-sec F-6 seams. The hook, when set, REPLACES
     // QFileSystemWatcher::addPaths and returns exactly the paths that "hit
     // the OS watch budget" — a deterministic cap simulation (real addPaths
@@ -118,14 +118,12 @@ public:
     // Cumulative count of refused addPaths entries (every refresh re-learns
     // the same losses; the disclosure fires once per subtree, not per pass).
     int watchFailureCountForTest() const { return m_watchFailures; }
-=======
     // R3-perf seam: full-tree ingest SCANS actually performed by
     // ingestDeliver (poll ticks + debounce fires + explicit calls). A
     // re-entrant call — the ingest handler walking back into ingestDeliver —
     // must not run a second concurrent full-tree scan once the re-entrancy
     // guard lands; it returns empty instead of re-walking.
     int ingestScansForTest() const { return m_ingestScans; }
->>>>>>> 9189d0cd (feat(seams): three behavior-neutral observable counters for the r3-perf pins — RenderCache::renderPageAsync worker-runs/coalesced/completions, HotFolderController full-tree ingest scans, CompareMode posted QPromise progress reports)
 
 private slots:
     void onDirectoryChanged();
@@ -141,6 +139,13 @@ private:
     QStringList addWatchPaths(const QStringList& paths);
     void engagePollingBackstop(const QStringList& failed);
     QList<QFileInfo> recursivePdfEntries() const;  // the whole tree, *.pdf/*.PDF
+    // R3-perf (audit finding 6): stream the watched tree's PDF entries
+    // (stat walk only — *.pdf/*.PDF, files, subdirectories) through \p visit.
+    // Replaces the whole-tree QList<QFileInfo> materialization the poll tick
+    // used to rebuild every 2 s; the tick now allocates nothing proportional
+    // to the tree and never reads file CONTENT (identity keys are pure stat
+    // fields).
+    void forEachPdfEntry(const std::function<void(const QFileInfo&)>& visit) const;
 
     // Subtree-unique identity: path relative to the watched root + mtime +
     // size (flat files yield the historical filename|mtime key shape plus
@@ -154,6 +159,9 @@ private:
     // once (a stray fs-event on a polled network share). Pinned by
     // TestHotFolder::crossPathIngestSharesOneProcessedSet.
     QString hotFileKey(const QFileInfo& fi) const;
+    // \p root is the caller's hoisted QDir(m_dir): the hot loop builds every
+    // key without re-constructing the root per file.
+    QString hotFileKey(const QFileInfo& fi, const QDir& root) const;
 
     QString m_dir;
     QSet<QString> m_processed;          // already-seen file keys
@@ -170,6 +178,11 @@ private:
     int m_debouncePasses = 0;
     int m_watchWalks = 0;               // full-tree walk counter (F-7 seam)
     int m_ingestScans = 0;              // full-tree ingest scans (R3-perf seam)
+    bool m_scanActive = false;          // R3-perf: re-entrancy guard (the poll
+                                        // tick and the debounce fire run on
+                                        // the owning thread; a re-entrant
+                                        // ingestDeliver — the ingest handler
+                                        // walking back in — is absorbed)
 };
 
 } // namespace gp

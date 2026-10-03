@@ -55,33 +55,39 @@ HotFolderController::~HotFolderController() = default;
 // every length-changing rewrite a new identity. Residual, documented and by
 // design (the poll tick cadence is the feature's contract): a rewrite that
 // preserves BOTH size and mtime is still one ingest per session.
-QString HotFolderController::hotFileKey(const QFileInfo& fi) const {
-    return QDir(m_dir).relativeFilePath(fi.absoluteFilePath()) + QLatin1Char('|')
+// Pure stat fields only — the key never opens or decodes file content.
+// R3-perf: \p root is the caller's hoisted QDir(m_dir); building the key for
+// the whole tree constructs the root once per pass, not once per file.
+QString HotFolderController::hotFileKey(const QFileInfo& fi, const QDir& root) const {
+    return root.relativeFilePath(fi.absoluteFilePath()) + QLatin1Char('|')
          + QString::number(fi.lastModified().toMSecsSinceEpoch()) + QLatin1Char('|')
          + QString::number(fi.size());
 }
 
 // The whole watched tree, files only, matching the historical two-pattern
-// filter (*.pdf and *.PDF). Per-directory order follows the platform
-// directory order (name-sorted on NTFS), as before.
-QList<QFileInfo> HotFolderController::recursivePdfEntries() const {
-    QList<QFileInfo> out;
-    if (m_dir.isEmpty()) return out;
+// filter (*.pdf and *.PDF), streamed entry-by-entry through \p visit.
+// R3-perf (audit finding 6): the poll tick runs this every 2 s on a network
+// share — it is a pure STAT walk (QDirIterator never opens file content) and
+// no longer materializes a whole-tree QList<QFileInfo> per tick; per-entry
+// work is the identity-key comparison against the processed set.
+void HotFolderController::forEachPdfEntry(
+        const std::function<void(const QFileInfo&)>& visit) const {
+    if (m_dir.isEmpty()) return;
     QDirIterator it(m_dir,
                     QStringList() << QStringLiteral("*.pdf") << QStringLiteral("*.PDF"),
                     QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         it.next();
-        out << it.fileInfo();
+        visit(it.fileInfo());
     }
-    return out;
 }
 
 void HotFolderController::seedProcessed() {
     m_processed.clear();
-    const auto entries = recursivePdfEntries();
-    for (const QFileInfo& fi : entries)
-        m_processed.insert(hotFileKey(fi));
+    const QDir root(m_dir);
+    forEachPdfEntry([this, &root](const QFileInfo& fi) {
+        m_processed.insert(hotFileKey(fi, root));
+    });
 }
 
 // The single choke point through which every directory enters the native
@@ -258,9 +264,29 @@ QStringList HotFolderController::ingestDeliver() {
     QStringList newFiles;
     if (m_dir.isEmpty()) return newFiles;
 
+    // R3-perf (audit finding 6): re-entrancy guard. The ingest handler runs
+    // SYNCHRONOUSLY inside this pass; a handler that walks back into
+    // ingestDeliver (batch auto-run re-entering the controller) used to
+    // trigger a second concurrent full-tree scan — on exactly the slow
+    // shares this fallback exists for. The nested call is absorbed (empty
+    // delivery, no re-scan); the outer pass owns the tick. Guard stays armed
+    // across the handler call (RAII reset at scope exit).
+    if (m_scanActive) return newFiles;
+    struct ScanActiveGuard {
+        bool& flag;
+        explicit ScanActiveGuard(bool& f) : flag(f) { flag = true; }
+        ~ScanActiveGuard() { flag = false; }
+    } scanGuard(m_scanActive);
+
     ++m_ingestScans;  // R3-perf seam: one full-tree scan per pass
-    for (const QFileInfo& fi : recursivePdfEntries()) {
-        const QString key = hotFileKey(fi);
+    const QDir root(m_dir);
+    QDirIterator it(m_dir,
+                    QStringList() << QStringLiteral("*.pdf") << QStringLiteral("*.PDF"),
+                    QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        const QFileInfo fi = it.fileInfo();
+        const QString key = hotFileKey(fi, root);
         if (!m_processed.contains(key)) {
             m_processed.insert(key);
             newFiles << fi.absoluteFilePath();

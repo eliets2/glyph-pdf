@@ -840,6 +840,40 @@ private slots:
                  "a refused root must degrade the whole watch to polling (F-6)");
         QVERIFY2(!disclosures.isEmpty(), "a refused root must be disclosed");
         QVERIFY(c.watchedDirectoriesForTest().isEmpty());  // premise: nothing watched
+    // ── R3-perf (audit finding 6): re-entrant ingest does not rescan ──────────
+    // The ingest handler walking back into ingestDeliver() (a batch auto-run
+    // that re-enters the controller mid-delivery) must not trigger a second
+    // full-tree scan — the nested call is absorbed by the re-entrancy guard
+    // and delivers nothing (the outer pass owns the tick). Per-tick cost
+    // stays ONE stat walk; nothing decodes or re-reads file CONTENT either
+    // way — the identity keys are pure stat fields (relpath|mtime|size).
+    void reentrantIngestDoesNotRescanTree() {
+        HotFolderController c;
+        QDir().mkpath(hotDir());
+
+        QStringList outer, nested;
+        int deliveries = 0;
+        c.setIngestHandler([&](const QStringList& files) {
+            ++deliveries;
+            nested = c.ingestDeliver();   // the re-entrant call under test
+        });
+        c.arm(hotDir());                  // seeds: nothing is new yet
+        const int scansBefore = c.ingestScansForTest();
+
+        QVERIFY(!createMinimalPdf(hotDir(),
+                                  QStringLiteral("reentrant.pdf")).isEmpty());
+        outer = c.ingestDeliver();
+
+        QCOMPARE(outer.size(), 1);
+        QVERIFY(outer.first().contains(QStringLiteral("reentrant.pdf")));
+        QCOMPARE(deliveries, 1);
+        QVERIFY2(nested.isEmpty(),
+                 "the nested pass must not re-deliver (the outer pass owns "
+                 "the tick)");
+        QVERIFY2(c.ingestScansForTest() == scansBefore + 1,
+                 "a re-entrant ingestDeliver ran a second full-tree scan "
+                 "(RED pre-fix: the handler's nested call re-walked the "
+                 "whole tree)");
         c.stop();
     }
 

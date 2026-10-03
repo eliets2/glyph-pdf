@@ -299,8 +299,24 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
     auto worker = [file1, file2, stageHook, promiseReports](QPromise<DiffResult>& promise) {
         const std::function<bool()> cancelled =
             [&promise]() { return promise.isCanceled(); };
+        // ── R3-perf (audit finding 5): throttle the PROMISE POSTS ───────────
+        // Each QPromise progress post is a queued cross-thread delivery to
+        // the GUI thread plus a dialog repaint; one per page-pair boundary
+        // is a repaint storm on a large comparison. The stage-boundary hook
+        // (and with it the engine's cancel probe) stays PER-BOUNDARY — only
+        // the report is throttled (the finding's own direction). A post is
+        // forced at every stage change (the dialog's range switch must land
+        // immediately) and at every stage completion (the final value must
+        // land exactly — the finished delivery is ordered after it); in
+        // between, at most one post per kProgressEveryNBoundaries
+        // boundaries. The completion SIGNAL is unchanged: the final
+        // (done == total) boundary of each stage always posts.
+        constexpr int kProgressEveryNBoundaries = 8;
+        int lastStage = 0;
+        int boundariesSincePost = kProgressEveryNBoundaries;   // first boundary posts
         const auto report =
-            [&promise, &stageHook, promiseReports](int stage, int done, int total) {
+            [&promise, &stageHook, promiseReports, &lastStage, &boundariesSincePost]
+            (int stage, int done, int total) {
                 // Boundary hook BEFORE the report: a parked test sees the
                 // dialog state of everything reported so far, never the
                 // boundary's own report (deterministic stage observation).
@@ -308,6 +324,15 @@ void CompareMode::compareFiles(const QString& file1, const QString& file2) {
                     stageHook(stage, done);
                 if (total <= 0)
                     return;
+                const bool stageChanged = (stage != lastStage);
+                const bool stageCompleted = (done >= total);
+                if (!stageChanged && !stageCompleted
+                    && boundariesSincePost < kProgressEveryNBoundaries) {
+                    ++boundariesSincePost;
+                    return;
+                }
+                lastStage = stage;
+                boundariesSincePost = 0;
                 promiseReports->fetchAndAddRelaxed(1);  // R3-perf seam
                 promise.setProgressRange(0, total);
                 // "starting unit done+1 of total": QFutureInterface suppresses
