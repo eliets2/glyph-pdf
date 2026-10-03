@@ -138,7 +138,6 @@ private:
     // that engages the polling fallback + disclosure on any refusal.
     QStringList addWatchPaths(const QStringList& paths);
     void engagePollingBackstop(const QStringList& failed);
-    QList<QFileInfo> recursivePdfEntries() const;  // the whole tree, *.pdf/*.PDF
     // R3-perf (audit finding 6): stream the watched tree's PDF entries
     // (stat walk only — *.pdf/*.PDF, files, subdirectories) through \p visit.
     // Replaces the whole-tree QList<QFileInfo> materialization the poll tick
@@ -158,7 +157,6 @@ private:
     // never re-delivered by the other — even when both paths are live at
     // once (a stray fs-event on a polled network share). Pinned by
     // TestHotFolder::crossPathIngestSharesOneProcessedSet.
-    QString hotFileKey(const QFileInfo& fi) const;
     // \p root is the caller's hoisted QDir(m_dir): the hot loop builds every
     // key without re-constructing the root per file.
     QString hotFileKey(const QFileInfo& fi, const QDir& root) const;

@@ -840,6 +840,8 @@ private slots:
                  "a refused root must degrade the whole watch to polling (F-6)");
         QVERIFY2(!disclosures.isEmpty(), "a refused root must be disclosed");
         QVERIFY(c.watchedDirectoriesForTest().isEmpty());  // premise: nothing watched
+        c.stop();
+    }
     // ── R3-perf (audit finding 6): re-entrant ingest does not rescan ──────────
     // The ingest handler walking back into ingestDeliver() (a batch auto-run
     // that re-enters the controller mid-delivery) must not trigger a second

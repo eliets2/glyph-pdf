@@ -456,6 +456,7 @@ private slots:
                               "structural row); got pages=%1 pageChanges=%2")
                                 .arg(applied.pages.size())
                                 .arg(applied.pageChanges.size())));
+    }
     // ── R3-perf (audit finding 5): promise progress posts are throttled ───────
     // Every QPromise progress post is a queued cross-thread delivery to the
     // GUI thread plus a dialog repaint; posting one per page-pair boundary is

@@ -136,26 +136,21 @@ public:
     // THREAD (consumers must marshal to their own thread; the thumbnail rail
     // hops via queued invokeMethod). If the token epoch advanced while the
     // render ran (clear()/prefetch supersession — the document-changed case)
-    // the result is discarded and onRendered is NOT invoked: a stale render is
-    // never delivered to the consumer. Unlike prefetchViewport this does NOT
-    // bump the cancel token per request — a thumbnail grid fires N concurrent
-    // requests and none may cancel the others.
-    //
-    // Cancellation invariant (TOKEN-EPOCH-DELIVERY): delivery and insertion
-    // are deliberately asymmetric — a superseded render may already have
-    // INSERTED its bitmap without DELIVERING it (getOrRender inserts; the
-    // epoch re-check then skips onRendered). That is safe by construction,
-    // not by caller discipline: the cache is keyed by page+scale of the
-    // CURRENT document only, and every document change routes through
-    // clear(), which JOINS this worker (drainPrefetches) BEFORE wiping — so
-    // a cancelled render can leave a FRESH entry that a later getOrRender
-    // serves, but a STALE entry can never survive the wipe and nothing is
-    // ever misattributed to new content. Pinned by TestThumbnailOffGui
-    // clearCancelsInFlightRenderJoinsAndDeliversNothing (pin 3).
     // the result is neither inserted nor delivered: a stale render is never
     // shown to the consumer. Unlike prefetchViewport this does NOT bump the
     // cancel token per request — a thumbnail grid fires N concurrent requests
     // and none may cancel the others.
+    //
+    // Cancellation invariant (TOKEN-EPOCH-DELIVERY): delivery and insertion
+    // are symmetric — the epoch is re-checked UNDER THE INSERT'S WRITE LOCK
+    // (token-before-insert), so a superseded render inserts NOTHING and
+    // delivers NOTHING. That is safe by construction, not by caller
+    // discipline: the cache is keyed by page+scale of the
+    // CURRENT document only, and every document change routes through
+    // clear(), which JOINS this worker (drainPrefetches) BEFORE wiping — so
+    // a cancelled render can never leave a STALE entry behind and nothing is
+    // ever misattributed to new content. Pinned by TestThumbnailOffGui
+    // clearCancelsInFlightRenderJoinsAndDeliversNothing (pin 3).
     //
     // R3-perf (audit finding 2): duplicate requests COALESCE — a request for
     // a (page, scale) already being rendered attaches to the in-flight job
