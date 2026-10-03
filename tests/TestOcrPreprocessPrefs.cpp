@@ -11,6 +11,7 @@
 
 #include "modes/OCRMode.h"
 #include "engines/ocr/OcrPreprocessor.h"
+#include "shell/controllers/EditController.h"
 
 class TestOcrPreprocessPrefs : public QObject {
     Q_OBJECT
@@ -27,6 +28,7 @@ private slots:
         QSettings().remove(QStringLiteral("ocr/preprocessDeskew"));
         QSettings().remove(QStringLiteral("ocr/preprocessBinarize"));
         QSettings().remove(QStringLiteral("ocr/preprocessDenoise"));
+        QSettings().remove(QStringLiteral("ocr/orientDetect"));
     }
 
     void defaultsMatchPipelineBehavior() {
@@ -120,6 +122,70 @@ private slots:
         QVERIFY2(denoise && denoise->isChecked(),
                  "persisted Denoise=on must restore checked");
     }
+
+    // ── row 17, consumption half (findings-tests 2026-10-02, testing-
+    // specialist H-2): "the pipeline CONSUMES the persisted prefs". The pins
+    // above prove checkbox → QSettings; EditController::runOcrRegion reads
+    // the SAME keys through ocrPreprocessPrefsFromSettings() and feeds them
+    // to OcrPipeline::setPreprocessing — and that consumption mapping was
+    // asserted by zero tests repo-wide: deleting, retyping or mis-defaulting
+    // the reads left every pin here green (the historical bug's exact
+    // shape: checkbox said off, pipeline denoised anyway).
+    void pipelineConsumesPersistedPrefs() {
+        // Absent keys → the shipped defaults, ALL FOUR false (F5-F2: the
+        // destructive chain is opt-in; Auto-Rotate too). The keys are
+        // actually REMOVED first, never merely assumed absent (CX-17).
+        QSettings().remove(QStringLiteral("ocr/preprocessDeskew"));
+        QSettings().remove(QStringLiteral("ocr/preprocessBinarize"));
+        QSettings().remove(QStringLiteral("ocr/preprocessDenoise"));
+        QSettings().remove(QStringLiteral("ocr/orientDetect"));
+        {
+            const auto prefs = gp::EditController::ocrPreprocessPrefsFromSettings();
+            QVERIFY2(!prefs.deskew && !prefs.binarize && !prefs.denoise
+                         && !prefs.orientDetect,
+                     "with every pref absent the pipeline's preprocessing must be "
+                     "the shipped all-OFF default — an ON default here denoises "
+                     "behind the user's back on a clean scan (the audited "
+                     "zero-recognition failure)");
+        }
+        // Each persisted true reaches EXACTLY its matching field — and never
+        // a sibling (the retyped/wrong-key regression class).
+        QSettings().setValue(QStringLiteral("ocr/preprocessDeskew"), true);
+        {
+            const auto prefs = gp::EditController::ocrPreprocessPrefsFromSettings();
+            QVERIFY2(prefs.deskew, "persisted Deskew=on must reach the pipeline");
+            QVERIFY2(!prefs.binarize && !prefs.denoise && !prefs.orientDetect,
+                     "the Deskew pref must not leak into a sibling field");
+        }
+        QSettings().setValue(QStringLiteral("ocr/preprocessBinarize"), true);
+        {
+            const auto prefs = gp::EditController::ocrPreprocessPrefsFromSettings();
+            QVERIFY2(prefs.deskew && prefs.binarize,
+                     "persisted Binarize=on must reach the pipeline");
+            QVERIFY2(!prefs.denoise && !prefs.orientDetect,
+                     "the Binarize pref must not leak into a sibling field");
+        }
+        QSettings().setValue(QStringLiteral("ocr/preprocessDenoise"), true);
+        {
+            const auto prefs = gp::EditController::ocrPreprocessPrefsFromSettings();
+            QVERIFY2(prefs.deskew && prefs.binarize && prefs.denoise,
+                     "persisted Denoise=on must reach the pipeline (the checkbox "
+                     "said off while the pipeline denoised — the historical bug)");
+            QVERIFY2(!prefs.orientDetect,
+                     "the Denoise pref must not leak into Auto-Rotate");
+        }
+        QSettings().setValue(QStringLiteral("ocr/orientDetect"), true);
+        {
+            const auto prefs = gp::EditController::ocrPreprocessPrefsFromSettings();
+            QVERIFY2(prefs.orientDetect,
+                     "persisted Auto-Rotate=on must reach the pipeline");
+        }
+        // An explicit false survives as false (an absent key and an explicit
+        // off must behave identically at the pipeline).
+        QSettings().setValue(QStringLiteral("ocr/preprocessDenoise"), false);
+        QCOMPARE(gp::EditController::ocrPreprocessPrefsFromSettings().denoise, false);
+    }
+
 
     // ── §4 row 17 (parity row 22): preprocessing capability disclosure ──────
     // A build without Leptonica silently degraded preprocessing: deskew and

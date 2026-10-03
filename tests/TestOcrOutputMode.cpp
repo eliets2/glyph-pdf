@@ -20,8 +20,19 @@
 //      EditController's accept flow reads).
 //   7. ConvertController::probeDocumentText classifies a text PDF vs an
 //      image-only (scanned) PDF — the trigger for the export-dialog OCR offer.
+//   8. (findings-tests 2026-10-02) The scanned-export offer's PRODUCT read
+//      (scannedOfferEnabledByPref): absent pref → the offer exists (ON);
+//      explicit false → off. Replaces the tautological tail that asserted
+//      QSettings' own default-argument behavior.
+//   9. (findings-tests 2026-10-02, §4 row 5) The OCR stage of the 3-way
+//      scanned-export offer (buildSearchableOcrCopy) fails HONESTLY:
+//      unusable language data and a recognize-nothing document both yield an
+//      EMPTY result with a typed, stage-specific message — the exact shape
+//      every export worker consumes to abort instead of silently exporting
+//      the un-OCR'd original.
 #include <QtTest>
 #include <QComboBox>
+#include <QFileInfo>
 #include <QImage>
 #include <QPainter>
 #include <QSettings>
@@ -35,6 +46,7 @@
 #include "shell/controllers/ConvertController.h"
 #include "engines/PdfEditorEngine.h"
 #include "engines/ocr/OcrPipeline.h"
+#include "engines/ocr/OcrPreprocessor.h"
 #include "engines/pdfium/PdfiumBackend.h"
 
 using gp::ConvertController;
@@ -108,6 +120,19 @@ QString writeScannedPdf(const QString& path)
     return QFile::exists(path) ? path : QString();
 }
 
+// A one-page image-only PDF with NOTHING baked in — the recognize-nothing
+// fixture for the OCR stage's honest abort (row 5).
+QString writeBlankScannedPdf(const QString& path)
+{
+    QPdfWriter writer(path);
+    writer.setPageSize(QPageSize::A4);
+    QPainter p(&writer);
+    p.drawImage(QRect(0, 0, writer.width(), writer.height()),
+                makeScanPage(800, 1100));
+    p.end();
+    return QFile::exists(path) ? path : QString();
+}
+
 } // namespace
 
 class TestOcrOutputMode : public QObject {
@@ -132,6 +157,11 @@ private slots:
 
     // ── ConvertController probe (the export-dialog trigger) ─────────────
     void probeClassifiesTextVsScannedDocuments();
+    // ── scanned-export offer: the PRODUCT pref read + the OCR stage's
+    //    honest abort (row 5; findings-tests 2026-10-02) ─────────────────
+    void scannedOfferPrefReadIsTheProductDefaultOn();
+    void scannedExportOcrStageFailsHonestlyWhenLanguageDataMissing();
+    void scannedExportOcrStageRecognizingNothingAborts();
 };
 
 void TestOcrOutputMode::prefParsesToModeAndRoundTrips()
@@ -321,11 +351,89 @@ void TestOcrOutputMode::probeClassifiesTextVsScannedDocuments()
     // A missing file is honestly Unknown — the probe never invents an answer.
     QCOMPARE(ConvertController::probeDocumentText(dir.filePath("missing.pdf")),
              ConvertController::TextProbe::Unknown);
-    // The persisted master switch defaults ON (the offer exists).
+}
+
+void TestOcrOutputMode::scannedOfferPrefReadIsTheProductDefaultOn()
+{
+    // The persisted master switch: the PRODUCT's read defaults ON (the offer
+    // exists) and honors an explicit off. (findings-tests 2026-10-02: the
+    // previous tail of the probe pin asserted QSettings' own default-argument
+    // behavior — the TEST supplied the default — so the named regression
+    // "the product default flips to false, the offer vanishes" could never
+    // turn anything red. The default now lives in
+    // ConvertController::scannedOfferEnabledByPref(), the exact function the
+    // gate and the prompt call, and this pin reads the product.)
     QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
     QCoreApplication::setApplicationName(QStringLiteral("TestOcrOutputMode"));
-    QSettings().remove(ConvertController::scannedOfferPrefKey());
-    QCOMPARE(QSettings().value(ConvertController::scannedOfferPrefKey(), true).toBool(), true);
+    const QString key = ConvertController::scannedOfferPrefKey();
+    QSettings().remove(key);
+    QVERIFY2(ConvertController::scannedOfferEnabledByPref(),
+             "with the pref absent the scanned-export offer must exist (the "
+             "product default is ON) — a flipped product default is the named "
+             "regression");
+    QSettings().setValue(key, false);
+    QVERIFY2(!ConvertController::scannedOfferEnabledByPref(),
+             "an explicit off (the prompt's 'Don't ask again' write) must turn "
+             "the offer off — a permission without its denial proves nothing");
+    QSettings().setValue(key, true);
+    QVERIFY2(ConvertController::scannedOfferEnabledByPref(),
+             "an explicit on keeps the offer");
+    QSettings().remove(key);
+}
+
+void TestOcrOutputMode::scannedExportOcrStageFailsHonestlyWhenLanguageDataMissing()
+{
+    // §4 row 5's honest abort, engine-unavailable leg: when the OCR stage
+    // cannot run, buildSearchableOcrCopy returns EMPTY with a typed,
+    // stage-specific message. The export workers consume exactly this shape
+    // (`source.isEmpty()` → typed failure, no conversion) — a non-empty
+    // result here would mean the un-OCR'd original gets exported as if it
+    // had been recognized (the silent-fallback regression). A language with
+    // no staged traineddata ("zzq") fails Tesseract initialization without
+    // burning a recognition budget.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString scan = writeScannedPdf(dir.filePath("scan.pdf"));
+    QVERIFY(!scan.isEmpty());
+
+    QString error;
+    const QString source = ConvertController::buildSearchableOcrCopy(
+        scan, QStringLiteral("zzq"), OcrPreprocessOptions{}, &error);
+    QVERIFY2(source.isEmpty(),
+             qPrintable(QStringLiteral("an OCR stage that cannot run must NOT "
+                          "yield a source (the worker would export it): got '%1'")
+                            .arg(source)));
+    QVERIFY2(error.contains(QStringLiteral("OCR failed"), Qt::CaseInsensitive)
+                 && error.contains(QStringLiteral("zzq"))
+                 && error.contains(QStringLiteral("unavailable"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("the failure must be typed and stage-specific "
+                          "(name the language), got: '%1'").arg(error)));
+}
+
+void TestOcrOutputMode::scannedExportOcrStageRecognizingNothingAborts()
+{
+    // §4 row 5's honest abort, recognize-nothing leg: a real OCR run over a
+    // genuinely blank scan recognizes no text — the stage must refuse to
+    // build a "searchable copy" of nothing (an export of it would be a blank
+    // lie) and abort with the typed message the worker surfaces. Never a
+    // silent un-OCR'd fallback of the original.
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString blank = writeBlankScannedPdf(dir.filePath("blank-scan.pdf"));
+    QVERIFY(!blank.isEmpty());
+
+    QString error;
+    const QString source = ConvertController::buildSearchableOcrCopy(
+        blank, QStringLiteral("eng"), OcrPreprocessOptions{}, &error);
+    QVERIFY2(source.isEmpty(),
+             qPrintable(QStringLiteral("recognizing nothing must NOT yield a source: "
+                          "got '%1'").arg(source)));
+    QVERIFY2(error.contains(QStringLiteral("recognized no text"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("the recognize-nothing abort must be typed, "
+                          "got: '%1'").arg(error)));
+    // And the abort leaves no half-written temp artifact behind (the stage
+    // never reaches the writer on this path).
+    QVERIFY2(!QFileInfo::exists(source), "a refused stage leaves no file behind");
 }
 
 QTEST_MAIN(TestOcrOutputMode)

@@ -2143,15 +2143,24 @@ endif()
 
 # ── TestOcrRegionReocr (PARITY-SCORECARD-2026-09-30 §4 row 12 — region-scoped
 #    re-OCR: canvas drag → LayoutRegion-bbox → scoped pipeline run + honest
-#    garbage-region refusals) ─────────────────────────────────────────────────
+#    garbage-region refusals; findings-tests 2026-10-02 added the live
+#    nothing-recognized leg → real GpMainWindow + Bootstrapper + real Tesseract,
+#    hence the 600s ceiling like the other live-OCR suites) ───────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
     add_executable(TestOcrRegionReocr
         tests/TestOcrRegionReocr.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
     )
     target_include_directories(TestOcrRegionReocr PRIVATE src tests)
+    # Bootstrapper.cpp requires the djot lib dir at compile time (the
+    # TestSweepW3UxFlows definition — this suite now boots a real window).
+    target_compile_definitions(TestOcrRegionReocr PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
     target_link_libraries(TestOcrRegionReocr PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
     )
     add_custom_command(TARGET TestOcrRegionReocr POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -2163,8 +2172,8 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
     )
     add_test(NAME TestOcrRegionReocr COMMAND TestOcrRegionReocr)
     set_tests_properties(TestOcrRegionReocr PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTEST_FUNCTION_TIMEOUT=600000"
+        TIMEOUT 600
         LABELS "unit;ocr;reocr-region;review;qt;headless"
     )
 endif()

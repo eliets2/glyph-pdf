@@ -1,0 +1,26 @@
+********* Start testing of TestOcrRegionReocr *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrRegionReocr::initTestCase()
+PASS   : TestOcrRegionReocr::deliveredSessionIsReviewReady()
+PASS   : TestOcrRegionReocr::regionEntryOutsideReviewReadyStaysGuarded()
+PASS   : TestOcrRegionReocr::wholePageEntryGuardedAndDispatchesEmptyBbox()
+PASS   : TestOcrRegionReocr::regionReocrWithoutSelectionIsTypedNoop()
+PASS   : TestOcrRegionReocr::selectedRegionIsStoredAndDispatchedVerbatim()
+PASS   : TestOcrRegionReocr::emptySelectionClearsStoredRegion()
+PASS   : TestOcrRegionReocr::freshDeliveryClearsStoredRegion()
+PASS   : TestOcrRegionReocr::wholePageEntryDoesNotDisturbStoredRegion()
+PASS   : TestOcrRegionReocr::imageRegionForMapsWidgetDragIntoImageSpace()
+PASS   : TestOcrRegionReocr::imageRegionForClampsToImage()
+PASS   : TestOcrRegionReocr::imageRegionForEmptyWhenDragMissesImage()
+PASS   : TestOcrRegionReocr::canvasDragCommitsRegionInImageSpace()
+PASS   : TestOcrRegionReocr::regionCropRectMapsInteriorRegion()
+PASS   : TestOcrRegionReocr::regionCropRectNormalizesNegativeExtent()
+PASS   : TestOcrRegionReocr::regionCropRectClampsToPage()
+PASS   : TestOcrRegionReocr::regionCropRectRejectsGarbageWithTypedReason()
+PASS   : TestOcrRegionReocr::regionWordsAreMappedBackIntoPageSpace()
+
+         regionRunRecognizingNothingIsTypedFailureAndReviewStaysIntact function time: 300017ms, total time: 300509ms
+QFATAL : TestOcrRegionReocr::regionRunRecognizingNothingIsTypedFailureAndReviewStaysIntact() Test function timed out
+FAIL!  : TestOcrRegionReocr::regionRunRecognizingNothingIsTypedFailureAndReviewStaysIntact() Received a fatal error.
+Totals: 18 passed, 1 failed, 0 skipped, 0 blacklisted, 300510ms
+********* Finished testing of TestOcrRegionReocr *********

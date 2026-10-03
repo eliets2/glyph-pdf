@@ -1,0 +1,28 @@
+********* Start testing of TestOcrOutputMode *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOcrOutputMode::initTestCase()
+PASS   : TestOcrOutputMode::prefParsesToModeAndRoundTrips()
+PASS   : TestOcrOutputMode::unknownPrefNeverSilentlySelectsEditable()
+PASS   : TestOcrOutputMode::outputModeFromSettingsReadsThePref()
+PASS   : TestOcrOutputMode::dialogTitleAndStatusNameTheEditableCopy()
+PASS   : TestOcrOutputMode::searchableViewKeepsHistoricalStrings()
+QDEBUG : TestOcrOutputMode::editableWriterReplacesContentWithVisibleText() EditableTextPdf: wrote 758 bytes to "C:/Users/User/AppData/Local/Temp/TestOcrOutputMode-VKFcPP/editable.pdf"
+QDEBUG : TestOcrOutputMode::editableWriterReplacesContentWithVisibleText() EditableTextPdf: wrote 1733 bytes to "C:/Users/User/AppData/Local/Temp/TestOcrOutputMode-VKFcPP/editable-uni.pdf"
+PASS   : TestOcrOutputMode::editableWriterReplacesContentWithVisibleText()
+QDEBUG : TestOcrOutputMode::searchableWriterStillEmbedsTheImage() MrcPdfA: wrote 2680 bytes to "C:/Users/User/AppData/Local/Temp/TestOcrOutputMode-ZHjEgf/searchable.pdf"
+QWARN  : TestOcrOutputMode::searchableWriterStillEmbedsTheImage() MrcPdfA: veraPDF not available — skipping conformance gate
+PASS   : TestOcrOutputMode::searchableWriterStillEmbedsTheImage()
+PASS   : TestOcrOutputMode::editableWriterRefusesAnAllEmptyPayload()
+PASS   : TestOcrOutputMode::ocrModeComboExposesAndPersistsTheChoice()
+QWARN  : TestOcrOutputMode::probeClassifiesTextVsScannedDocuments() PDFium failed to load document: "C:/Users/User/AppData/Local/Temp/TestOcrOutputMode-JpGWsN/missing.pdf"
+PASS   : TestOcrOutputMode::probeClassifiesTextVsScannedDocuments()
+FAIL!  : TestOcrOutputMode::scannedOfferPrefReadIsTheProductDefaultOn() 'ConvertController::scannedOfferEnabledByPref()' returned FALSE. (with the pref absent the scanned-export offer must exist (the product default is ON) â€” a flipped product default is the named regression)
+D:/pdf/pdf-f-tests/tests/TestOcrOutputMode.cpp(370) : failure location
+FAIL!  : TestOcrOutputMode::scannedExportOcrStageFailsHonestlyWhenLanguageDataMissing() 'source.isEmpty()' returned FALSE. (an OCR stage that cannot run must NOT yield a source (the worker would export it): got 'C:/Users/User/AppData/Local/Temp/TestOcrOutputMode-dGqOmt/scan.pdf')
+D:/pdf/pdf-f-tests/tests/TestOcrOutputMode.cpp(402) : failure location
+QWARN  : TestOcrOutputMode::scannedExportOcrStageRecognizingNothingAborts() CRITICAL: OcrEngine::processImage() called from main GUI thread! Blocking operations must run on worker threads.
+FAIL!  : TestOcrOutputMode::scannedExportOcrStageRecognizingNothingAborts() 'source.isEmpty()' returned FALSE. (recognizing nothing must NOT yield a source: got 'C:/Users/User/AppData/Local/Temp/TestOcrOutputMode-lihSAU/blank-scan.pdf')
+D:/pdf/pdf-f-tests/tests/TestOcrOutputMode.cpp(428) : failure location
+PASS   : TestOcrOutputMode::cleanupTestCase()
+Totals: 12 passed, 3 failed, 0 skipped, 0 blacklisted, 620ms
+********* Finished testing of TestOcrOutputMode *********

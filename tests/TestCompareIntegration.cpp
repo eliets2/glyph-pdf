@@ -27,6 +27,7 @@
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QSemaphore>
+#include <QSharedPointer>
 #include <QSplitter>
 #include <QTemporaryDir>
 #include <QTextBrowser>
@@ -358,6 +359,103 @@ private slots:
                  qPrintable(QStringLiteral("status after re-run: %1").arg(status->text())));
         QCOMPARE(mode.lastResult().pages.size(), 2);
         QCOMPARE(widget->changeCount(), 1);
+    }
+
+    // ── §4 row 7 (findings-tests 2026-10-02): re-entry while running refused ──
+    // CompareMode.cpp's guard (`if (m_watcher.isRunning()) return;`) is the
+    // row's "re-entry refused" contract — testing-specialist wave-2b §4.3:
+    // a deleted guard passed all nine pins because no pin drove a second
+    // compareFiles while one ran (the cancel pin only re-runs AFTER
+    // completion). This pin parks the first run at its first extraction
+    // boundary, fires a second compareFiles with a DIFFERENT pair, and pins
+    // the refusal three ways:
+    //   1. no second progress dialog is created,
+    //   2. the files label still names the FIRST pair (re-entry would have
+    //      overwritten it with the second pair's names),
+    //   3. the applied result is the FIRST pair's shape — a one-word text
+    //      edit over 2 aligned pages (no structural rows). The refused pair
+    //      is a page INSERTION (3 pages, one structural row): with the guard
+    //      deleted, the second call detaches the watcher from the running
+    //      future, starts the insertion pair, and ITS result wins the UI —
+    //      red on the lastResult shape, the label and the dialog count.
+    // (The first pair must not be byte-identical: the engine's streaming-hash
+    // short-circuit resolves identical bytes before the first extraction
+    // boundary, and the park would never fire.)
+    void reentryWhileRunningIsRefused()
+    {
+        // First pair: the stages fixture's one-word edit → "1 CHANGES",
+        // 2 aligned pages, zero structural rows.
+        const QString a = pagePdf("ree_a.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot gulf hotel india juliet"),
+            QStringLiteral("second page")});
+        const QString b = pagePdf("ree_b.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot golf hotel india juliet"),
+            QStringLiteral("second page")});
+        // Second (refused) pair: a TRAILING PAGE INSERTION → 3 pages, one
+        // structural PageAdded (the trailing-page fixture's shape).
+        const QString c = pagePdf("ree_c.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot"),
+            QStringLiteral("second page")});
+        const QString d = pagePdf("ree_d.pdf", {
+            QStringLiteral("alpha bravo charlie delta echo foxtrot"),
+            QStringLiteral("second page"),
+            QStringLiteral("third page")});
+        QVERIFY(!a.isEmpty() && !b.isEmpty() && !c.isEmpty() && !d.isEmpty());
+
+        gp::CompareMode mode;
+        // Heap-shared semaphores, captured BY VALUE into the hook (the hook
+        // outlives this function whenever an upstream assertion fails while
+        // the worker is parked — the bounded park then expires into a lambda
+        // that still owns its semaphores, never into dangling stack).
+        auto reached = QSharedPointer<QSemaphore>::create();
+        auto wake = QSharedPointer<QSemaphore>::create();
+        mode.setStageBoundaryHookForTest([&](int stage, int done) {
+            if (stage == DiffEngine::ProgressExtractText && done == 0) {
+                reached->release();
+                wake->tryAcquire(1, 60000);   // bounded park (see stages test)
+            }
+        });
+        mode.compareFiles(a, b);
+        QVERIFY2(reached->tryAcquire(1, 30000),
+                 "worker never reached the first extraction boundary");
+        QVERIFY2(mode.isBusy(),
+                 "the first diff must still be running while the worker is parked");
+
+        // The REFUSED re-entry: a second compare while one runs.
+        mode.compareFiles(c, d);
+
+        // (1) No second progress dialog — a non-refused call constructs one.
+        QCOMPARE(mode.findChildren<QProgressDialog*>(
+                     QStringLiteral("cmpProgressDialog")).size(), 1);
+        // (2) The compared scope still names the FIRST pair (cmpFilesLabel is
+        // the U04 testable Old/New surface; re-entry overwrites it).
+        auto* filesLabel = mode.findChild<QLabel*>(QStringLiteral("cmpFilesLabel"));
+        QVERIFY2(filesLabel, "files label must carry objectName cmpFilesLabel");
+        QVERIFY2(filesLabel->text().contains(QStringLiteral("ree_a.pdf"))
+                     && filesLabel->text().contains(QStringLiteral("ree_b.pdf")),
+                 qPrintable(QStringLiteral("the re-entry must be refused — the compared "
+                              "scope still names the FIRST pair, got: %1")
+                                .arg(filesLabel->text())));
+        QVERIFY2(mode.isBusy(),
+                 "the refused re-entry must not have disturbed the running job");
+
+        // (3) The FIRST pair's result is the one applied: the text edit's
+        // shape (2 pages, no structural rows) — never the insertion pair's
+        // (3 pages, one PageAdded).
+        wake->release();
+        waitForDiffFinished(mode);
+        auto* status = mode.findChild<QLabel*>(QStringLiteral("cmpStatusLabel"));
+        QVERIFY(status);
+        QVERIFY2(status->text().contains(QStringLiteral("1 CHANGES")),
+                 qPrintable(QStringLiteral("status: %1").arg(status->text())));
+        const DiffResult& applied = mode.lastResult();
+        QVERIFY2(applied.pages.size() == 2 && applied.pageChanges.isEmpty(),
+                 qPrintable(QStringLiteral("the FIRST compare's result must be the one "
+                              "applied — a second compareFiles while running must be "
+                              "refused (the insertion pair would show 3 pages + 1 "
+                              "structural row); got pages=%1 pageChanges=%2")
+                                .arg(applied.pages.size())
+                                .arg(applied.pageChanges.size())));
     }
 
     // ── (a) two identical documents → no changes, isIdentical ────────────────
