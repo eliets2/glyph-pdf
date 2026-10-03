@@ -397,6 +397,9 @@ add_library(pdfws_engines STATIC
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
     src/engines/SafeSave.h           src/engines/SafeSave.cpp
+    # Row 14: the vendored 7-Zip bundle locator — its own unit so SafeSave
+    # stays tool-agnostic (r3-api harmonization; was SafeSave::locateSevenZip).
+    src/engines/SevenZipLocator.h    src/engines/SevenZipLocator.cpp
     # T2-4 accessibility P1: gap DETECTION (checker) + the cheap structural
     # fixes — no auto-tagging, no PDF/UA conformance claim (disclosed in UI).
     # PoFoDictRead.h: shared read-only PoDoFo dictionary helpers (D2).
@@ -828,14 +831,16 @@ endif()
 
 # ── Vendored 7-Zip (PARITY-SCORECARD-2026-09-30 §4 row 14) ──────────────────
 # The encrypted-package feature resolves its 7z.exe from the application-owned
-# directory FIRST (HomeController::locateSevenZip): the binaries are COMMITTED
+# directory ONLY (SevenZipLocator::locate): the binaries are COMMITTED
 # at third_party/7zip/bin/ and staged beside the app/test executables below.
 # This configure-time check pins their bytes (same discipline as the quickjs-ng
 # version pin): a swapped, corrupted or re-downloaded binary without updating
 # third_party/7zip/PROVENANCE.md fails the build here, not in the field.
 # Policy: on Windows the bundle is REQUIRED (it carries the offline-pitch
 # capability); on non-Windows it is recorded-but-unstaged (L05 — the Windows
-# binaries are meaningless to the Linux loader and 7z falls back to PATH).
+# binaries are meaningless to the Linux loader; the locator resolves the
+# app-owned pair only, so non-Windows encrypted packaging honestly discloses
+# absence instead of falling back to a system 7z).
 set(GLYPHPDF_7ZIP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/7zip/bin")
 set(GLYPHPDF_7ZIP_EXE_SHA256 "83967f1b02b43c4efeda302795722c809e0e81b8307de73558d10484d5676a7d")
 set(GLYPHPDF_7ZIP_DLL_SHA256 "69fd4df057985c40e510e2fac182881c7f85e90aa13ec703f763a8fdb2ce61f8")
@@ -864,7 +869,7 @@ else()
             "the encrypted-package capability — restore the committed binaries (git checkout "
             "third_party/7zip) instead of downloading ad-hoc. See third_party/7zip/PROVENANCE.md.")
     endif()
-    message(STATUS "Vendored 7-Zip: not present — encrypted package falls back to system 7z (non-Windows)")
+    message(STATUS "Vendored 7-Zip: not present — encrypted packaging discloses absence on non-Windows (locator is bundled-only)")
     set(GLYPHPDF_7ZIP_STAGED FALSE)
 endif()
 
@@ -892,9 +897,9 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
     list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
 endif()
-# Vendored 7-Zip beside the executables: HomeController::locateSevenZip
-# resolves the app-owned copy FIRST, so this staging is what makes the
-# encrypted-package capability work offline (no system 7z.exe needed).
+# Vendored 7-Zip beside the executables: SevenZipLocator::locate resolves the
+# app-owned copy (bundled-only since F-02), so this staging is what makes the
+# encrypted-package capability work offline (no system 7z.exe involved).
 if(GLYPHPDF_7ZIP_STAGED)
     list(APPEND _runtime_dlls
         "${GLYPHPDF_7ZIP_DIR}/7z.exe"
@@ -4826,6 +4831,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
     add_executable(TestEncryptedPackageSafeWrite
         tests/TestEncryptedPackageSafeWrite.cpp
         src/engines/SafeSave.cpp
+        src/engines/SevenZipLocator.cpp   # realSevenZipEndToEnd resolves through the locator
     )
     target_include_directories(TestEncryptedPackageSafeWrite PRIVATE src tests)
     target_link_libraries(TestEncryptedPackageSafeWrite PRIVATE

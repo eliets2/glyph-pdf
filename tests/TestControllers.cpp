@@ -8,6 +8,7 @@
 #include "core/ToolId.h"
 #include "core/interfaces/IToolController.h"
 #include "engines/SafeSave.h"
+#include "engines/SevenZipLocator.h"
 #include "shell/controllers/HomeController.h"
 #include "shell/controllers/ViewController.h"
 #include "shell/controllers/EditController.h"
@@ -299,14 +300,14 @@ private slots:
         }
 
         // (c) live end-to-end through the REAL 7-Zip + stdin path (QSKIP only
-        // when no 7-Zip exists anywhere): the archive must be genuinely
+        // when the vendored bundle is absent): the archive must be genuinely
         // encrypted with the stdin-delivered password and unreadable without
-        // it. Resolution via the shared app-owned-first locator — the bundled
-        // copy staged beside this test binary wins (PARITY-SCORECARD
-        // §4 row 14); a system install is only a fallback.
-        const QString sevenZip = gp::SafeSave::locateSevenZip();
+        // it. Resolution via the app-owned locator — the bundled copy staged
+        // beside this test binary is the ONLY legitimate resolution (F-02:
+        // no PATH/system-install fallback exists any more).
+        const QString sevenZip = gp::SevenZipLocator::locate();
         if (sevenZip.isEmpty())
-            QSKIP("no 7-Zip anywhere (no bundled copy beside the test binary, no system install) — argv-shape assertions above still ran");
+            QSKIP("no vendored 7-Zip bundle beside the test binary — argv-shape assertions above still ran");
 
         QTemporaryDir dir;
         QVERIFY(dir.isValid());

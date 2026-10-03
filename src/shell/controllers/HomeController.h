@@ -78,9 +78,9 @@ public:
     static QStringList encryptedPackageCreateArgs(const QString& candidate,
                                                   const QString& filePath);
     static QStringList encryptedPackageValidateArgs(const QString& candidate);
-    // The 7-Zip locator lives at the transaction layer:
-    // gp::SafeSave::locateSevenZip (PARITY-SCORECARD §4 row 14) — the vendored
-    // app-owned copy first, system install only as fallback, empty = disclose.
+    // The 7-Zip locator is its own unit: gp::SevenZipLocator (PARITY-SCORECARD
+    // §4 row 14) — the vendored app-owned pair beside the executable is the
+    // only resolution (F-02: no system-install fallback), empty = disclose.
 
 private:
     void onSave();

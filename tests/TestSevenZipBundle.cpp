@@ -27,8 +27,11 @@
 #include <QTemporaryDir>
 
 #include "engines/SafeSave.h"
+#include "engines/SevenZipLocator.h"
 // The M-1 argv-builder seams (encryptedPackageCreateArgs/ValidateArgs) live on
-// HomeController; the locator seam under test lives on SafeSave.
+// HomeController; the locator seam under test is engines/SevenZipLocator (the
+// dedicated owner of the vendored-bundle policy — extracted from SafeSave,
+// which stays tool-agnostic).
 #include "shell/controllers/HomeController.h"
 
 using gp::HomeController;
@@ -130,7 +133,7 @@ private slots:
         plantFakeToolPair(appDir.path());
 
         const QString resolved =
-            SafeSave::locateSevenZip(appDir.path());
+            gp::SevenZipLocator::locateForTesting(appDir.path());
         QCOMPARE(resolved,
                  QDir::toNativeSeparators(
                      QDir(appDir.path()).filePath(QStringLiteral("7z.exe"))));
@@ -146,7 +149,7 @@ private slots:
         QTemporaryDir emptyDir;
         QVERIFY(emptyDir.isValid());
 
-        const QString resolved = SafeSave::locateSevenZip(emptyDir.path());
+        const QString resolved = gp::SevenZipLocator::locateForTesting(emptyDir.path());
         QVERIFY2(resolved.isEmpty(),
                  "without the bundled pair the resolver must return EMPTY — "
                  "no PATH or Program-Files fallback may satisfy it");
@@ -168,7 +171,7 @@ private slots:
         QVERIFY(QFile::copy(srcExe, appDirPath + QStringLiteral("/7z.exe")));
         QVERIFY(QFile::copy(srcDll, appDirPath + QStringLiteral("/7z.dll")));
 
-        const QString sevenZip = SafeSave::locateSevenZip(appDirPath);
+        const QString sevenZip = gp::SevenZipLocator::locateForTesting(appDirPath);
         QCOMPARE(sevenZip,
                  QDir::toNativeSeparators(
                      QDir(appDirPath).filePath(QStringLiteral("7z.exe"))));

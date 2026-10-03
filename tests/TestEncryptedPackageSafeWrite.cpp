@@ -38,6 +38,7 @@
 #include <thread>
 
 #include "engines/SafeSave.h"
+#include "engines/SevenZipLocator.h"
 
 using gp::SafeSave::ExternalWriteResult;
 using gp::SafeSave::runExternalWriterCommit;
@@ -361,13 +362,14 @@ private slots:
     // replaces it with an archive that opens with the chosen password, never
     // with the wrong one, and contains exactly the intended input.
     void realSevenZipEndToEnd() {
-        // PARITY-SCORECARD-2026-09-30 §4 row 14: resolve through the shared
-        // app-owned-first locator — the bundled copy staged beside this test
-        // binary wins, a system install is only a fallback. QSKIP now means
-        // "no 7-Zip anywhere", not merely "not on PATH".
-        const QString sevenZip = gp::SafeSave::locateSevenZip();
+        // PARITY-SCORECARD-2026-09-30 §4 row 14: resolve through the
+        // app-owned locator — the vendored copy staged beside this test
+        // binary is the ONLY legitimate resolution (F-02: no PATH or
+        // system-install fallback exists any more). QSKIP now means "the
+        // bundled pair is absent", not merely "not on PATH".
+        const QString sevenZip = gp::SevenZipLocator::locate();
         if (sevenZip.isEmpty())
-            QSKIP("no 7-Zip anywhere (no bundled copy beside the test binary, no system install) — the lifecycle legs above carry the regression");
+            QSKIP("no vendored 7-Zip bundle beside the test binary — the lifecycle legs above carry the regression");
 
         const QString input = m_work.filePath(QStringLiteral("report.pdf"));
         const QByteArray inputBytes =
