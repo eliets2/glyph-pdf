@@ -214,3 +214,47 @@ WAVE-CLOSING STATE: dispatch list rows 1-18 DONE or dispositioned; owner
 decisions open: font subsetting A/B/C (plan f3c7cb88), CMYK-via-lcms2 (row 13),
 7z 26.03 bump. Watch: TestSweepW3UxFlows load flake (4/5, environmental).
 Next: independent verification wave over the whole wave, then native-Linux.
+
+## Round 3 (verification fixes + cross-model audit) — CLOSED (2026-10-03, main @ 8aa2aa1b)
+
+Round 1 (406dfa25): security F-01/F-02, adversary F-2, testing H1/H3,
+scorecard rows 8/17, endgame corrections, and the DocumentSession ×12
+test-target dedup (11 archive-linking targets lost their explicit copy;
+TestInterfaces keeps its standalone one — enforced by the cross-model
+archaeologist's follow-up finding on TestFormBuilder, resolved same round).
+Round 2: findings-code (F-15 /P UTF-16BE, F-1 UTF-16BE FDF decode, F-5
+size-key, F-7 debounced walk — b429f483/286a7a91) + findings-tests (H2
+consumption pin, tautological pin replaced, 3 coverage pins, dead QSS,
+row-16 NOTE — 1ce97a74..774ada26). Round 3: r3-sec (runtime 7z SHA-256
+verification — d84c08a6/cdc7a040, ported into SevenZipLocator after the
+r3-api extraction moved the code mid-fold), r3-api (6 commits: silent
+ErrorInfo channel, lying 7z absence dialog, discarded OCR typed reason,
+SevenZipLocator extraction, csvCell promotion — 7c1294f3 lineage),
+r3-hygiene (registration properties + conventions — 1bd85ee4/f0d8227f),
+r3-perf (coalescing/join-bounding/throttle/scan/insert-order via finisher —
+fd0e4545/2ecc085a/8aa2aa1b, resolver repaired a clobbered pin tail).
+CROSS-MODEL AUDIT: 7 of 10 doctrine roles ran on DeepSeek V4.1 Flash
+(OpenRouter, 1M ctx) over the session's 137 touched files — all
+PASS-WITH-FINDINGS, 0 Critical; the DeepSeek security HIGH (coordinator-hop
+UAF) was real and fixed same-day. Roles 8-10 (devops/ux/documentation)
+await OpenRouter key credit; the driver is at
+D:/pdf/verification/crossmodel/run_audit.py (binaries skipped, byte-chunked
+parts, per-part disk writes, 402 backoff).
+INCIDENT (recorded): an explicit `git reset --hard 81bf9728` rolled main
+back over the pushed lane-B commits (reflog main@{3}; origin unaffected —
+the UAF fix + lane B survived on origin). Detected at push time as a
+non-fast-forward; repaired by rebasing local's lane-A/hygiene commits onto
+origin's line; the reunited tree gated 202/202
+(evidence-wave2-closing/waveend-serial-2026-10-03.txt). Process note: lane
+agents must NEVER run git reset/checkout against the main worktree — the
+r3 briefs now say so explicitly.
+NATIVE LINUX (wave 2c): feat/linux-native merged via its lane — vendored
+podofo from source, tesseract/leptonica/libsecret ON, pdfium/rapidocr/
+qpdf/quickjs honestly OFF; offscreen gate at its honest floor 155/200
+(45 reds classified: 38 pdfium-stub, 4 LibreOffice, 2 quickjs, 1
+Windows-7z; L03 artifact manifest would convert the 38). Desktop gates
+remain UNTESTED — no native desktop pass is claimed.
+WAVE-CLOSING STATE: full serial 202/202 at 8aa2aa1b (evidence
+evidence-wave2-closing/waveend-serial-2026-10-03.txt). Owner decisions
+open: font subsetting A/B/C (f3c7cb88), CMYK-via-lcms2, 7z 26.03 bump,
+L03 manifest.
