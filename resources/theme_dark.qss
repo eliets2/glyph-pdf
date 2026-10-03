@@ -53,10 +53,6 @@ QWidget#centralHost {
     background-color: #1e1f22;
 }
 
-QWidget#canvasMargin {
-    background-color: #1a1b1e;
-}
-
 /* === MENU BAR === */
 QMenuBar {
     background-color: #2b2d30;
@@ -618,15 +614,7 @@ QWidget#thumbPaper {
     background: #e8e6df;
     border-radius: 2px;
 }
-QWidget#thumbPaperTitle {
-    background: #c4c1b8;
-    border-radius: 1px;
-}
-QWidget#thumbPaperText {
-    background: #d5d2ca;
-    border-radius: 1px;
-}
-QWidget#thumbPaperImg {
+QWidget#thumbPaperImage {
     background: #cbc8c0;
     border-radius: 2px;
 }
