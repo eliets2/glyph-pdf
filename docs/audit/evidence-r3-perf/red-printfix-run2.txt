@@ -1,0 +1,13 @@
+=== RED pre-fix (seam-only tree): compare progress-throttle pin ===
+2026-10-03T04:01Z
+
+--- TestCompareIntegration::promisePostsThrottledPerBoundaryStorm
+********* Start testing of TestCompareIntegration *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestCompareIntegration::initTestCase()
+FAIL!  : TestCompareIntegration::promisePostsThrottledPerBoundaryStorm() 'mode.promiseReportCountForTest() < hookCalls' returned FALSE. (promise progress posts were not throttled: one queued GUI-thread delivery per page-pair boundary)
+D:/pdf/pdf-r3-perf/tests/TestCompareIntegration.cpp(402) : failure location
+PASS   : TestCompareIntegration::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 3047ms
+********* Finished testing of TestCompareIntegration *********
+EXIT=1
