@@ -173,3 +173,97 @@ no merge to main, no worktree/branch deletion) after the incidents below.
 
 `D:/pdf/pdf-archive-final-2026-09-30.bundle` (SHA-256 4766c3c3…1942, 498 refs,
 restore-drilled) + 263 archive tags (local = origin). gc/prune remain forbidden.
+
+## Feature-fleet wave 2b — CLOSED (2026-10-02, main @ 17389f7b)
+
+All 12 dispatched lanes landed and folded; queue fully dispositioned.
+Gate: **full serial 202/202, 0 failed** (R14ProbeBatchSkip disabled by
+design) at the merged tip, evidence
+`docs/audit/evidence-wave2-closing/wave-closing-serial-2026-10-02.txt`.
+Folds (cherry-pick unless noted): #8 fdf/CSV import hardening
+(1149b23b/2f33af53/095b9fde) · #11 page-labels CHECK-FIRST closure — the
+writer+UI shipped 2026-09-23 in v1.5.0; stale rows corrected (bbfd858b/
+3a6a044f/2b4d0558) · polish (self-landed 7066534c, gate applied post-hoc) ·
+quadpoints (self-landed ad77c29c) · pcre2-16 ci fix df2e7f94 (fuzz batch
+green) · #17 preprocessing disclosure (606397b1) · #13 indexed downsampling
+(af2604bd/2af5bdf7; CMYK blocked-with-pins, owner: lcms2) · #16 thumbnails
+off-GUI (93e222ea/a602fa55; renderPageAsync seam) · /P prefix (b90b44d0) ·
+rotate-view port (eb7b464b/72ccbe04 via finisher + 6d1595a3 command-spec
+gap the closing gate caught; conflict with #16 hand-reconciled:
+renderPageUncached split + view-rotation-aware cache key; note — the lane
+report’s “NC ×1” was a first-green observation, the genuine RED-before is the
+compile-error evidence) ·
+#15 a11y export (7f1b70ed/4845a142) · #14 vendored 7z (d41979c1 lineage;
+configure-time SHA-256 pin; provenance dual-source) · #18 stamp image import
+(2101f6e5..88c01163) · #12 re-OCR region (picked bd483d21/6d69a5d1/3f098e85; branch originals 392c57d9..a0c68823) · #7 compare
+progress+cancel (2cb94e9c lineage via finisher; UAF pins upgraded to QPointer)
+· #10 batch formats (integrator-finished 9ccc2d82) · #9 hot-folder
+characterization+extraction (0bd10142/164be93b) + recursion/polling
+capabilities via finisher (4190b0bf/01c76bd4) · #5 OCR OutputMode
+(c725a1c8/e15f07ef via relaunch adopting the dead instance's WIP) ·
+commands.json rotateViewCW/CCW registration (6d1595a3 — the wave gate's
+catch: the rotate port added ToolIds without command specs; TestCommandRegistry
+failed at the gate, fixed with status:toolid entries, redo exemplar).
+Recovery round: provider 5h-usage cap + request-rate limits killed lanes
+mid-flight (one 1308 bounce, one 1302, two silent deaths); finisher agents +
+integrator-inline finishes recovered every lane without losing work. Two
+documented misses fixed at the gate: a CMakeLists union truncation (reocr/
+ocrmode test blocks — parse error, repaired 3-line closure) and the skipped
+RED-pins commit in the compare pick order.
+WAVE-CLOSING STATE: dispatch list rows 1-18 DONE or dispositioned; owner
+decisions open: font subsetting A/B/C (plan f3c7cb88), CMYK-via-lcms2 (row 13),
+7z 26.03 bump. Watch: TestSweepW3UxFlows load flake (4/5, environmental).
+Next: independent verification wave over the whole wave, then native-Linux.
+
+## Round 3 (verification fixes + cross-model audit) — CLOSED (2026-10-03, main @ 8aa2aa1b)
+
+Round 1 (406dfa25): security F-01/F-02, adversary F-2, testing H1/H3,
+scorecard rows 8/17, endgame corrections, and the DocumentSession ×12
+test-target dedup (11 archive-linking targets lost their explicit copy;
+TestInterfaces keeps its standalone one — enforced by the cross-model
+archaeologist's follow-up finding on TestFormBuilder, resolved same round).
+Round 2: findings-code (F-15 /P UTF-16BE, F-1 UTF-16BE FDF decode, F-5
+size-key, F-7 debounced walk — b429f483/286a7a91) + findings-tests (H2
+consumption pin, tautological pin replaced, 3 coverage pins, dead QSS,
+row-16 NOTE — 1ce97a74..774ada26). Round 3: r3-sec (runtime 7z SHA-256
+verification — d84c08a6/cdc7a040, ported into SevenZipLocator after the
+r3-api extraction moved the code mid-fold), r3-api (6 commits: silent
+ErrorInfo channel, lying 7z absence dialog, discarded OCR typed reason,
+SevenZipLocator extraction, csvCell promotion — 7c1294f3 lineage),
+r3-hygiene (registration properties + conventions — 1bd85ee4/f0d8227f),
+r3-perf (coalescing/join-bounding/throttle/scan/insert-order via finisher —
+fd0e4545/2ecc085a/8aa2aa1b, resolver repaired a clobbered pin tail).
+CROSS-MODEL AUDIT: 7 of 10 doctrine roles ran on DeepSeek V4.1 Flash
+(OpenRouter, 1M ctx) over the session's 137 touched files — all
+PASS-WITH-FINDINGS, 0 Critical; the DeepSeek security HIGH (coordinator-hop
+UAF) was real and fixed same-day. Roles 8-10 (devops/ux/documentation)
+await OpenRouter key credit; the driver is at
+D:/pdf/verification/crossmodel/run_audit.py (binaries skipped, byte-chunked
+parts, per-part disk writes, 402 backoff).
+INCIDENT (recorded): an explicit `git reset --hard 81bf9728` rolled main
+back over the pushed lane-B commits (reflog main@{3}; origin unaffected —
+the UAF fix + lane B survived on origin). Detected at push time as a
+non-fast-forward; repaired by rebasing local's lane-A/hygiene commits onto
+origin's line; the reunited tree gated 202/202
+(evidence-wave2-closing/waveend-serial-2026-10-03.txt). Process note: lane
+agents must NEVER run git reset/checkout against the main worktree — the
+r3 briefs now say so explicitly. FORENSIC CLOSE-OUT (no-loss proof): all 5
+rolled-back commits are patch-equivalent in main (git cherry: all `-`) and
+ancestors of it; byte-level containment — every one of the 913 payload
+lines of `git diff 81bf9728 774ada26` is present in `git diff 81bf9728
+main` (0 missing); the 455 unreachable objects are historical
+cherry-pick originals (pre-reset), and the 6 created inside the reset
+window are the lane-A/lane-B branch originals, all folded with -x
+provenance. Zero content loss. The resetter is not identifiable from the
+reflog (entry records only the target SHA); the reset window sits between
+the lane-B push and the lane-A picks.
+NATIVE LINUX (wave 2c): feat/linux-native merged via its lane — vendored
+podofo from source, tesseract/leptonica/libsecret ON, pdfium/rapidocr/
+qpdf/quickjs honestly OFF; offscreen gate at its honest floor 155/200
+(45 reds classified: 38 pdfium-stub, 4 LibreOffice, 2 quickjs, 1
+Windows-7z; L03 artifact manifest would convert the 38). Desktop gates
+remain UNTESTED — no native desktop pass is claimed.
+WAVE-CLOSING STATE: full serial 202/202 at 8aa2aa1b (evidence
+evidence-wave2-closing/waveend-serial-2026-10-03.txt). Owner decisions
+open: font subsetting A/B/C (f3c7cb88), CMYK-via-lcms2, 7z 26.03 bump,
+L03 manifest.

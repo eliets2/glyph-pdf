@@ -64,6 +64,7 @@
 #include <QMimeData>
 #include <QRegularExpression>
 #include <QSemaphore>
+#include <QSharedPointer>
 
 #include <atomic>
 
@@ -339,23 +340,30 @@ MainWindow::MainWindow(AppContext ctx, QWidget* parent)
             if (g_displayedPath.isEmpty() || g_displayedPath != p)
                 return;
         }
-        QSemaphore hopRan;
+        // Cross-model security audit (DeepSeek V4.1 Flash, HIGH): the queued
+        // lambda may run AFTER this function returned (the timeout path
+        // proceeds by design), so the completion semaphore must be owned by
+        // the lambda — a stack QSemaphore captured by reference was
+        // use-after-free on exactly that late-run path. Shared ownership:
+        // the lambda holds a strong reference, the writer waits through the
+        // same object either way.
+        auto hopRan = QSharedPointer<QSemaphore>::create();
         QMetaObject::invokeMethod(
             this,
-            [this, p, park, &hopRan]() {
+            [this, p, park, hopRan]() {
                 if (g_fileHandleCoordinatorOwner != this) {
-                    hopRan.release();
+                    hopRan->release();
                     return;
                 }
                 if (auto *v = pdfViewer()) {
                     if (park) v->parkDocumentForWrite(p);
                     else v->restoreDocumentAfterWrite(p);
                 }
-                hopRan.release();
+                hopRan->release();
             },
             Qt::QueuedConnection);
         const int timeoutMs = g_coordinatorHopTimeoutMs.load(std::memory_order_relaxed);
-        if (!hopRan.tryAcquire(1, timeoutMs)) {
+        if (!hopRan->tryAcquire(1, timeoutMs)) {
             qWarning() << "file-handle coordinator: the GUI hop for" << p
                        << (park ? "(park)" : "(restore)") << "did not run within" << timeoutMs
                        << "ms; the writer proceeds — the commit will fail honestly rather "

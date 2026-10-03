@@ -909,6 +909,300 @@ bool PdfEditorEngine::exportMrcPdfA(
     return true;
 }
 
+// ── OCR OutputMode "editable" writer (PARITY-SCORECARD-2026-09-30 §4 #5) ────
+//
+// The counterpart to exportMrcPdfA's "searchable" output: the recognized text
+// REPLACES the page content. Each page is written as visible black text at
+// the recognized word boxes on a blank page — NO scan image, NO invisible
+// (3 Tr) layer, NO PDF/A claim. The word→content-stream emission deliberately
+// mirrors the MRC writer's per-word operators (same Tz fit / Td placement /
+// R08 UTF-16BE+Identity-H+ToUnicode Unicode handling) so both modes extract
+// identically through PDFium; the differences are exactly the mode ones:
+// no image XObjects, default text rendering (visible), plain PDF header.
+// pageImages supplies page geometry ONLY and is never embedded.
+bool PdfEditorEngine::exportEditableTextPdf(
+    const QString&              outputPath,
+    const QList<QImage>&        pageImages,
+    const QList<PageOcrResult>& pageResults)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+
+    if (pageImages.isEmpty()) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No page images provided for the editable OCR text export."),
+                  QStringLiteral("exportEditableTextPdf: pageImages is empty"));
+        return false;
+    }
+
+    bool anyWords = false;
+    for (const auto& r : pageResults) {
+        if (!r.words.isEmpty()) { anyWords = true; break; }
+    }
+    if (!anyWords) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("No recognized words to write — the editable text copy would be blank."),
+                  QStringLiteral("exportEditableTextPdf: every page has zero words"));
+        return false;
+    }
+
+    // ── R08 (shared with the MRC writer): non-ASCII words need the Type0 /
+    // Identity-H font with a ToUnicode CMap. Collected BEFORE object-number
+    // planning so the layout is deterministic per input.
+    auto wordNeedsUnicode = [](const QString& text) {
+        for (const QChar ch : text)
+            if (ch.unicode() < 0x20 || ch.unicode() > 0x7E) return true;
+        return false;
+    };
+    bool needUnicode = false;
+    QMap<uint, uint> unicodeCids;   // Unicode codepoint → CID (Identity-H)
+    for (const auto& r : pageResults) {
+        for (const auto& w : r.words) {
+            if (!wordNeedsUnicode(w.text)) continue;
+            needUnicode = true;
+            for (int i = 0; i < w.text.size(); ++i) {
+                uint cp = w.text.at(i).unicode();
+                if (QChar::isHighSurrogate(w.text.at(i).unicode())
+                    && i + 1 < w.text.size()
+                    && QChar::isLowSurrogate(w.text.at(i + 1).unicode())) {
+                    cp = QChar::surrogateToUcs4(w.text.at(i), w.text.at(i + 1));
+                    ++i;
+                }
+                if (!unicodeCids.contains(cp))
+                    unicodeCids.insert(cp, unicodeCids.size() + 1);
+            }
+        }
+    }
+
+    // Object numbering plan (pageImages.size() drives the page count — an
+    // OCR'd page with zero recognized words still ships as a blank page so
+    // the page order survives):
+    //   1: Catalog
+    //   2: Pages (array of page refs)
+    //   Per page N (0-based): base = 3 + N * 2
+    //     base+0: Page dict (no XObjects)
+    //     base+1: Content stream (visible text, uncompressed)
+    //   After all pages:
+    //     fontObj: Helvetica font
+    //     [needUnicode] +4 objects: Type0 font, CIDFont, descriptor, ToUnicode
+    QFile out(outputPath);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Cannot create output file for the editable OCR text export."),
+                  QStringLiteral("exportEditableTextPdf: open failed: %1").arg(outputPath));
+        return false;
+    }
+
+    const int  numPages = pageImages.size();
+    const int  objBase  = 3;
+    const int  fontObj  = objBase + numPages * 2;
+    const int  uniFontObj    = fontObj + 1;
+    const int  uniCidFontObj = fontObj + 2;
+    const int  uniDescObj    = fontObj + 3;
+    const int  uniCmapObj    = fontObj + 4;
+    const int  totalObj = (needUnicode ? uniCmapObj : fontObj) + 1;
+
+    QList<qint64> offsets;
+    offsets.resize(totalObj);
+
+    auto writeObj = [&](int objNum, const QByteArray& content) {
+        offsets[objNum - 1] = out.pos();
+        out.write(QByteArray::number(objNum) + " 0 obj\n");
+        out.write(content);
+        out.write("\nendobj\n");
+    };
+
+    auto streamObj = [&](int objNum, const QByteArray& dict, const QByteArray& data) {
+        offsets[objNum - 1] = out.pos();
+        out.write(QByteArray::number(objNum) + " 0 obj\n");
+        QByteArray fullDict = dict;
+        // Same /Length insertion discipline as the MRC writer: before the
+        // closing ">>", never between the two angle brackets.
+        int ins = fullDict.lastIndexOf(">>");
+        if (ins >= 0) {
+            fullDict.insert(ins, " /Length " + QByteArray::number(data.size()));
+        }
+        out.write(fullDict);
+        out.write("\nstream\n");
+        out.write(data);
+        out.write("\nendstream\nendobj\n");
+    };
+
+    const double dpi    = 150.0;
+    const double ptPerPx = 72.0 / dpi;
+
+    // ── PDF header ──────────────────────────────────────────────────────────
+    out.write("%PDF-1.6\n%\xE2\xE3\xCF\xD3\n");  // PDF 1.6 + binary comment
+
+    QByteArray pageRefs;
+    for (int pi = 0; pi < numPages; ++pi) {
+        const int base = objBase + pi * 2;
+        const int csObj = base + 1;
+
+        // Page dimensions in PDF user units, mirroring the MRC writer's
+        // 150-dpi assumption; the image supplies GEOMETRY only.
+        const QImage& img = pageImages[pi];
+        double pageW = img.width()  * ptPerPx;
+        double pageH = img.height() * ptPerPx;
+        if (pageW < 1) pageW = 595;   // A4 fallback
+        if (pageH < 1) pageH = 842;
+
+        // Content stream: visible black text at the recognized word boxes.
+        // Same per-word operators as the MRC sandwich text, minus the
+        // invisible "3 Tr" mode and without any image draw.
+        const QList<MergedOcrWord>& words =
+            (pi < pageResults.size()) ? pageResults[pi].words : QList<MergedOcrWord>();
+        QByteArray cs;
+        if (!words.isEmpty()) {
+            cs += "BT\n";
+            cs += "/F1 12 Tf\n";   // Helvetica 12pt base (actual size per word)
+            cs += "0 0 0 rg\n";    // visible black text
+            for (const MergedOcrWord& w : words) {
+                if (w.text.trimmed().isEmpty()) continue;
+                // Word bbox: page-image pixel coords (top-left origin) →
+                // PDF points, y-flipped (same transform as the MRC writer).
+                double x  = w.boundingBox.left()  * ptPerPx;
+                double y  = pageH - w.boundingBox.bottom() * ptPerPx;
+                double bw = w.boundingBox.width()  * ptPerPx;
+                double bh = w.boundingBox.height() * ptPerPx;
+                if (bw < 1 || bh < 1) continue;
+
+                const double fs = qMax(1.0, bh);
+                const bool uni = wordNeedsUnicode(w.text);
+                cs += (uni ? "/F2 " : "/F1 ") + pdfReal(fs) + " Tf\n";
+                if (uni) {
+                    // R08: UTF-16BE hex string over Identity-H CIDs; the
+                    // ToUnicode CMap maps them back to the reviewed text.
+                    QByteArray hex;
+                    for (int i = 0; i < w.text.size(); ++i) {
+                        uint cp = w.text.at(i).unicode();
+                        if (QChar::isHighSurrogate(w.text.at(i).unicode())
+                            && i + 1 < w.text.size()
+                            && QChar::isLowSurrogate(w.text.at(i + 1).unicode())) {
+                            cp = QChar::surrogateToUcs4(w.text.at(i), w.text.at(i + 1));
+                            ++i;
+                        }
+                        hex += QByteArray::number(unicodeCids.value(cp), 16)
+                                   .rightJustified(4, '0');
+                    }
+                    cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
+                    cs += "<" + hex + "> Tj\n";
+                    cs += "0 0 Td\n";
+                } else {
+                    cs += pdfReal(bw / (w.text.length() > 0 ? w.text.length() : 1)) + " Tz\n";
+                    cs += pdfReal(x) + " " + pdfReal(y) + " Td\n";
+                    cs += "(" + QByteArray::fromStdString(pdfEscapeLiteralString(w.text)) + ") Tj\n";
+                    cs += "0 0 Td\n";
+                }
+            }
+            cs += "ET\n";
+        }
+
+        streamObj(csObj, "<<>>", cs);  // Raw (uncompressed) content stream
+
+        QByteArray fontRefs =
+            " /Font << /F1 " + pdfInt(fontObj) + " 0 R";
+        if (needUnicode)
+            fontRefs += " /F2 " + pdfInt(uniFontObj) + " 0 R";
+        fontRefs += " >> >>";
+        QByteArray pageDict =
+            "<< /Type /Page"
+            " /Parent 2 0 R"
+            " /MediaBox [0 0 " + pdfReal(pageW) + " " + pdfReal(pageH) + "]"
+            " /Resources <<" + fontRefs +
+            " /Contents " + pdfInt(csObj) + " 0 R"
+            " >>";
+        writeObj(base, pageDict);
+        pageRefs += pdfInt(base) + " 0 R\n";
+    }
+
+    // ── fontObj: Helvetica font dict (same as the MRC writer) ──────────────
+    writeObj(fontObj,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica"
+        " /Encoding /WinAnsiEncoding >>");
+
+    // ── R08: Unicode font family — shared definitions with the MRC writer,
+    // but EMBEDDED-FONT-FREE for the same reason: the MRC layer is invisible
+    // so no program is needed for rendering; here the viewer substitutes a
+    // local font for /GlyphOcrSans. An unembedded Type0 text layer renders
+    // with a substitute — the honest trade for a text-only "editable" copy.
+    if (needUnicode) {
+        writeObj(uniDescObj,
+            "<< /Type /FontDescriptor /FontName /GlyphOcrSans"
+            " /Flags 4 /FontBBox [0 -200 1000 900] /ItalicAngle 0"
+            " /Ascent 900 /Descent -200 /CapHeight 700 /StemV 80 >>");
+        writeObj(uniCidFontObj,
+            "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /GlyphOcrSans"
+            " /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >>"
+            " /FontDescriptor " + pdfInt(uniDescObj) + " 0 R"
+            " /DW 1000 /CIDToGIDMap /Identity >>");
+        writeObj(uniFontObj,
+            "<< /Type /Font /Subtype /Type0 /BaseFont /GlyphOcrSans"
+            " /Encoding /Identity-H"
+            " /DescendantFonts [" + pdfInt(uniCidFontObj) + " 0 R]"
+            " /ToUnicode " + pdfInt(uniCmapObj) + " 0 R >>");
+
+        QByteArray cmap =
+            "/CIDInit /ProcSet findresource begin\n"
+            "12 dict begin\n"
+            "begincmap\n"
+            "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+            "/CMapName /Adobe-Identity-UCS def\n"
+            "/CMapType 2 def\n"
+            "1 begincodespacerange\n"
+            "<0000> <FFFF>\n"
+            "endcodespacerange\n";
+        cmap += QByteArray::number(unicodeCids.size()) + " beginbfchar\n";
+        for (auto it = unicodeCids.constBegin(); it != unicodeCids.constEnd(); ++it) {
+            QString utf16 = QString::fromUcs4(reinterpret_cast<const char32_t*>(&it.key()), 1);
+            QByteArray hexTarget;
+            for (const QChar ch : utf16)
+                hexTarget += QByteArray::number(ch.unicode(), 16).rightJustified(4, '0');
+            cmap += "<" + QByteArray::number(it.value(), 16).rightJustified(4, '0') + ">"
+                  + " <" + hexTarget + ">\n";
+        }
+        cmap += "endbfchar\n"
+                "endcmap\n"
+                "CMapName currentdict /CMap defineresource pop\n"
+                "end\n"
+                "end\n";
+        streamObj(uniCmapObj, "<<>>", cmap);
+    }
+
+    // ── Object 2: Pages ─────────────────────────────────────────────────────
+    writeObj(2,
+        "<< /Type /Pages /Count " + pdfInt(numPages) + " /Kids [\n" + pageRefs + "] >>");
+
+    // ── Object 1: Catalog — deliberately NO /Metadata OutputIntents PDF/A
+    // claims: the editable copy is a plain working document, not archival.
+    writeObj(1,
+        "<< /Type /Catalog /Pages 2 0 R >>");
+
+    // ── Cross-reference table ────────────────────────────────────────────────
+    qint64 xrefOffset = out.pos();
+    out.write("xref\n");
+    out.write("0 " + QByteArray::number(totalObj + 1) + "\n");
+    out.write("0000000000 65535 f \n");  // free object 0
+    for (int i = 0; i < totalObj; ++i) {
+        QString entry = QString::asprintf("%010lld 00000 n \n",
+                                          (long long)offsets[i]);
+        out.write(entry.toLatin1());
+    }
+
+    // ── Trailer ──────────────────────────────────────────────────────────────
+    out.write("trailer\n");
+    out.write("<< /Size " + QByteArray::number(totalObj + 1) +
+              " /Root 1 0 R >>\n");
+    out.write("startxref\n");
+    out.write(QByteArray::number(xrefOffset) + "\n");
+    out.write("%%EOF\n");
+    out.close();
+
+    qDebug() << "EditableTextPdf: wrote" << QFileInfo(outputPath).size()
+             << "bytes to" << outputPath;
+    return true;
+}
+
 bool PdfEditorEngine::encryptDocument(const QString &userPassword, const QString &ownerPassword, const DocumentPermissions& perms) {
     QMutexLocker locker(&d->mutex);
     d->clearErr();

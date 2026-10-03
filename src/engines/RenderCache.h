@@ -6,6 +6,7 @@
 #include <QHashFunctions>
 #include <QList>
 #include <QReadWriteLock>
+#include <QSharedPointer>
 #include <QSizeF>
 #include <QRectF>
 #include <QString>
@@ -99,6 +100,19 @@ public:
     qint64 cacheMisses() const { return m_misses.loadRelaxed(); }
     void resetStats();
 
+    // R3-perf test seams (behavior-neutral counters): how many renderPageAsync
+    // WORKERS were actually scheduled (one per non-coalesced miss), how many
+    // duplicate requests attached to an already in-flight render for the same
+    // (page, scale) key, and how many workers have RUN TO COMPLETION (any
+    // exit path). Before duplicate-request coalescing every miss schedules
+    // its own worker (coalesced stays 0); with coalescing a duplicate request
+    // attaches to the in-flight job, so the worker count is bounded by the
+    // distinct keys in flight. The completion counter lets a pin wait until
+    // every scheduled worker has exited before asserting cache state.
+    int asyncWorkerRunsForTest() const { return m_asyncWorkerRuns.loadRelaxed(); }
+    int asyncCoalescedRequestsForTest() const { return m_asyncCoalescedRequests.loadRelaxed(); }
+    int asyncWorkerCompletionsForTest() const { return m_asyncWorkerCompletions.loadRelaxed(); }
+
     // Tier 1: Metadata (always resident)
     void setPageSize(int page, const QSizeF &size);
     QSizeF pageSize(int page, IPdfRenderer* renderer = nullptr);
@@ -122,10 +136,27 @@ public:
     // THREAD (consumers must marshal to their own thread; the thumbnail rail
     // hops via queued invokeMethod). If the token epoch advanced while the
     // render ran (clear()/prefetch supersession — the document-changed case)
-    // the result is discarded and onRendered is NOT invoked: a stale render is
-    // never delivered to the consumer. Unlike prefetchViewport this does NOT
-    // bump the cancel token per request — a thumbnail grid fires N concurrent
-    // requests and none may cancel the others.
+    // the result is neither inserted nor delivered: a stale render is never
+    // shown to the consumer. Unlike prefetchViewport this does NOT bump the
+    // cancel token per request — a thumbnail grid fires N concurrent requests
+    // and none may cancel the others.
+    //
+    // Cancellation invariant (TOKEN-EPOCH-DELIVERY): delivery and insertion
+    // are symmetric — the epoch is re-checked UNDER THE INSERT'S WRITE LOCK
+    // (token-before-insert), so a superseded render inserts NOTHING and
+    // delivers NOTHING. That is safe by construction, not by caller
+    // discipline: the cache is keyed by page+scale of the
+    // CURRENT document only, and every document change routes through
+    // clear(), which JOINS this worker (drainPrefetches) BEFORE wiping — so
+    // a cancelled render can never leave a STALE entry behind and nothing is
+    // ever misattributed to new content. Pinned by TestThumbnailOffGui
+    // clearCancelsInFlightRenderJoinsAndDeliversNothing (pin 3).
+    //
+    // R3-perf (audit finding 2): duplicate requests COALESCE — a request for
+    // a (page, scale) already being rendered attaches to the in-flight job
+    // and is delivered by THE one worker when it completes (no second worker,
+    // no wasted render). clear()/drainPrefetches() therefore joins at most
+    // one worker per DISTINCT key, never one per request (finding 3's bound).
     bool renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
                          std::function<void(const QImage&)> onRendered);
 
@@ -146,6 +177,24 @@ private:
     void evictIfNeeded();
     qint64 imageSizeInBytes(const QImage &image) const;
 
+    // R3-perf (audit finding 2): one shared job per (page, scale) render
+    // already in flight through renderPageAsync. A duplicate request attaches
+    // its callback to the job (under m_lock) instead of queueing a second
+    // worker whose result would be discarded at the insert-time TOCTOU
+    // re-check. An entry lives EXACTLY as long as its worker: the worker
+    // removes it (under m_lock, before delivering) so a post-completion
+    // request cache-hits or starts fresh instead of attaching to a dead job.
+    struct AsyncRenderJob {
+        QList<std::function<void(const QImage&)>> waiters;
+    };
+    QHash<RenderCacheKey, QSharedPointer<AsyncRenderJob>> m_asyncJobs;
+    // The worker's render half: lookup -> render outside the lock -> epoch
+    // check BEFORE the insert (audit finding 7) -> insert under the lock.
+    // Returns the image to deliver (null = superseded or failed: deliver
+    // nothing). Rendering + insertion only; job retirement is the caller's.
+    QImage renderForAsyncWorker(int page, qreal scale, IPdfRenderer* renderer,
+                                int currentToken, const RenderCacheKey &key);
+
     mutable QReadWriteLock m_lock;
 
     // Configuration
@@ -154,6 +203,10 @@ private:
     // Performance Stats
     mutable QAtomicInt m_hits{0};
     mutable QAtomicInt m_misses{0};
+    // R3-perf seams: renderPageAsync worker scheduling / coalescing counters.
+    mutable QAtomicInt m_asyncWorkerRuns{0};
+    mutable QAtomicInt m_asyncCoalescedRequests{0};
+    mutable QAtomicInt m_asyncWorkerCompletions{0};
 
     // Viewport prefetch cancellation token
     QAtomicInt m_prefetchCancelToken{0};

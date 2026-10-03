@@ -1,0 +1,115 @@
+Test project D:/pdf/pdf-f-code/build-rel
+    Start 113: TestFillFormNoOp
+1/1 Test #113: TestFillFormNoOp .................***Failed    0.38 sec
+********* Start testing of TestFillFormNoOp *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFillFormNoOp::initTestCase()
+QDEBUG : TestFillFormNoOp::unknownFieldNameIsReported() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::unknownFieldNameIsReported() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-QzRueQ/noop.pdf"
+PASS   : TestFillFormNoOp::unknownFieldNameIsReported()
+QDEBUG : TestFillFormNoOp::truncatedFdfIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::truncatedFdfIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-leKeOB/cut.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-leKeOB/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-leKeOB/out.pdf"
+QWARN  : TestFillFormNoOp::truncatedFdfIsRefused() Form data import refused: "The FDF file is malformed and was not imported." | "literal string still open at end of file (truncated input)"
+PASS   : TestFillFormNoOp::truncatedFdfIsRefused()
+QDEBUG : TestFillFormNoOp::unterminatedFdfStringIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::unterminatedFdfStringIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-LSyYlj/unterm.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-LSyYlj/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-LSyYlj/out.pdf"
+QWARN  : TestFillFormNoOp::unterminatedFdfStringIsRefused() Form data import refused: "The FDF file is malformed and was not imported." | "literal string still open at end of file (truncated input)"
+PASS   : TestFillFormNoOp::unterminatedFdfStringIsRefused()
+QDEBUG : TestFillFormNoOp::overLargeFieldCountIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::overLargeFieldCountIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OOtseU/many.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OOtseU/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-OOtseU/out.pdf"
+QWARN  : TestFillFormNoOp::overLargeFieldCountIsRefused() Form data import refused: "The FDF file exceeds the import field-count cap (10000) and was not imported." | "field 10001 over cap 10000"
+PASS   : TestFillFormNoOp::overLargeFieldCountIsRefused()
+QDEBUG : TestFillFormNoOp::overLargeValueIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::overLargeValueIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-rCAMfS/big.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-rCAMfS/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-rCAMfS/out.pdf"
+QWARN  : TestFillFormNoOp::overLargeValueIsRefused() Form data import refused: "The FDF file is malformed and was not imported." | "literal string exceeds the 1 MiB per-string import cap"
+PASS   : TestFillFormNoOp::overLargeValueIsRefused()
+QDEBUG : TestFillFormNoOp::oversizedInputFileIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::oversizedInputFileIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dRkGBd/huge.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dRkGBd/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dRkGBd/out.pdf"
+QWARN  : TestFillFormNoOp::oversizedInputFileIsRefused() Form data import refused: "The form data file is too large to import (limit is 16 MB) and was not imported." | "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dRkGBd/huge.fdf: 16777226 bytes > 16777216 byte cap"
+PASS   : TestFillFormNoOp::oversizedInputFileIsRefused()
+QDEBUG : TestFillFormNoOp::nonUtf8BytesAreRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::nonUtf8BytesAreRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NoSQjW/latin1.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NoSQjW/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NoSQjW/out.pdf"
+QWARN  : TestFillFormNoOp::nonUtf8BytesAreRefused() Form data import refused: "The form data file is not valid UTF-8 text and was not imported." | "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NoSQjW/latin1.fdf: invalid UTF-8 byte sequence"
+PASS   : TestFillFormNoOp::nonUtf8BytesAreRefused()
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/empty.csv" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/out.pdf"
+QWARN  : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Form data import refused: "The form data file contains no form data and nothing was imported." | "no records parsed (empty or whitespace-only input)"
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/blank.csv" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/out.pdf"
+QWARN  : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Form data import refused: "The CSV file is missing the required \"FieldName,FieldValue\" header row and was not imported." | "first row: \" \",\"\""
+QDEBUG : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/header.csv" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-BMAfLu/out.pdf"
+QWARN  : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused() Form data import refused: "The form data file contains no form data and nothing was imported." | "header present but no data rows followed it"
+PASS   : TestFillFormNoOp::emptyAndWhitespaceOnlyInputIsRefused()
+QDEBUG : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UAfnWK/nofields.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UAfnWK/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UAfnWK/out.pdf"
+QWARN  : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused() Form data import refused: "The FDF file contains no /Fields array and was not imported." | "no /Fields [...] structure found after the %FDF header"
+PASS   : TestFillFormNoOp::fdfWithoutFieldsArrayIsRefused()
+QDEBUG : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-CIHPUx/broken.csv" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-CIHPUx/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-CIHPUx/out.pdf"
+QWARN  : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported() Form data import refused: "The CSV file is malformed at row 3 and was not imported (no partial import was performed)." | "row 3: expected 2 columns, found 1"
+PASS   : TestFillFormNoOp::malformedCsvRecordIsRefusedNotHalfImported()
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-KqhdFi/tricky.csv" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-KqhdFi/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-KqhdFi/out.pdf"
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-KqhdFi/out.pdf"
+QDEBUG : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-KqhdFi/out.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-KqhdFi/back.csv" in format "csv"
+PASS   : TestFillFormNoOp::csvEmbeddedDelimitersAndNewlineRoundTrip()
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dJjaOe/parens.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dJjaOe/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dJjaOe/out.pdf"
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dJjaOe/out.pdf"
+QDEBUG : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dJjaOe/out.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-dJjaOe/back.csv" in format "csv"
+PASS   : TestFillFormNoOp::fdfEmbeddedParensBackslashNewlineRoundTrip()
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/form.pdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/form.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/export.fdf" in format "fdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/export.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/out.pdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/out.pdf"
+QDEBUG : TestFillFormNoOp::validFdfRoundTrip() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/out.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NzHhsU/back.csv" in format "csv"
+PASS   : TestFillFormNoOp::validFdfRoundTrip()
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/form.pdf"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/form.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/export.csv" in format "csv"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/export.csv" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/out.pdf"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/out.pdf"
+QDEBUG : TestFillFormNoOp::validCsvRoundTrip() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/out.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-aEGpeF/back.csv" in format "csv"
+PASS   : TestFillFormNoOp::validCsvRoundTrip()
+QDEBUG : TestFillFormNoOp::utf16beHexValueRoundTrips() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::utf16beHexValueRoundTrips() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-skOjaB/acrobat.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-skOjaB/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-skOjaB/out.pdf"
+QWARN  : TestFillFormNoOp::utf16beHexValueRoundTrips() Form data import refused: "The form data file is not valid UTF-8 text and was not imported." | "FDF hex string value: invalid UTF-8 byte sequence"
+FAIL!  : TestFillFormNoOp::utf16beHexValueRoundTrips() 'fm.importFormData(pdf, data, out, &unsupported, nullptr, &err)' returned FALSE. (a ง7.9.2.2 UTF-16BE hex /V must import (refused: The form data file is not valid UTF-8 text and was not imported.))
+D:/pdf/pdf-f-code/tests/TestFillFormNoOp.cpp(477) : failure location
+QDEBUG : TestFillFormNoOp::utf16beBomlessHexValueRoundTrips() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::utf16beBomlessHexValueRoundTrips() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UBviYX/bomless.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UBviYX/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UBviYX/out.pdf"
+QDEBUG : TestFillFormNoOp::utf16beBomlessHexValueRoundTrips() Filling form data at: "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UBviYX/out.pdf"
+QDEBUG : TestFillFormNoOp::utf16beBomlessHexValueRoundTrips() Exporting form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UBviYX/out.pdf" to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-UBviYX/back.csv" in format "csv"
+FAIL!  : TestFillFormNoOp::utf16beBomlessHexValueRoundTrips() Compared values are not the same
+   Actual   (readNormalized(back))                                  : "FieldName,FieldValue\n\"known\",\"\x00H\x00i\"\n"
+   Expected (QByteArray("FieldName,FieldValue\n\"known\",\"Hi\"\n")): "FieldName,FieldValue\n\"known\",\"Hi\"\n"
+D:/pdf/pdf-f-code/tests/TestFillFormNoOp.cpp(511) : failure location
+QDEBUG : TestFillFormNoOp::utf16beBomLiteralValueRoundTrips() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::utf16beBomLiteralValueRoundTrips() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NOPAxi/bom-literal.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NOPAxi/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-NOPAxi/out.pdf"
+QWARN  : TestFillFormNoOp::utf16beBomLiteralValueRoundTrips() Form data import refused: "The form data file is not valid UTF-8 text and was not imported." | "FDF string value: invalid UTF-8 byte sequence"
+FAIL!  : TestFillFormNoOp::utf16beBomLiteralValueRoundTrips() 'fm.importFormData(pdf, data, out, &unsupported, nullptr, &err)' returned FALSE. (a \376\377-BOM'd UTF-16BE literal /V must import per ยง7.9.2.2)
+D:/pdf/pdf-f-code/tests/TestFillFormNoOp.cpp(531) : failure location
+QDEBUG : TestFillFormNoOp::invalidUtf8HexValueStillRefused() Added text field "known" on page 0
+QDEBUG : TestFillFormNoOp::invalidUtf8HexValueStillRefused() Importing form data from "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-MUSKaX/broken-hex.fdf" into "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-MUSKaX/form.pdf" saving to "D:/pdf/pdf-f-code/build-rel/test-tmp/TestFillFormNoOp/TestFillFormNoOp-MUSKaX/out.pdf"
+QWARN  : TestFillFormNoOp::invalidUtf8HexValueStillRefused() Form data import refused: "The form data file is not valid UTF-8 text and was not imported." | "FDF hex string value: invalid UTF-8 byte sequence"
+PASS   : TestFillFormNoOp::invalidUtf8HexValueStillRefused()
+PASS   : TestFillFormNoOp::cleanupTestCase()
+Totals: 17 passed, 3 failed, 0 skipped, 0 blacklisted, 347ms
+********* Finished testing of TestFillFormNoOp *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+form-fields    =   0.38 sec*proc (1 test)
+forms          =   0.38 sec*proc (1 test)
+headless       =   0.38 sec*proc (1 test)
+persistence    =   0.38 sec*proc (1 test)
+qt             =   0.38 sec*proc (1 test)
+unit           =   0.38 sec*proc (1 test)
+
+Total Test time (real) =   0.39 sec
+
+The following tests FAILED:
+	113 - TestFillFormNoOp (Failed)                         form-fields forms headless persistence qt unit
+Errors while running CTest

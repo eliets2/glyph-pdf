@@ -5,8 +5,10 @@
 #include <functional>
 
 #include "engines/DiffEngine.h"
+#include <QAtomicInt>
 #include <QFutureWatcher>
 #include <QPointer>
+#include <QSharedPointer>
 
 class CompareWidget;
 class QTreeWidget;
@@ -65,6 +67,19 @@ public:
         m_stageBoundaryHook = std::move(hook);
     }
 
+    // R3-perf seam: QPromise progress reports actually POSTED by the compare
+    // worker (the setProgressValueAndText crossings to the GUI thread). The
+    // stage-boundary hook above stays per-boundary — only the promise posts
+    // are throttled — so this count is the observable half of the throttle:
+    // it must fall below the hook's boundary count while the hook count (the
+    // cancel-probe granularity) stays untouched. The counter lives behind a
+    // shared_ptr that the worker captures BY VALUE, so a mid-run teardown of
+    // the mode cannot dangle the worker's increment (same discipline as the
+    // by-value hook capture).
+    int promiseReportCountForTest() const {
+        return m_promiseReports ? m_promiseReports->loadRelaxed() : 0;
+    }
+
     // §9.10/R11: data roles tagging each CHANGES row with the filter gate it
     // obeys, plus (for structural rows) its index in the one shared change
     // sequence. Shared with tests so the seam stays honest.
@@ -109,6 +124,8 @@ private:
     QFutureWatcher<DiffResult> m_watcher;
     QPointer<QProgressDialog> m_progress;   // §4 row 7: per-run progress dialog
     std::function<void(int, int)> m_stageBoundaryHook;   // §4 row 7: worker-side test seam
+    QSharedPointer<QAtomicInt> m_promiseReports =
+        QSharedPointer<QAtomicInt>::create(0);   // R3-perf seam: promise posts
     DiffResult m_lastResult;
     QString m_file1;
     QString m_file2;

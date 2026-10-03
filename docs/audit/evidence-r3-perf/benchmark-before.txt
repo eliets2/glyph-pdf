@@ -1,0 +1,4 @@
+=== BEFORE (pre-fix, seam-only tree): churn clear() benchmark ===
+2026-10-03T04:03Z
+QINFO  : TestThumbnailOffGui::churnDuplicateRequestsClearLatencyBenchmark() [r3-perf benchmark] requests: 8 queued in renderPage at clear(): 8 clear() join+wipe latency: 12137 ms workerRuns: 8 coalesced: 0 deliveries: 0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 13933ms

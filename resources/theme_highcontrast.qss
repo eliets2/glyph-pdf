@@ -29,7 +29,6 @@ QWidget {
 }
 QToolTip { background-color: #1a1a1a; color: #ffffff; border: 2px solid #ffffff; padding: 4px 8px; }
 QMainWindow, QWidget#centralHost { background-color: #000000; }
-QWidget#canvasMargin { background-color: #000000; }
 
 /* === MENU BAR === */
 QMenuBar { background-color: #1a1a1a; border-bottom: 2px solid #ffffff; min-height: 28px; padding: 0 6px; color: #ffffff; }
@@ -355,7 +354,5 @@ QLineEdit[mono="true"], QPlainTextEdit[mono="true"] {
    in every theme. Without these rules the preview fell through to the black
    QWidget base and vanished against the sidebar. */
 QWidget#thumbPaper { background: #e8e6df; border-radius: 2px; }
-QWidget#thumbPaperTitle { background: #c4c1b8; border-radius: 1px; }
-QWidget#thumbPaperText { background: #d5d2ca; border-radius: 1px; }
-QWidget#thumbPaperImg { background: #cbc8c0; border-radius: 2px; }
+QWidget#thumbPaperImage { background: #cbc8c0; border-radius: 2px; }
 QLabel#thumbLabelText { color: #ffffff; font-family: 'Consolas', monospace; font-size: 10px; }

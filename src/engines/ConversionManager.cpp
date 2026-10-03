@@ -509,6 +509,21 @@ QString ConversionManager::csvFormulaSafeCell(const QString &cell) {
     return QLatin1Char('\'') + cell;
 }
 
+// THE one-cell CSV contract (see the header note): formula-safe first, then
+// RFC-4180 quote-when-needed. CommentsWidget::csvEscapeField and
+// A11yReportWriter::csvCell delegate here — one composition, three callers.
+QString ConversionManager::csvCell(const QString &raw) {
+    const QString safe = csvFormulaSafeCell(raw);
+    const bool needsQuoting = safe.contains(QLatin1Char('"'))
+                           || safe.contains(QLatin1Char(','))
+                           || safe.contains(QLatin1Char('\n'))
+                           || safe.contains(QLatin1Char('\r'));
+    if (!needsQuoting) return safe;
+    QString escaped = safe;
+    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QLatin1Char('"') + escaped + QLatin1Char('"');
+}
+
 bool ConversionManager::exportToCsv(const QString &outputPath, const QList<QList<TextElement>> &rows) {
     QFile file(outputPath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) return false;

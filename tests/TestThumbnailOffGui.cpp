@@ -25,6 +25,14 @@
 //      (it is the thread-safe seam the off-GUI renders go through).
 //   5. Destroying the sidebar with renders in flight is safe: the destructor
 //      drains via RenderCache::clear() while the renderer is still alive.
+//   6. (R3-perf, audit finding 2) A duplicate renderPageAsync request for a
+//      (page, scale) already in flight ATTACHES to the running render — one
+//      worker, one renderPage call, both requesters delivered — instead of
+//      queueing a redundant worker whose result is discarded at the insert.
+//   7. (R3-perf, audit finding 7) A render superseded mid-flight (token epoch
+//      advanced) is NOT inserted into the cache: the epoch is checked before
+//      the insert, so a stale render never occupies cache space or evicts
+//      fresh entries.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QEventLoop>
@@ -133,6 +141,32 @@ public:
     QString extractText(int) override { return QString(); }
 };
 
+// Blocks inside renderPage — only for the given page — until released, and
+// counts calls: the R3-perf coalescing / stale-insert pins observe renderer
+// activity through it.
+class PageGatedRenderer : public IPdfRenderer {
+public:
+    QSemaphore gate;
+    QAtomicInt entered{0};
+    QAtomicInt renderCalls{0};
+    explicit PageGatedRenderer(int gatedPage = 0) : m_gatedPage(gatedPage) {}
+    QImage renderPage(int page, int) override {
+        renderCalls.fetchAndAddRelaxed(1);
+        if (page == m_gatedPage) {
+            entered.storeRelaxed(1);
+            gate.acquire();
+        }
+        QImage img(16, 16, QImage::Format_ARGB32);
+        img.fill(Qt::white);
+        return img;
+    }
+    QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+    QSizeF pageSize(int) const override { return QSizeF(612, 792); }
+    QString extractText(int) override { return QString(); }
+private:
+    const int m_gatedPage;
+};
+
 } // namespace
 
 class TestThumbnailOffGui : public QObject {
@@ -146,6 +180,9 @@ private slots:
     void renderPageAsyncRunsOffThreadAndDelivers();
     void renderPageAsyncCacheHitServedSynchronously();
     void clearCancelsInFlightRenderJoinsAndDeliversNothing();
+    void duplicateAsyncRequestCoalescesIntoOneWorker();
+    void staleRenderIsNotInsertedIntoCache();
+    void churnDuplicateRequestsClearLatencyBenchmark();
     void renderPageUncachedMatchesRenderPageAndKeepsGuards();
     void sidebarDestructionWithRendersInFlightIsSafe();
 };
@@ -334,6 +371,176 @@ void TestThumbnailOffGui::clearCancelsInFlightRenderJoinsAndDeliversNothing()
 
     // Nothing stale survived the wipe (getOrRender with a null renderer is a
     // pure lookup: hit → image, miss → null).
+    QVERIFY(cache->getOrRender(0, 1.0, nullptr).isNull());
+}
+
+// R3-perf pin (audit finding 2) — duplicate-request coalescing. A second
+// renderPageAsync for a (page, scale) already in flight must ATTACH to the
+// running render (one worker, one renderPage call, both requesters delivered)
+// instead of queueing a redundant worker whose result is discarded at the
+// insert-time TOCTOU re-check. RED pre-fix: two workers scheduled, zero
+// coalesced, two renderPage calls.
+void TestThumbnailOffGui::duplicateAsyncRequestCoalescesIntoOneWorker()
+{
+    PageGatedRenderer blocker;
+    auto cache = std::make_shared<RenderCache>();
+    // Shared-ptr capture BY VALUE: pre-fix this pin REDs at the first
+    // QCOMPARE and returns early — the (then unblocked) workers may still run
+    // their deliveries afterwards, so the callback targets must outlive the
+    // test function's stack frame.
+    auto first = std::make_shared<QImage>();
+    auto second = std::make_shared<QImage>();
+
+    QVERIFY(!cache->renderPageAsync(0, 1.0, &blocker,
+                                    [first](const QImage &img) { *first = img; }));
+    QVERIFY(waitUntil([&] { return blocker.entered.loadRelaxed(); }, 10000));
+
+    // The duplicate arrives while the first render is in flight. Its job is
+    // registered synchronously by the first call, so the attach is
+    // deterministic — no waiting needed.
+    QVERIFY(!cache->renderPageAsync(0, 1.0, &blocker,
+                                    [second](const QImage &img) { *second = img; }));
+
+    // The coalescing property (RED pre-fix: runs==2, coalesced==0).
+    QCOMPARE(cache->asyncWorkerRunsForTest(), 1);
+    QCOMPARE(cache->asyncCoalescedRequestsForTest(), 1);
+
+    // Released on EVERY exit path: pre-fix the duplicate runs its own worker
+    // parked inside renderPage — the pool must never be left blocked (the
+    // guard dies before the cache, whose dtor joins the workers).
+    const auto unpark = qScopeGuard([&] { blocker.gate.release(4); });
+    blocker.gate.release(4);   // the renders may now complete and be delivered
+    QVERIFY(waitUntil([&] { return !first->isNull() && !second->isNull(); }));
+    QCOMPARE(blocker.renderCalls.loadRelaxed(), 1);   // RED pre-fix: 2
+    QCOMPARE(cache->asyncWorkerCompletionsForTest(), 1);
+    QCOMPARE(*second, *first);   // both requesters received THE one render
+
+    // A request after completion is a plain synchronous cache hit: no new
+    // worker, no re-render.
+    QVERIFY(cache->renderPageAsync(0, 1.0, &blocker, [](const QImage &){}));
+    QCOMPARE(blocker.renderCalls.loadRelaxed(), 1);
+    QCOMPARE(cache->asyncWorkerRunsForTest(), 1);
+}
+
+// R3-perf pin (audit finding 7) — insert AFTER the token check. A render
+// superseded mid-flight (the epoch advanced while it ran) must not be
+// inserted into the cache: the legacy worker called getOrRender, whose
+// unconditional insert ran BEFORE the post-render token check, so the stale
+// entry occupied cache space (and evicted fresh entries) until clear() mopped
+// it up. RED pre-fix: the stale page-0 entry is present.
+void TestThumbnailOffGui::staleRenderIsNotInsertedIntoCache()
+{
+    PageGatedRenderer blocker;
+    auto cache = std::make_shared<RenderCache>();
+    cache->setPageCount(10);
+
+    bool delivered = false;
+    QVERIFY(!cache->renderPageAsync(0, 1.0, &blocker,
+                                    [&](const QImage &) { delivered = true; }));
+    QVERIFY(waitUntil([&] { return blocker.entered.loadRelaxed(); }, 10000));
+
+    // Advance the token epoch WITHOUT clear()'s join: a viewport prefetch on
+    // the same cache supersedes the async render's epoch while it runs (the
+    // prefetch pages — 2..8 around center 5 — are not gated, so the fresh
+    // worker still inserts them: the cache is demonstrably not simply off).
+    cache->prefetchViewport(5, 1.0, &blocker);
+    const auto unpark = qScopeGuard([&] { blocker.gate.release(4); });
+    blocker.gate.release(4);   // the stale render may now finish (and be judged)
+
+    // Both the stale worker and the prefetch worker must have finished before
+    // any cache-state assertion (the completion seam makes this wait exact).
+    QVERIFY(waitUntil([&] { return cache->asyncWorkerCompletionsForTest() >= 1; },
+                      30000));
+    QVERIFY(waitUntil([&] { return !cache->getOrRender(6, 1.0, nullptr).isNull(); },
+                      30000));
+
+    QVERIFY2(cache->getOrRender(0, 1.0, nullptr).isNull(),
+             "a stale (superseded) render was inserted into the cache — the "
+             "epoch check must precede the insert");
+    QVERIFY(!delivered);   // a stale render is never delivered (unchanged)
+}
+
+// R3-perf — MEASURED EXPERIMENT, not a pass/fail pin: the document-switch
+// (clear()) join latency under scroll churn, i.e. with K duplicate render
+// requests already in flight for the same page. Coalescing bounds the join
+// set to one worker per distinct key (finding 3's GUI-thread bound); this
+// function PRINTS the measured latency for docs/audit/evidence-r3-perf/
+// (before vs after, with machine-load caveats). Assertions are ordering
+// invariants only — never timing.
+void TestThumbnailOffGui::churnDuplicateRequestsClearLatencyBenchmark()
+{
+    // Serialized slow renderer: renderPage holds a mutex for ~15 ms (a small
+    // honest model of PdfiumBackend's process-wide pdfMutex serialization),
+    // and the first call parks on a gate while holding that mutex — the exact
+    // shape pre-fix churn produces: N workers queued behind the in-flight
+    // render, all past their entry checks when clear() lands.
+    class SlowSerializedRenderer : public IPdfRenderer {
+    public:
+        QMutex mutex;
+        QSemaphore gate;
+        QAtomicInt entered{0};
+        QAtomicInt insideRender{0};
+        QImage renderPage(int, int) override {
+            insideRender.fetchAndAddRelaxed(1);
+            QMutexLocker l(&mutex);
+            if (entered.loadRelaxed() == 0) {
+                entered.storeRelaxed(1);
+                gate.acquire();          // park render #1, holding the mutex
+            }
+            QThread::msleep(15);         // one small honest render cost
+            const QImage img(16, 16, QImage::Format_ARGB32);
+            insideRender.fetchAndAddRelaxed(-1);
+            return img;
+        }
+        QImage renderTile(int, const QRectF &, int) override { return QImage(); }
+        QSizeF pageSize(int) const override { return QSizeF(612, 792); }
+        QString extractText(int) override { return QString(); }
+    };
+
+    SlowSerializedRenderer slow;
+    auto cache = std::make_shared<RenderCache>();
+
+    constexpr int kRequests = 8;
+    QAtomicInt deliveries{0};
+    QVERIFY(!cache->renderPageAsync(0, 1.0, &slow,
+                                    [&](const QImage &) { deliveries.fetchAndAddRelaxed(1); }));
+    QVERIFY(waitUntil([&] { return slow.entered.loadRelaxed(); }, 10000));
+    for (int i = 1; i < kRequests; ++i)
+        QVERIFY(!cache->renderPageAsync(0, 1.0, &slow, [](const QImage &){}));
+
+    const auto unpark = qScopeGuard([&] { slow.gate.release(2 * kRequests); });
+    // Give the queue time to form (pre-fix: workers 2..K march into
+    // renderPage and block behind the parked mutex holder).
+    QTest::qWait(300);
+    const int queued = slow.insideRender.loadRelaxed();
+
+    // clear() on a helper thread — the document-changed path. Timing covers
+    // the whole call (token bump + join + wipe).
+    QElapsedTimer timer;
+    QSemaphore done;
+    qint64 elapsedMs = -1;
+    std::thread clearer([&] {
+        timer.start();
+        cache->clear();
+        elapsedMs = timer.elapsed();
+        done.release();
+    });
+    QTest::qWait(150);          // clear() is now blocked in the join
+    slow.gate.release(2 * kRequests);
+    QVERIFY(done.tryAcquire(1, 30000));
+    clearer.join();
+
+    qInfo() << "[r3-perf benchmark] requests:" << kRequests
+            << "queued in renderPage at clear():" << queued
+            << "clear() join+wipe latency:" << elapsedMs << "ms"
+            << "workerRuns:" << cache->asyncWorkerRunsForTest()
+            << "coalesced:" << cache->asyncCoalescedRequestsForTest()
+            << "deliveries:" << deliveries.loadRelaxed();
+
+    // Ordering invariants only (no timing assertions): the joined workers are
+    // done, the stale cache is empty, and — coalescing or not — at most the
+    // first requester's delivery can land (the rest are superseded).
+    QVERIFY(cache->asyncWorkerCompletionsForTest() >= 1);
     QVERIFY(cache->getOrRender(0, 1.0, nullptr).isNull());
 }
 

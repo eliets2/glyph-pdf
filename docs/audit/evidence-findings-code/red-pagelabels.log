@@ -1,0 +1,50 @@
+Test project D:/pdf/pdf-f-code/build-rel
+    Start 65: TestPageLabels
+1/1 Test #65: TestPageLabels ...................***Failed    0.58 sec
+********* Start testing of TestPageLabels *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestPageLabels::initTestCase()
+PASS   : TestPageLabels::styleNameMapping()
+PASS   : TestPageLabels::labelsFor_decimal()
+PASS   : TestPageLabels::labelsFor_uppercaseRoman()
+PASS   : TestPageLabels::labelsFor_lowercaseRoman()
+PASS   : TestPageLabels::labelsFor_letters()
+PASS   : TestPageLabels::labelsFor_invalidArgs()
+PASS   : TestPageLabels::labelsFor_romanBeyond3999()
+PASS   : TestPageLabels::numberTreeEntries_singleRange()
+PASS   : TestPageLabels::numberTreeEntries_invalidArgs()
+PASS   : TestPageLabels::writeNumberTree_decimal_readback()
+PASS   : TestPageLabels::writeNumberTree_roman_readback()
+PASS   : TestPageLabels::writeNumberTree_replacesExistingTree()
+PASS   : TestPageLabels::writeNumberTree_startValueOffset()
+PASS   : TestPageLabels::writeNumberTree_invalidArgs()
+PASS   : TestPageLabels::writeNumberTree_prefix_readback()
+PASS   : TestPageLabels::writeNumberTree_emptyPrefixNotWritten()
+PASS   : TestPageLabels::writeNumberTree_prefixStyleComposition()
+FAIL!  : TestPageLabels::writeNumberTree_prefixNonAsciiIsUtf16BETextString() 'rawBytes.size() >= 2 && static_cast<unsigned char>(rawBytes.at(0)) == 0xFE && static_cast<unsigned char>(rawBytes.at(1)) == 0xFF' returned FALSE. (a non-ASCII /P must be stored as the UTF-16BE+BOM text string, not raw UTF-8 bytes)
+D:/pdf/pdf-f-code/tests/TestPageLabels.cpp(561) : failure location
+PASS   : TestPageLabels::writeNumberTreePrefixSafeSaveRoundTrip()
+PASS   : TestPageLabels::writeNumberTreeContentBearingFileSurvivesAndCarriesTree()
+QWARN  : TestPageLabels::writeNumberTreeFailingCommitLeavesFileByteIdentical() PageLabels::writeNumberTree: commit to D:/pdf/pdf-f-code/build-rel/test-tmp/TestPageLabels/TestPageLabels-tpECRJ/g13_fault.pdf failed: injected commit failure (test seam)
+PASS   : TestPageLabels::writeNumberTreeFailingCommitLeavesFileByteIdentical()
+PASS   : TestPageLabels::writeNumberTreePagesModeCandidateFlowEndToEnd()
+PASS   : TestPageLabels::cleanupTestCase()
+Totals: 23 passed, 1 failed, 0 skipped, 0 blacklisted, 222ms
+********* Finished testing of TestPageLabels *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+core          =   0.58 sec*proc (1 test)
+headless      =   0.58 sec*proc (1 test)
+pagelabels    =   0.58 sec*proc (1 test)
+pages         =   0.58 sec*proc (1 test)
+qt            =   0.58 sec*proc (1 test)
+unit          =   0.58 sec*proc (1 test)
+
+Total Test time (real) =   0.61 sec
+
+The following tests FAILED:
+	 65 - TestPageLabels (Failed)                           core headless pagelabels pages qt unit
+Errors while running CTest

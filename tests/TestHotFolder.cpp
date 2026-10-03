@@ -430,8 +430,11 @@ private slots:
         c.stop();
     }
 
-    // A subdirectory created AFTER start gets watched on the next change
-    // delivery (watch refresh in the directory-changed path).
+    // A subdirectory created AFTER start gets watched on the next debounce
+    // fire (wave-2b F-7 moved the watch refresh OUT of the per-event path
+    // into the debounce fire, together with the ingest pass it always
+    // accompanied — discovery is asserted AFTER the debounce window now, not
+    // synchronously per event).
     void controllerDiscoversSubdirCreatedAfterStart() {
         HotFolderController c;
         QDir().mkpath(hotDir());
@@ -441,6 +444,7 @@ private slots:
 
         QDir().mkpath(hotDir(QStringLiteral("late")));
         c.triggerDirectoryChangedForTest();  // what a parent-change event does
+        QTest::qWait(700);  // one full debounce window: the refresh fires there
         QVERIFY2(c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late"))),
                  qPrintable(c.watchedDirectoriesForTest().join(',')));
         c.stop();
@@ -538,6 +542,53 @@ private slots:
         c.stop();
     }
 
+    // r3-api harmonization pin — CROSS-PATH DEDUP: the fs-event pass (debounce
+    // fire) and the poll tick share ONE processed set, so each drop is
+    // delivered exactly once even with BOTH paths live at once (the
+    // network-share reality: a stray fs-event arriving while polling, or a
+    // poll tick landing between an fs-event burst). Whichever pass runs first
+    // delivers; the other must stay silent — per file, in both directions.
+    void crossPathIngestSharesOneProcessedSet() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));                              // fs-event path live
+        QVERIFY(c.startPolling(hotDir(), /*intervalMs=*/200));   // poll path ALSO live
+
+        // Drop A: delivered exactly once, no matter which pass wins the race.
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("cross-a.pdf")).isEmpty());
+        c.triggerDirectoryChangedForTest();                      // arms the debounce too
+        const int ceilingMs = 5000;
+        int waited = 0;
+        while (ingested.size() < 1 && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(ingested.size() == 1, "cross-path drop A was never delivered");
+        QTest::qWait(700);   // a full debounce window + ≥2 poll ticks
+        QVERIFY2(ingested.size() == 1,
+                 "drop A was re-ingested by the OTHER live path");
+
+        // Drop B: same exactly-once contract in the other direction's shadow.
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("cross-b.pdf")).isEmpty());
+        waited = 0;
+        while (ingested.size() < 2 && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(ingested.size() == 2, "cross-path drop B was never delivered");
+        QTest::qWait(700);   // a full debounce window + ≥2 poll ticks
+        QVERIFY2(ingested.size() == 2,
+                 "a delivered file was re-ingested by the other path");
+        QVERIFY2(c.ingestDeliver().isEmpty(),
+                 "a direct ingest pass after both paths delivered must find nothing new");
+        c.stop();
+    }
+
     // The identity key is subtree-unique: the same stem in different
     // subdirectories ingests BOTH (filename|mtime alone would collide — the
     // recursion capability fixed the key to the root-relative path). The
@@ -571,15 +622,260 @@ private slots:
 
         const int ceilingMs = 10000;
         int waited = 0;
+        // Wave-2b testing audit H1: wait for BOTH same-stem deliveries, not
+        // just the first — asserting after the first delivery left the second
+        // count to luck on slow/loaded machines.
+        auto sameStemCount = [&ingested]() {
+            int n = 0;
+            for (const QString& f : ingested)
+                if (f.contains(QStringLiteral("same.pdf"))) ++n;
+            return n;
+        };
+        while (sameStemCount() < 2 && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(sameStemCount() == 2, "nested same-stem drops not both ingested");
+        c.stop();
+    }
+
+    // ── Wave-2b F-5: the identity key must carry content-bearing state ──────
+    // path+mtime swallows rewrites with preserved mtimes (cp -p, archive
+    // restore, robocopy /COPYTIMES) and same-tick rewrites on the NAS-class
+    // shares polling targets (1–2 s timestamp granularity): the replaced
+    // file's key equals the old key and is silently NEVER re-ingested. With
+    // size in the key, a rewrite that changes the file's length re-ingests
+    // even under a forged-identical mtime. Residual, by design (poll tick
+    // cadence): a same-size same-mtime rewrite is still one ingest.
+    void pollingRewriteForgedMtimeDifferentSizeReingests() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        const QString pdf = createMinimalPdf(hotDir(), QStringLiteral("r.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        // Forge a stable, already-stale mtime BEFORE start: seeding marks the
+        // pre-start file, and the same forged time is restored after the
+        // rewrite (exactly what cp -p / archive restore produce).
+        const QDateTime forged = QDateTime::currentDateTimeUtc().addSecs(-60);
+        QVERIFY2(forgeMTime(pdf, forged), "mtime forge failed — pin premise broken");
+        const qint64 oldSize = QFileInfo(pdf).size();
+
+        QVERIFY(c.startPolling(hotDir(), /*intervalMs=*/200));
+        QVERIFY(c.isPolling());
+        QTest::qWait(450);  // ≥2 ticks: the pre-start file stays seeded
+        QVERIFY2(ingested.isEmpty(), "seeded file re-ingested — seeding broken");
+
+        // Rewrite in place: different content (different size), mtime forged
+        // back to the exact pre-rewrite value. Under the pre-fix path+mtime
+        // key this rewrite is invisible forever.
+        QVERIFY(writeFile(pdf,
+            "%PDF-1.4\n%rewritten-in-place-with-a-different-length-body\n"
+            "%second-line-to-change-the-size\n%%EOF\n"));
+        QVERIFY2(forgeMTime(pdf, forged), "mtime forge failed — pin premise broken");
+        QVERIFY2(QFileInfo(pdf).lastModified() == forged,
+                 "premise: forged mtime not preserved across the rewrite");
+        QVERIFY2(QFileInfo(pdf).size() != oldSize,
+                 "premise: the rewrite must change the size for this pin");
+
+        const int ceilingMs = 5000;
+        int waited = 0;
         while (ingested.isEmpty() && waited < ceilingMs) {
             QTest::qWait(100);
             waited += 100;
         }
-        QVERIFY2(!ingested.isEmpty(), "nested same-stem drops not ingested");
-        int count = 0;
-        for (const QString& f : ingested)
-            if (f.contains(QStringLiteral("same.pdf"))) ++count;
-        QCOMPARE(count, 2);
+        QVERIFY2(!ingested.isEmpty(),
+                 "mtime-preserved size-changing rewrite never re-ingested (F-5)");
+        QCOMPARE(ingested.size(), 1);
+        QVERIFY(ingested.first().contains(QStringLiteral("r.pdf")));
+        c.stop();
+    }
+
+    // ── Wave-2b F-7: the watch refresh must NOT walk the whole tree per ─────
+    // fs-event. A bulk FILE copy-in (no new directories) fires one
+    // directoryChanged per file; the pre-fix code ran the full-tree
+    // QDirIterator walk synchronously for EVERY event (O(events x dirs) on
+    // the GUI thread — a local DoS for any 10k-file drop). Counted via the
+    // watchWalkCountForTest seam: events inside one debounce window must
+    // produce ZERO synchronous walks and exactly ONE walk at the fire.
+    void controllerBulkFileEventsDoNotWalkPerEvent() {
+        HotFolderController c;
+        int deliveries = 0;
+        c.setIngestHandler([&deliveries](const QStringList&) { ++deliveries; });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));
+        const int walksAtStart = c.watchWalkCountForTest();
+        QVERIFY2(walksAtStart >= 1, "start must perform the initial watch walk");
+
+        for (int i = 0; i < 4; ++i) {
+            QVERIFY(!createMinimalPdf(hotDir(),
+                                      QStringLiteral("bulk%1.pdf").arg(i)).isEmpty());
+            c.triggerDirectoryChangedForTest();  // one per copied-in file
+        }
+        QVERIFY2(c.watchWalkCountForTest() == walksAtStart,
+                 "directory-changed walked the whole tree synchronously per "
+                 "event (F-7)");
+        QTest::qWait(700);  // one full debounce window + margin
+        QVERIFY2(c.watchWalkCountForTest() == walksAtStart + 1,
+                 "the debounce fire must refresh the watch exactly once");
+        QCOMPARE(c.debouncePassesForTest(), 1);
+        QCOMPARE(deliveries, 1);  // the four drops still land in one pass
+        c.stop();
+    }
+
+    // ── R3-sec F-6: watcher fan-out backstop ────────────────────────────────
+    // addPaths fails SILENTLY beyond the OS watch budget (inotify caps,
+    // ReadDirectoryChangesW handle budgets) — subtrees became permanently
+    // unwatched with no backstop in watcher mode, and a drop there raised no
+    // event, ever. After the fix the controller counts addPaths refusals,
+    // engages the existing polling fallback for the degraded (sub)tree, and
+    // discloses through the degraded-watch log channel. The cap is simulated
+    // with the addPaths hook seam — fully deterministic.
+
+    // The real-exhaustion shape: root and early subtrees made it under the
+    // cap, later ones did not. A drop into the UNWATCHED subtree must still
+    // be delivered — by the engaged poll, not by fs-events.
+    void controllerWatchCapEngagesPollingForDegradedSubtree() {
+        HotFolderController c;
+        QStringList ingested;
+        QList<QStringList> disclosures;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+        c.setWatchDegradedHandler([&disclosures](const QStringList& unwatched) {
+            disclosures << unwatched;
+        });
+
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(c.start(hotDir()));  // start-time adds succeed (hook not armed)
+        QVERIFY(!c.isPolling());     // premise: healthy watch mode polls nothing
+
+        // From here on, every addPaths "hits the cap": all paths refused.
+        c.setWatchAddPathsHookForTest([](const QStringList& paths) { return paths; });
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));  // created after start
+        c.triggerDirectoryChangedForTest();  // what a parent-change event does
+        QTest::qWait(700);  // one full debounce window: the refresh fires there
+
+        QVERIFY2(!c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late"))),
+                 "premise: the capped subtree is not under native watch");
+        QVERIFY2(c.isPolling(),
+                 "silent addPaths refusal must engage the polling fallback (F-6)");
+        QVERIFY2(!disclosures.isEmpty(),
+                 "unwatchable subtrees must be disclosed (F-6)");
+        bool named = false;
+        for (const QStringList& d : disclosures)
+            if (d.contains(hotDir(QStringLiteral("late")))) named = true;
+        QVERIFY2(named, "the disclosure must name the degraded subtree");
+        QVERIFY2(!c.unwatchedSubtreesForTest().isEmpty(),
+                 "the degradation accounting must record the refused subtree");
+        QVERIFY2(c.watchFailureCountForTest() >= 1, "refusal must be counted");
+
+        // The backstop closes the ingest gap: a drop into the un-watched
+        // subtree is delivered by the engaged poll (ceiling wait on the
+        // kPollIntervalMs cadence — same discipline as the polling pins).
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("late")),
+                                  QStringLiteral("capped.pdf")).isEmpty());
+        const int ceilingMs = 8000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(),
+                 "polling backstop missed a drop into the unwatched subtree (F-6)");
+        QVERIFY(ingested.first().contains(QStringLiteral("capped.pdf")));
+        c.stop();
+        QVERIFY(!c.isWatching());
+    }
+
+    // The debounce fire re-runs the watch refresh (F-7 wiring) and re-learns
+    // the same losses every pass; the disclosure fires ONCE per subtree — the
+    // log channel must not spam per refresh — while the failure counter keeps
+    // the true cumulative accounting.
+    void controllerWatchCapDisclosureFiresOncePerSubtree() {
+        HotFolderController c;
+        QList<QStringList> disclosures;
+        c.setWatchDegradedHandler([&disclosures](const QStringList& unwatched) {
+            disclosures << unwatched;
+        });
+
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(c.start(hotDir()));
+        c.setWatchAddPathsHookForTest([](const QStringList& paths) { return paths; });
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(700);   // refresh pass 1: "late" refused → disclosed
+        QCOMPARE(disclosures.size(), 1);
+        const int failuresAfterPass1 = c.watchFailureCountForTest();
+        QVERIFY2(failuresAfterPass1 >= 1, "pass-1 refusal must be counted");
+
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(700);   // refresh pass 2: "late" refused AGAIN → silent
+        QCOMPARE(disclosures.size(), 1);  // still once
+        QVERIFY2(c.watchFailureCountForTest() > failuresAfterPass1,
+                 "the counter keeps cumulative accounting across passes");
+        c.stop();
+    }
+
+    // The degenerate fan-out: the ROOT itself cannot be watched (the whole
+    // tree is beyond the budget). That is the "or the whole root" leg —
+    // polling engages for everything, disclosed.
+    void controllerRootWatchFailureDegradesToPolling() {
+        HotFolderController c;
+        QList<QStringList> disclosures;
+        c.setWatchDegradedHandler([&disclosures](const QStringList& unwatched) {
+            disclosures << unwatched;
+        });
+        QDir().mkpath(hotDir());
+        c.setWatchAddPathsHookForTest([](const QStringList& paths) { return paths; });
+
+        QVERIFY(c.start(hotDir()));
+        QVERIFY2(c.isPolling(),
+                 "a refused root must degrade the whole watch to polling (F-6)");
+        QVERIFY2(!disclosures.isEmpty(), "a refused root must be disclosed");
+        QVERIFY(c.watchedDirectoriesForTest().isEmpty());  // premise: nothing watched
+        c.stop();
+    }
+    // ── R3-perf (audit finding 6): re-entrant ingest does not rescan ──────────
+    // The ingest handler walking back into ingestDeliver() (a batch auto-run
+    // that re-enters the controller mid-delivery) must not trigger a second
+    // full-tree scan — the nested call is absorbed by the re-entrancy guard
+    // and delivers nothing (the outer pass owns the tick). Per-tick cost
+    // stays ONE stat walk; nothing decodes or re-reads file CONTENT either
+    // way — the identity keys are pure stat fields (relpath|mtime|size).
+    void reentrantIngestDoesNotRescanTree() {
+        HotFolderController c;
+        QDir().mkpath(hotDir());
+
+        QStringList outer, nested;
+        int deliveries = 0;
+        c.setIngestHandler([&](const QStringList& files) {
+            ++deliveries;
+            nested = c.ingestDeliver();   // the re-entrant call under test
+        });
+        c.arm(hotDir());                  // seeds: nothing is new yet
+        const int scansBefore = c.ingestScansForTest();
+
+        QVERIFY(!createMinimalPdf(hotDir(),
+                                  QStringLiteral("reentrant.pdf")).isEmpty());
+        outer = c.ingestDeliver();
+
+        QCOMPARE(outer.size(), 1);
+        QVERIFY(outer.first().contains(QStringLiteral("reentrant.pdf")));
+        QCOMPARE(deliveries, 1);
+        QVERIFY2(nested.isEmpty(),
+                 "the nested pass must not re-deliver (the outer pass owns "
+                 "the tick)");
+        QVERIFY2(c.ingestScansForTest() == scansBefore + 1,
+                 "a re-entrant ingestDeliver ran a second full-tree scan "
+                 "(RED pre-fix: the handler's nested call re-walked the "
+                 "whole tree)");
         c.stop();
     }
 
@@ -608,6 +904,35 @@ private slots:
         QVERIFY2(bm.hotFolderForTest() && !bm.hotFolderForTest()->isPolling()
                      && bm.hotFolderForTest()->isWatching(),
                  "unchecked polling did not start fs-watch mode");
+        bm.hotFolderForTest()->stop();
+    }
+
+    // R3-sec F-6 end-to-end wiring: BatchMode owns the hot-folder LOG — the
+    // controller's degraded-watch disclosure must surface there (and the
+    // controller BatchMode holds must be the one that engaged polling).
+    void batchModeDisclosesWatchDegradationInLog() {
+        BatchMode bm;
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(bm.startHotFolderForTest(hotDir()));  // real watch, adds succeed
+        HotFolderController* hot = bm.hotFolderForTest();
+        QVERIFY2(hot, "startHotFolderForTest did not expose the controller");
+
+        // Cap everything added from now on (deterministic cap simulation).
+        hot->setWatchAddPathsHookForTest(
+            [](const QStringList& paths) { return paths; });
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));
+        hot->triggerDirectoryChangedForTest();
+        QTest::qWait(700);  // one full debounce window: refresh + disclosure
+
+        QVERIFY2(hot->isPolling(),
+                 "BatchMode's controller did not engage the polling backstop");
+        QTextEdit* log = logView(bm);
+        QVERIFY2(log, "BatchMode log not found");
+        QVERIFY2(log->toPlainText().contains(QStringLiteral("polling fallback")),
+                 qPrintable(QStringLiteral("degradation not disclosed in the "
+                                           "BatchMode log:\n%1")
+                                .arg(log->toPlainText().right(400))));
         bm.hotFolderForTest()->stop();
     }
 };

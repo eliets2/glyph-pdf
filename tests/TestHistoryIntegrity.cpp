@@ -46,7 +46,9 @@
 #include <QImage>
 #include <QUndoStack>
 #ifndef Q_OS_WIN
+#if !defined(Q_OS_WIN)
 #include <unistd.h>  // geteuid — the V02 root-environment guard
+#endif
 #endif
 #include <QSignalSpy>
 #include <QPainter>
@@ -690,11 +692,13 @@ private slots:
         // refusal — and the V02 reporting contract it drives — is
         // unexercisable; skipping is the honest record there. The pin stays
         // live for ordinary users.
+#if !defined(Q_OS_WIN)
         if (::geteuid() == 0) {
             QSKIP("running as root: POSIX permission bits do not gate writes "
                   "(CAP_DAC_OVERRIDE) — the read-only-destination refusal is "
                   "unexercisable in this environment");
         }
+#endif
         setWritable(f, false);
         stack.undo();
 

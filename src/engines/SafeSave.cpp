@@ -157,28 +157,10 @@ bool makeUniqueCandidate(QString* out, QString* err, const QString& suffix)
 
 // ── WP-R04 external-writer transaction ──────────────────────────────────────
 
-// PARITY-SCORECARD-2026-09-30 §4 row 14 — see the header note. App-owned
-// (vendored) 7-Zip first, PATH fallback, conventional install dirs, empty on
-// true absence (the caller discloses honestly). Requires BOTH 7z.exe and
-// 7z.dll in the app-owned branch: 7z.exe is only a launcher.
-QString locateSevenZip(const QString& appDirOverride) {
-    const QString appDir = appDirOverride.isEmpty()
-        ? QCoreApplication::applicationDirPath() : appDirOverride;
-    if (!appDir.isEmpty()) {
-        const QString bundled = appDir + QStringLiteral("/7z.exe");
-        if (QFileInfo::exists(bundled)
-            && QFileInfo::exists(appDir + QStringLiteral("/7z.dll")))
-            return QDir::toNativeSeparators(bundled);
-    }
-    const QString onPath = QStandardPaths::findExecutable(QStringLiteral("7z"));
-    if (!onPath.isEmpty()) return QDir::toNativeSeparators(onPath);
-    for (const QString& c : {
-             QStringLiteral("C:/Program Files/7-Zip/7z.exe"),
-             QStringLiteral("C:/Program Files (x86)/7-Zip/7z.exe") }) {
-        if (QFileInfo::exists(c)) return QDir::toNativeSeparators(c);
-    }
-    return {};
-}
+// The 7-Zip locator that used to sit here moved to engines/SevenZipLocator
+// (r3-api harmonization): SafeSave is the program-agnostic transaction layer
+// and carries no 7-Zip install policy. See SevenZipLocator.h for the
+// bundled-only (F-02, CWE-427) resolution contract.
 
 // One bounded, cancellable process run owned by the caller. Returns true when
 // the process exited normally with exitCode set; false with `error` (and

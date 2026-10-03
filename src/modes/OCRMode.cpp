@@ -55,6 +55,9 @@ static const char* kOcrOrientDetectKey = "ocr/orientDetect";
 static const char* kOcrPreprocessDeskewKey   = "ocr/preprocessDeskew";
 static const char* kOcrPreprocessBinarizeKey = "ocr/preprocessBinarize";
 static const char* kOcrPreprocessDenoiseKey  = "ocr/preprocessDenoise";
+// §4 #5 (OCR OutputMode): the searchable-vs-editable choice lives in
+// core/OcrTypes.h (ocrOutputModePrefKey / ocrOutputModeFromPref) — EditController's
+// accept flow parses the SAME key, so this combo is the single writing side.
 
 // Empty-state shown in the scan/confidence pane before any OCR has run.
 static const char* kOcrEmptyStateHtml =
@@ -408,6 +411,46 @@ void OCRMode::buildToolbar(QVBoxLayout* col)
         settings.setValue(kOcrOrientDetectKey, checked);
     });
     row->addWidget(m_chkOrientDetect);
+
+    // ── §4 #5: Output mode — what Accept/export produces from the words ──
+    // "searchable" keeps the original page image with an INVISIBLE text
+    // layer (MRC PDF/A writer); "editable" REPLACES the page content with
+    // the recognized text (text-only PDF, no image). Persisted through the
+    // shared ocr/outputMode key; EditController::onOcrAcceptRequested
+    // branches on it at accept time. The combo stores the canonical pref
+    // value as item data, so widget state ↔ pref ↔ mode can never disagree.
+    m_outputModeCombo = new QComboBox;
+    m_outputModeCombo->setObjectName("ocrOutputModeCombo");
+    m_outputModeCombo->setProperty("variant", "ghost");
+    m_outputModeCombo->addItem(tr("Searchable PDF (image + hidden text)"),
+                               ocrOutputModePrefValue(OcrOutputMode::Searchable));
+    m_outputModeCombo->addItem(tr("Editable text (text replaces the scan)"),
+                               ocrOutputModePrefValue(OcrOutputMode::Editable));
+    m_outputModeCombo->setToolTip(tr(
+        "What saving the OCR results produces.\n\n"
+        "Searchable PDF: keeps the scanned page image and adds an invisible "
+        "text layer (smaller, looks identical, text is selectable and "
+        "searchable).\n\n"
+        "Editable text: replaces the page content with the recognized text "
+        "(no image — text is directly editable, but the scan's appearance is "
+        "gone)."));
+    m_outputModeCombo->setAccessibleName(tr("OCR output mode"));
+    m_outputModeCombo->setAccessibleDescription(
+        tr("Choose whether saving OCR results produces a searchable PDF copy or an editable text copy"));
+    {
+        QSettings settings;
+        const QString savedMode = settings.value(ocrOutputModePrefKey()).toString();
+        const int idx = m_outputModeCombo->findData(ocrOutputModePrefValue(
+            ocrOutputModeFromPref(savedMode)));
+        if (idx >= 0)
+            m_outputModeCombo->setCurrentIndex(idx);
+    }
+    connect(m_outputModeCombo, &QComboBox::activated, this, [this](int index) {
+        const QVariant modeData = m_outputModeCombo->itemData(index);
+        if (modeData.isValid())
+            setOutputMode(ocrOutputModeFromPref(modeData.toString()));
+    });
+    row->addWidget(m_outputModeCombo);
 
     row->addStretch(1);
 
@@ -954,6 +997,27 @@ void OCRMode::onRunOcr()
     m_lblLowWords->setText(tr("LOW-CONFIDENCE WORDS —"));
 
     emit ocrRequested();
+}
+
+// ── §4 #5: OCR output mode ───────────────────────────────────────────────────
+OcrOutputMode OCRMode::outputMode() const {
+    if (!m_outputModeCombo)
+        return ocrOutputModeFromPref(QSettings().value(ocrOutputModePrefKey()).toString());
+    const QVariant modeData = m_outputModeCombo->currentData();
+    return ocrOutputModeFromPref(modeData.toString());
+}
+
+void OCRMode::setOutputMode(OcrOutputMode mode) {
+    if (!m_outputModeCombo) return;
+    const QString value = ocrOutputModePrefValue(mode);
+    {
+        QSignalBlocker block(m_outputModeCombo);
+        const int idx = m_outputModeCombo->findData(value);
+        if (idx >= 0)
+            m_outputModeCombo->setCurrentIndex(idx);
+    }
+    QSettings settings;
+    settings.setValue(ocrOutputModePrefKey(), value);
 }
 
 void OCRMode::onAcceptResults()

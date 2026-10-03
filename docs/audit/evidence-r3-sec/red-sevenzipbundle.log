@@ -1,0 +1,34 @@
+Test project D:/pdf/pdf-r3-sec/build-rel
+    Start 42: TestSevenZipBundle
+1/1 Test #42: TestSevenZipBundle ...............***Failed    2.05 sec
+********* Start testing of TestSevenZipBundle *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestSevenZipBundle::initTestCase()
+PASS   : TestSevenZipBundle::vendoredBinariesAreCommittedAndHashPinned()
+PASS   : TestSevenZipBundle::resolverPrefersAppOwnedBinary()
+PASS   : TestSevenZipBundle::resolverDisclosesAbsenceHonestly()
+FAIL!  : TestSevenZipBundle::tamperedBundledPairIsRefusedWithIntegrityDisclosure() 'resolved.isEmpty()' returned FALSE. (a tampered bundled 7z.exe must be REFUSED at resolution — it would receive the document bytes and the package password)
+D:/pdf/pdf-r3-sec/tests/TestSevenZipBundle.cpp(226) : failure location
+PASS   : TestSevenZipBundle::goodBundledPairPassesRuntimeVerification()
+FAIL!  : TestSevenZipBundle::integrityCheckRunsOncePerSession() 'SafeSave::locateSevenZip(probeDir.path(), &probeErr).isEmpty()' returned FALSE. (control failed: the tamper is not being detected at all)
+D:/pdf/pdf-r3-sec/tests/TestSevenZipBundle.cpp(295) : failure location
+PASS   : TestSevenZipBundle::bundledBinaryEndToEndStdinPassword()
+PASS   : TestSevenZipBundle::cleanupTestCase()
+Totals: 7 passed, 2 failed, 0 skipped, 0 blacklisted, 1324ms
+********* Finished testing of TestSevenZipBundle *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+controllers    =   2.05 sec*proc (1 test)
+headless       =   2.05 sec*proc (1 test)
+qt             =   2.05 sec*proc (1 test)
+security       =   2.05 sec*proc (1 test)
+unit           =   2.05 sec*proc (1 test)
+
+Total Test time (real) =   2.07 sec
+
+The following tests FAILED:
+	 42 - TestSevenZipBundle (Failed)                       controllers headless qt security unit
+Errors while running CTest

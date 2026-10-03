@@ -1,0 +1,29 @@
+Test project D:/pdf/pdf-f-tests/build-rel
+    Start 32: TestOcrRegionReocr
+1/4 Test #32: TestOcrRegionReocr ...............   Passed    0.51 sec
+    Start 33: TestOcrOutputMode
+2/4 Test #33: TestOcrOutputMode ................   Passed    0.30 sec
+    Start 63: TestCompareIntegration
+3/4 Test #63: TestCompareIntegration ...........   Passed    0.94 sec
+    Start 72: TestOcrPreprocessPrefs
+4/4 Test #72: TestOcrPreprocessPrefs ...........   Passed    0.11 sec
+
+100% tests passed, 0 tests failed out of 4
+
+Label Time Summary:
+compare         =   0.94 sec*proc (1 test)
+export          =   0.30 sec*proc (1 test)
+headless        =   1.86 sec*proc (4 tests)
+integration     =   0.94 sec*proc (1 test)
+modes           =   0.94 sec*proc (1 test)
+ocr             =   0.92 sec*proc (3 tests)
+outputmode      =   0.30 sec*proc (1 test)
+persistence     =   0.11 sec*proc (1 test)
+preprocess      =   0.11 sec*proc (1 test)
+qt              =   1.86 sec*proc (4 tests)
+reocr-region    =   0.51 sec*proc (1 test)
+review          =   0.51 sec*proc (1 test)
+ui              =   0.94 sec*proc (1 test)
+unit            =   1.86 sec*proc (4 tests)
+
+Total Test time (real) =   1.86 sec

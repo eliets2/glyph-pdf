@@ -40,6 +40,17 @@ private slots:
     void validFdfRoundTrip();
     void validCsvRoundTrip();
 
+    // ── Wave-2b F-1: §7.9.2.2 text strings (the encoding FDF defines) ──────
+    // Acrobat's canonical FDF export writes /T and /V as UTF-16BE text
+    // strings; the strict-UTF-8 gate refused exactly those files, inverting
+    // the feature for its most common real-world producer. These pins demand
+    // the UTF-16BE forms import and round-trip while genuinely invalid bytes
+    // keep refusing.
+    void utf16beHexValueRoundTrips();
+    void utf16beBomlessHexValueRoundTrips();
+    void utf16beBomLiteralValueRoundTrips();
+    void invalidUtf8HexValueStillRefused();
+
 private:
     static QString createTestPdf(const QString& dir, const QString& name);
     // A one-text-field form PDF ("known") — the minimum target for a real
@@ -436,6 +447,119 @@ void TestFillFormNoOp::validCsvRoundTrip() {
     const QString back = tmp.path() + "/back.csv";
     QVERIFY(fm.exportFormData(out, back, "csv"));
     QCOMPARE(readNormalized(back), QByteArray("FieldName,FieldValue\n\"known\",\"v1\"\n"));
+}
+
+// ── Wave-2b F-1: §7.9.2.2 text strings ──────────────────────────────────────
+
+// Acrobat-canonical shape: /V as a hex-encoded UTF-16BE text string WITH the
+// FE FF BOM ("Hellö"). The pre-fix strict-UTF-8 gate refused 0xFE/0xFF bytes
+// as "not valid UTF-8" — the canonical producer's files could never import.
+void TestFillFormNoOp::utf16beHexValueRoundTrips() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createFormPdf(tmp.path(), "form.pdf");
+    QVERIFY(!pdf.isEmpty());
+    const QString data = tmp.path() + "/acrobat.fdf";
+    const QString out = tmp.path() + "/out.pdf";
+
+    QByteArray hex = "FEFF";  // UTF-16BE BOM
+    const QString value = QStringLiteral("Hell\u00F6");
+    const ushort* units = value.utf16();
+    for (qsizetype i = 0; i < value.size(); ++i)
+        hex += QString::number(units[i], 16).rightJustified(4, '0').toLatin1();
+
+    const QByteArray fdf = "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n<< /T (known) /V <"
+                           + hex + "> >>\n] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
+    QVERIFY(writeBytes(data, fdf));
+    FormManager fm;
+    QStringList unsupported;
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
+             qPrintable(QStringLiteral("a §7.9.2.2 UTF-16BE hex /V must import (refused: %1)")
+                            .arg(err.userMessage)));
+    QVERIFY(unsupported.isEmpty());
+    QVERIFY(QFileInfo::exists(out));
+    const QString back = tmp.path() + "/back.csv";
+    QVERIFY(fm.exportFormData(out, back, "csv"));
+    QCOMPARE(readNormalized(back),
+             QByteArray("FieldName,FieldValue\n")
+                 + "\"known\",\"" + value.toUtf8() + "\"\n");
+}
+
+// BOM-less UTF-16BE: even length, every high byte 0x00 ("Hi"). As strict
+// UTF-8 this payload would import NUL-padded mojibake; it must decode as
+// UTF-16BE instead.
+void TestFillFormNoOp::utf16beBomlessHexValueRoundTrips() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createFormPdf(tmp.path(), "form.pdf");
+    QVERIFY(!pdf.isEmpty());
+    const QString data = tmp.path() + "/bomless.fdf";
+    const QString out = tmp.path() + "/out.pdf";
+    QVERIFY(writeBytes(data,
+        "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n<< /T (known) /V <00480069> >>\n"
+        "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"));
+    FormManager fm;
+    QStringList unsupported;
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
+             "a BOM-less UTF-16BE hex /V must decode as UTF-16BE, not NUL mojibake");
+    QVERIFY(unsupported.isEmpty());
+    QVERIFY(QFileInfo::exists(out));
+    const QString back = tmp.path() + "/back.csv";
+    QVERIFY(fm.exportFormData(out, back, "csv"));
+    QCOMPARE(readNormalized(back), QByteArray("FieldName,FieldValue\n\"known\",\"Hi\"\n"));
+}
+
+// The finding's other named shape: a LITERAL string carrying the \376\377
+// BOM plus UTF-16BE units as octal escapes ("Hellö"). Same §7.9.2.2 contract
+// on the literal decode path.
+void TestFillFormNoOp::utf16beBomLiteralValueRoundTrips() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createFormPdf(tmp.path(), "form.pdf");
+    QVERIFY(!pdf.isEmpty());
+    const QString data = tmp.path() + "/bom-literal.fdf";
+    const QString out = tmp.path() + "/out.pdf";
+    QVERIFY(writeBytes(data,
+        "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n"
+        "<< /T (known) /V (\\376\\377\\000H\\000e\\000l\\000l\\000\\366) >>\n"
+        "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"));
+    FormManager fm;
+    QStringList unsupported;
+    ErrorInfo err;
+    QVERIFY2(fm.importFormData(pdf, data, out, &unsupported, nullptr, &err),
+             "a \\376\\377-BOM'd UTF-16BE literal /V must import per §7.9.2.2");
+    QVERIFY(unsupported.isEmpty());
+    QVERIFY(QFileInfo::exists(out));
+    const QString back = tmp.path() + "/back.csv";
+    QVERIFY(fm.exportFormData(out, back, "csv"));
+    QCOMPARE(readNormalized(back),
+             QByteArray("FieldName,FieldValue\n\"known\",\"")
+                 + QStringLiteral("Hell\u00F6").toUtf8() + "\"\n");
+}
+
+// Guard pin: the UTF-16BE carve-out must not become a mojibake hole — a hex
+// value holding genuinely invalid UTF-8 bytes (0xC3 without a continuation)
+// still refuses the whole import, fail-closed.
+void TestFillFormNoOp::invalidUtf8HexValueStillRefused() {
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString pdf = createFormPdf(tmp.path(), "form.pdf");
+    QVERIFY(!pdf.isEmpty());
+    const QString data = tmp.path() + "/broken-hex.fdf";
+    const QString out = tmp.path() + "/out.pdf";
+    QVERIFY(writeBytes(data,
+        "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n<< /T (known) /V <4869C328> >>\n"
+        "] >> >>\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n"));
+    FormManager fm;
+    ErrorInfo err;
+    QVERIFY2(!fm.importFormData(pdf, data, out, nullptr, nullptr, &err),
+             "genuinely invalid bytes in a hex value must still refuse");
+    QVERIFY2(err.severity == ErrorInfo::Error,
+             "a refused import must carry a typed ErrorInfo, not a bare false");
+    QVERIFY2(!QFileInfo::exists(out),
+             "a refused import must not write an output file (fail-closed)");
 }
 
 QTEST_MAIN(TestFillFormNoOp)

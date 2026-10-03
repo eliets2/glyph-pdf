@@ -170,10 +170,10 @@ QString StampLibrary::imageAbsolutePath(const QString& jsonPath,
 std::optional<StampTemplate> StampLibrary::addImageStampTo(const QString& jsonPath,
                                                            const QString& name,
                                                            const QString& sourceImagePath,
-                                                           QString* error) {
-    const auto refuse = [error](const QString& msg)
+                                                           QString* errorOut) {
+    const auto refuse = [errorOut](const QString& msg)
                             -> std::optional<StampTemplate> {
-        if (error) *error = msg;
+        if (errorOut) *errorOut = msg;
         return std::nullopt;
     };
     const QString trimmedName = name.trimmed();

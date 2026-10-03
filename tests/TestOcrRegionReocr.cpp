@@ -19,9 +19,26 @@
 // control (scoped revert of the implementation commit) must reproduce that
 // failure set exactly once, and the implementation commit must pass ×3
 // consecutive serial runs.
+//
+// findings-tests 2026-10-02 extension (testing-specialist wave-2b §4.4): the
+// nothing-recognized leg of the row's honesty contract — "a scoped run that
+// recognizes NOTHING is a typed ocrRunFailed, review intact" — is now driven
+// END-TO-END once: a real GpMainWindow + real viewer + real Tesseract over a
+// blank region crop, asserting through the shipped host wiring (EditController
+// → OCRMode::notifyOcrFailed). The pre-dispatch refusals above stay seam-level;
+// this pin converts the completion-lambda decision
+// (`isRegionRun && mergedWords.isEmpty()`) from unpinned to red-able.
 #include <QtTest>
+#include <QAbstractButton>
+#include <QFileInfo>
 #include <QMouseEvent>
+#include <QPageSize>
+#include <QPainter>
+#include <QPdfWriter>
+#include <QSettings>
 #include <QSignalSpy>
+#include <QTemporaryDir>
+#include <memory>
 
 #include "modes/OCRMode.h"
 #include "modes/OcrReviewSession.h"
@@ -29,6 +46,11 @@
 #include "engines/ocr/OcrPipeline.h"       // MergedOcrWord
 #include "shell/controllers/EditController.h"
 #include "ui/OcrScanCanvas.h"
+#include "ui/PdfViewerWidget.h"
+#include "GpMainWindow.h"
+#include "app/Bootstrapper.h"
+#include "core/AppContext.h"
+#include "core/Capability.h"
 
 using gp::EditController;
 using gp::OCRMode;
@@ -111,7 +133,27 @@ void dragWidget(QWidget* w, const QPointF& from, const QPointF& to)
 class TestOcrRegionReocr : public QObject {
     Q_OBJECT
 
+    std::unique_ptr<gp::MainWindow> m_win;
+
 private slots:
+
+    void initTestCase()
+    {
+        // Isolate QSettings (TestOcrPreprocessPrefs idiom) AND pin the shipped
+        // defaults for the live-OCR pin below: engine auto → Tesseract,
+        // language EN, preprocessing all off (F5-F2). The suite's other pins
+        // construct their own panels and read no persisted state.
+        QCoreApplication::setOrganizationName(QStringLiteral("GlyphPDFTests"));
+        QCoreApplication::setApplicationName(QStringLiteral("TestOcrRegionReocr"));
+        QSettings().remove(QStringLiteral("ocr/engine"));
+        QSettings().remove(QStringLiteral("ocr/language"));
+        QSettings().remove(QStringLiteral("ocr/preprocessDeskew"));
+        QSettings().remove(QStringLiteral("ocr/preprocessBinarize"));
+        QSettings().remove(QStringLiteral("ocr/preprocessDenoise"));
+        QSettings().remove(QStringLiteral("ocr/orientDetect"));
+    }
+
+    void cleanup() { m_win.reset(); }
 
     // ── Harness / control pins (must PASS before and after) ────────────────
 
@@ -376,6 +418,117 @@ private slots:
 
         // Empty crop result stays empty (nothing invented).
         QVERIFY(EditController::ocrRegionWordsToPageSpace({}, QPoint(7, 9)).isEmpty());
+    }
+
+    // ── Row 12, recognition half (findings-tests 2026-10-02): a scoped run
+    //    that recognizes NOTHING is a typed ocrRunFailed, review intact ────
+    // Driven END-TO-END once (real window, real viewer render, real
+    // Tesseract over a genuinely blank region crop) and asserted through the
+    // SHIPPED host wiring (EditController::ocrRunFailed → the hosted OCRMode
+    // panel). The completion-lambda decision this pins:
+    //   if (isRegionRun && mergedWords.isEmpty()) emit ocrRunFailed(...)
+    // — deleting it routes the empty payload into the success path, which
+    // would deliver a ZERO-word session and WIPE the user's review records
+    // (both halves of this pin go red on exactly that).
+    void regionRunRecognizingNothingIsTypedFailureAndReviewStaysIntact()
+    {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+
+        // A genuinely BLANK image-only scan: every region crop recognizes
+        // nothing, so the typed-failure path involves no recognition luck.
+        const QString blankPdf = dir.filePath(QStringLiteral("blank-scan.pdf"));
+        {
+            QImage img(794, 1123, QImage::Format_RGB32);
+            img.fill(QColor(245, 245, 240));
+            QPdfWriter w(blankPdf);
+            w.setResolution(96);
+            w.setPageSize(QPageSize(QPageSize::A4));
+            QPainter pw(&w);
+            pw.drawImage(QRect(0, 0, w.width(), w.height()), img);
+            pw.end();
+        }
+        QVERIFY(QFileInfo::exists(blankPdf));
+
+        // Real window + real route seams (TestSweepW3UxFlows idiom).
+        m_win = std::make_unique<gp::MainWindow>(Bootstrapper::createContext());
+        m_win->show();
+
+        // Real pipelines only: like flow5, the live leg QSKIPs honestly where
+        // no OCR engine is staged (it asserts nothing there).
+        auto* caps = m_win->appContext()
+                         ? m_win->appContext()->capabilities.get() : nullptr;
+        if (!caps || !(caps->available(gp::CapId::OcrTesseract)
+                       || caps->available(gp::CapId::OcrRapidModels)))
+            QSKIP("no OCR engine available next to the test binary — the "
+                  "nothing-recognized contract needs a real recognition run");
+
+        m_win->openDocument(blankPdf);
+        QTRY_COMPARE_WITH_TIMEOUT(m_win->pdfViewer()->pageCount(), 1, 20000);
+        m_win->activateScreen(QStringLiteral("ocr"));
+        auto* panel = m_win->findChild<gp::OCRMode*>();
+        QVERIFY2(panel, "the OCR verify screen must be hostable");
+        auto* ctrl = m_win->findChild<gp::EditController*>();
+        QVERIFY2(ctrl, "the window must host the EditController");
+
+        // The user's EXISTING review — the thing that must stay intact when
+        // the scoped run recognizes nothing.
+        const OcrReviewSession existing = makeSession();
+        panel->setReviewSession(existing);
+        QCOMPARE(int(panel->reviewState()), int(OCRMode::ReviewState::ReviewReady));
+        QCOMPARE(panel->reviewSession().words.size(), 2);
+
+        // The region is a LayoutRegion-style bbox in pageImage pixel space —
+        // the EXACT space runOcrRegion documents: the rendered page at the
+        // run's own scale (renderPage(page, 2.0)). Bottom half of a blank
+        // page.
+        const QImage pageImg = m_win->pdfViewer()->renderPage(0, 2.0);
+        QVERIFY2(!pageImg.isNull(), "the viewer must render the opened scan");
+        const QRectF region(0, pageImg.height() / 2.0,
+                            static_cast<qreal>(pageImg.width()),
+                            pageImg.height() / 2.0);
+
+        QSignalSpy failedSpy(ctrl, &EditController::ocrRunFailed);
+        QSignalSpy readySpy(ctrl, &EditController::ocrResultsReady);
+        ctrl->runOcrRegion(region);
+
+        // Typed failure through the REAL pipeline. Budget: first-use engine
+        // init (tessdata copy + session) is disk/CPU-bound and can be slow on
+        // a cold/contended host — flow5's narrated-wait lesson.
+        QTRY_VERIFY_WITH_TIMEOUT(failedSpy.count() == 1, 300000);
+        // Guarded read: on a RED run (typed failure never fires) the spy is
+        // empty — the message assertions below must fail honestly, not UB.
+        const QString message = failedSpy.isEmpty()
+                                    ? QString() : failedSpy.at(0).at(0).toString();
+        QVERIFY2(message.contains(
+                     QStringLiteral("no text recognized in the selected region"),
+                     Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("the nothing-recognized failure must be "
+                              "TYPED (never a silent no-op), got: '%1'")
+                                .arg(message.left(240))));
+        // No silent empty delivery: the success signal must never fire.
+        QCOMPARE(readySpy.count(), 0);
+
+        // Review intact: the panel's records survive verbatim (notifyOcrFailed
+        // keeps them), the typed failure reached the panel through the real
+        // host wiring, the state is the retryable RecoverableError, and Run is
+        // re-armed (no dead end).
+        QCOMPARE(panel->reviewSession().words.size(), 2);
+        QCOMPARE(panel->reviewSession().words.at(0).originalText,
+                 QStringLiteral("alpha"));
+        QCOMPARE(panel->reviewSession().words.at(1).originalText,
+                 QStringLiteral("beta"));
+        QCOMPARE(int(panel->reviewState()),
+                 int(OCRMode::ReviewState::RecoverableError));
+        QVERIFY2(panel->lastLifecycleMessage().contains(
+                     QStringLiteral("no text recognized"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral("the panel must surface the typed failure, "
+                              "got: '%1'")
+                                .arg(panel->lastLifecycleMessage().left(240))));
+        auto* runBtn = panel->findChild<QAbstractButton*>(
+            QStringLiteral("ocrBtnRun"));
+        QVERIFY2(runBtn && runBtn->isEnabled(),
+                 "Run must be re-armed after the typed failure (no dead end)");
     }
 };
 

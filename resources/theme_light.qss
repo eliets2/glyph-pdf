@@ -39,7 +39,6 @@ QWidget {
 }
 QToolTip { background-color: #d8d5cb; color: #1a1b1e; border: 1px solid #8a8678; padding: 4px 8px; }
 QMainWindow, QWidget#centralHost { background-color: #e9e6dd; }
-QWidget#canvasMargin { background-color: #bdb8ad; }
 
 QMenuBar { background-color: #d8d5cb; border-bottom: 1px solid #b0aca0; min-height: 26px; padding: 0 6px; color: #454650; }
 QMenuBar::item { background: transparent; padding: 4px 8px; }
@@ -251,15 +250,7 @@ QWidget#thumbPaper {
     background: #ffffff;
     border-radius: 2px;
 }
-QWidget#thumbPaperTitle {
-    background: #cac6bb;
-    border-radius: 1px;
-}
-QWidget#thumbPaperText {
-    background: #d8d5cb;
-    border-radius: 1px;
-}
-QWidget#thumbPaperImg {
+QWidget#thumbPaperImage {
     background: #b0aca0;
     border-radius: 2px;
 }

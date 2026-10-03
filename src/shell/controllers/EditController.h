@@ -9,8 +9,10 @@
 #include <memory>
 #include "core/ToolId.h"
 #include "core/PdfEnums.h" // ToolMode (row 18: stampArmModeForTemplate seam)
+#include "core/OcrTypes.h"           // OcrOutputMode (§4 #5 searchable-vs-editable)
 #include "core/interfaces/IToolController.h"
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult / MergedOcrWord (§9.4 Accept seam)
+#include "engines/ocr/OcrPreprocessor.h" // OcrPreprocessOptions (§9.4 row-17 pref seam)
 #include "modes/OcrReviewSession.h"  // R08: review session + reviewed word records
 #include "engines/TextMatchFinder.h" // T2-2: TextMatch (replace outcome payload)
 
@@ -192,10 +194,15 @@ public slots:
     void runOcrRegion(const QRectF& regionBbox);
 
     // §9.4 P0: persist the accepted OCR results as a searchable MRC PDF/A copy
+    // §9.4 P0: persist the accepted OCR results as an OCR output copy
     // (called directly from MainWindow, but kept as a slot for consistency with
     // the other EditController entry points wired to the OCR Verify screen).
     // R08: the host passes the review panel's reviewed records; the reviewed
     // words are authoritative for the export.
+    // §4 #5: the OUTPUT MODE (searchable MRC copy vs editable text copy)
+    // branches here — read at accept time from the ocr/outputMode pref
+    // (written by the OCRMode toolbar combo). No silent fallback between
+    // modes: a failed export of the selected mode reports failure.
     void onOcrAcceptRequested(const QList<OcrReviewedWord>& reviewedWords);
     void onOcrAcceptRequested();   // legacy entry: no panel records (unedited review)
 
@@ -226,11 +233,32 @@ public slots:
 
     // §9.4 honesty seams: the interactive Accept flow persists a ONE-PAGE MRC
     // PDF/A (runOcr recognises the current page only), so the save dialog and
+    // §9.4 honesty seams: the interactive Accept flow persists a ONE-PAGE OCR
+    // copy (runOcr recognises the current page only), so the save dialog and
     // the success status must say so instead of implying a whole-document
-    // searchable copy. Single-page documents need no scope note — the one-page
-    // copy IS the document.
-    static QString ocrSaveDialogTitle(int totalPages, int pageIndex);
-    static QString ocrSavedStatus(int totalPages, int pageIndex, const QString& fileName);
+    // copy. Single-page documents need no scope note — the one-page copy IS
+    // the document. §4 #5: the mode argument names the kind of copy
+    // (Searchable → MRC PDF/A, Editable → text-only PDF); the
+    // Searchable default keeps the historical strings byte-identical.
+    static QString ocrSaveDialogTitle(int totalPages, int pageIndex,
+                                      OcrOutputMode mode = OcrOutputMode::Searchable);
+    static QString ocrSavedStatus(int totalPages, int pageIndex, const QString& fileName,
+                                  OcrOutputMode mode = OcrOutputMode::Searchable);
+    // §4 #5 seam: the output mode this accept flow would use RIGHT NOW —
+    // parses the persisted ocr/outputMode pref through
+    // ocrOutputModeFromPref (unknown/empty → Searchable). Static so tests
+    // can pin the pref↔mode wiring without a GUI.
+    static OcrOutputMode outputModeFromSettings();
+
+    // §9.4 / row 17 seam (findings-tests 2026-10-02): the OCR pipeline's
+    // preprocessing settings EXACTLY as runOcrRegion() resolves them from
+    // the persisted prefs — the four ocr/preprocess* / ocr/orientDetect
+    // keys, shipped default OFF for the destructive chain (F5-F2). Extracted
+    // verbatim from runOcrRegion's inline reads so the "panel agrees with
+    // the pipeline" contract is pinned on the CONSUMPTION side too: a
+    // deleted/retyped/mis-defaulted read now fails the seam pin instead of
+    // silently denoising behind an OFF checkbox (the historical bug shape).
+    static OcrPreprocessOptions ocrPreprocessPrefsFromSettings();
 
 signals:
     // Emitted on the GUI thread when an OCR run finishes, carrying the recognised

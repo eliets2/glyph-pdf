@@ -46,7 +46,9 @@
 #ifdef Q_OS_WIN
 #include <windows.h>
 #else
+#if !defined(Q_OS_WIN)
 #include <unistd.h>  // geteuid — the ARC03 root-environment guard
+#endif
 #endif
 #include <QFileDialog>
 #include <QAbstractButton>
@@ -280,11 +282,13 @@ private slots:
         // CAP_DAC_OVERRIDE lets the write through, so the refusal — and the
         // whole ARC03 contract — is unexercisable; skipping is the honest
         // record there, and the pin stays live for ordinary users.
+#if !defined(Q_OS_WIN)
         if (::geteuid() == 0) {
             QSKIP("running as root: POSIX permission bits do not gate writes "
                   "(CAP_DAC_OVERRIDE) — the read-only-destination refusal is "
                   "unexercisable in this environment");
         }
+#endif
         QTemporaryDir dir;
         QVERIFY(dir.isValid());
         const QString a = dir.filePath("a.pdf");

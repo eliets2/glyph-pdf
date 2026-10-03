@@ -463,10 +463,26 @@ public:
     virtual bool exportPdfA(const QString &outputPath, int conformanceLevel) = 0;
     /// Export current document as a PDF/A-2b MRC sandwich (JPEG2000 background +
     /// JBIG2 foreground mask + invisible OCR text layer). Runs veraPDF gate.
+    /// Error channel: the engine's lastError()/clearError() pair — BOTH OCR
+    /// writers clear lastError() on entry and populate a typed ErrorInfo on
+    /// every false, so a caller reads ONE channel for either mode (the
+    /// controller must consume it, not substitute a generic string).
     virtual bool exportMrcPdfA(const QString& outputPath,
                                const QList<QImage>& pageImages,
                                const QList<struct PageOcrResult>& pageResults,
                                MrcMode mode = MrcMode::Balanced) = 0;
+    /// OCR OutputMode "editable" writer (PARITY-SCORECARD-2026-09-30 §4 #5):
+    /// the recognized text REPLACES the page content — visible black text at
+    /// the recognized word boxes on a blank page, NO scan image. pageImages
+    /// supplies page geometry only (width/height at 150 dpi, mirroring
+    /// exportMrcPdfA) and is never written into the output. Not a PDF/A claim:
+    /// the output is a plain PDF 1.6 document with no archival XMP.
+    /// Error channel: the engine's lastError()/clearError() pair, identical to
+    /// the sibling exportMrcPdfA — one refusal contract across both OCR
+    /// writers; a refused write leaves no output file behind.
+    virtual bool exportEditableTextPdf(const QString& outputPath,
+                                       const QList<QImage>& pageImages,
+                                       const QList<struct PageOcrResult>& pageResults) = 0;
     virtual OptimizeEstimate estimateOptimization(const OptimizeOptions &options) = 0;
     virtual bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options) = 0;
 };

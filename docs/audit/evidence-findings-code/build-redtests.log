@@ -1,0 +1,59 @@
+[1/33] Automatic MOC and UIC for target TestFillFormNoOp
+[2/32] Automatic MOC and UIC for target TestHotFolder
+[3/31] Building CXX object CMakeFiles/TestBatchMode.dir/tests/TestBatchMode.cpp.obj
+[4/31] Building CXX object CMakeFiles/TestBatchPresets.dir/tests/TestBatchPresets.cpp.obj
+[5/31] Building CXX object CMakeFiles/TestBatchOcrLanguage.dir/tests/TestBatchOcrLanguage.cpp.obj
+[6/31] Building CXX object CMakeFiles/TestBatchPresetsP2.dir/tests/TestBatchPresetsP2.cpp.obj
+[7/31] Building CXX object CMakeFiles/TestBatchOcrSkipText.dir/tests/TestBatchOcrSkipText.cpp.obj
+[8/31] Building CXX object CMakeFiles/TestBatchOpsCoverage.dir/tests/TestBatchOpsCoverage.cpp.obj
+[9/31] Building CXX object CMakeFiles/TestBatchOcrConfidence.dir/tests/TestBatchOcrConfidence.cpp.obj
+[10/31] Building CXX object CMakeFiles/TestSep13LeadBatchMerge.dir/tests/TestSep13LeadBatchMerge.cpp.obj
+[11/31] Building CXX object CMakeFiles/R14ProbeSep13Fixes.dir/tests/R14ProbeSep13Fixes.cpp.obj
+[12/31] Building CXX object CMakeFiles/R14ProbeBatchSkip.dir/tests/R14ProbeBatchSkip.cpp.obj
+[13/31] Building CXX object CMakeFiles/TestGsdW2Probe.dir/tests/TestGsdW2Probe.cpp.obj
+[14/31] Building CXX object CMakeFiles/TestPgr35BatchCollision.dir/tests/TestPgr35BatchCollision.cpp.obj
+[15/31] Building CXX object CMakeFiles/TestHotFolder.dir/tests/TestHotFolder.cpp.obj
+[16/31] Building CXX object CMakeFiles/TestFillFormNoOp.dir/tests/TestFillFormNoOp.cpp.obj
+[17/31] Linking CXX executable TestBatchMode.exe; Deploying qoffscreen platform plugin for TestBatchMode
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[18/31] Linking CXX executable TestBatchPresets.exe; Deploying qoffscreen platform plugin for TestBatchPresets; Deploying podofo 1.1.0 DLL for TestBatchPresets
+lto-wrapper.exe: warning: using serial compilation of 32 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[19/31] Linking CXX executable TestHotFolder.exe; Deploying qoffscreen platform plugin for TestHotFolder
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[20/31] Linking CXX executable TestBatchPresetsP2.exe; Deploying qoffscreen platform plugin for TestBatchPresetsP2; Deploying podofo 1.1.0 DLL for TestBatchPresetsP2
+lto-wrapper.exe: warning: using serial compilation of 35 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[21/31] Linking CXX executable TestBatchOcrLanguage.exe; Deploying qoffscreen platform plugin for TestBatchOcrLanguage
+lto-wrapper.exe: warning: using serial compilation of 29 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[22/31] Linking CXX executable TestBatchOcrSkipText.exe; Deploying qoffscreen platform plugin for TestBatchOcrSkipText
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[23/31] Linking CXX executable TestBatchOcrConfidence.exe; Deploying qoffscreen platform plugin for TestBatchOcrConfidence
+lto-wrapper.exe: warning: using serial compilation of 29 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[24/31] Linking CXX executable TestBatchOpsCoverage.exe; Deploying qoffscreen platform plugin for TestBatchOpsCoverage; Deploying podofo 1.1.0 DLL for TestBatchOpsCoverage
+lto-wrapper.exe: warning: using serial compilation of 35 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[25/31] Linking CXX executable TestFillFormNoOp.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFillFormNoOp; Deploying podofo 1.1.0 DLL for TestFillFormNoOp
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[26/31] Linking CXX executable TestSep13LeadBatchMerge.exe; Deploying qoffscreen platform plugin for TestSep13LeadBatchMerge
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[27/31] Linking CXX executable R14ProbeSep13Fixes-r2.exe; Deploying qoffscreen platform plugin for R14ProbeSep13Fixes
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[28/31] Linking CXX executable R14ProbeBatchSkip.exe; Deploying podofo 1.1.0 DLL for R14ProbeBatchSkip
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[29/31] Linking CXX executable TestGsdW2Probe.exe; Deploying podofo 1.1.0 DLL for TestGsdW2Probe
+lto-wrapper.exe: warning: using serial compilation of 41 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[30/31] Staging runtime DLLs into build dir
+[31/31] Linking CXX executable TestPgr35BatchCollision.exe
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information

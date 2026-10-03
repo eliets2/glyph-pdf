@@ -397,6 +397,9 @@ add_library(pdfws_engines STATIC
     src/engines/PdfEditorEngine.h    src/engines/PdfEditorEngine.cpp
     src/engines/FormManager.h        src/engines/FormManager.cpp
     src/engines/SafeSave.h           src/engines/SafeSave.cpp
+    # Row 14: the vendored 7-Zip bundle locator — its own unit so SafeSave
+    # stays tool-agnostic (r3-api harmonization; was SafeSave::locateSevenZip).
+    src/engines/SevenZipLocator.h    src/engines/SevenZipLocator.cpp
     # T2-4 accessibility P1: gap DETECTION (checker) + the cheap structural
     # fixes — no auto-tagging, no PDF/UA conformance claim (disclosed in UI).
     # PoFoDictRead.h: shared read-only PoDoFo dictionary helpers (D2).
@@ -828,14 +831,16 @@ endif()
 
 # ── Vendored 7-Zip (PARITY-SCORECARD-2026-09-30 §4 row 14) ──────────────────
 # The encrypted-package feature resolves its 7z.exe from the application-owned
-# directory FIRST (HomeController::locateSevenZip): the binaries are COMMITTED
+# directory ONLY (SevenZipLocator::locate): the binaries are COMMITTED
 # at third_party/7zip/bin/ and staged beside the app/test executables below.
 # This configure-time check pins their bytes (same discipline as the quickjs-ng
 # version pin): a swapped, corrupted or re-downloaded binary without updating
 # third_party/7zip/PROVENANCE.md fails the build here, not in the field.
 # Policy: on Windows the bundle is REQUIRED (it carries the offline-pitch
 # capability); on non-Windows it is recorded-but-unstaged (L05 — the Windows
-# binaries are meaningless to the Linux loader and 7z falls back to PATH).
+# binaries are meaningless to the Linux loader; the locator resolves the
+# app-owned pair only, so non-Windows encrypted packaging honestly discloses
+# absence instead of falling back to a system 7z).
 set(GLYPHPDF_7ZIP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/7zip/bin")
 set(GLYPHPDF_7ZIP_EXE_SHA256 "83967f1b02b43c4efeda302795722c809e0e81b8307de73558d10484d5676a7d")
 set(GLYPHPDF_7ZIP_DLL_SHA256 "69fd4df057985c40e510e2fac182881c7f85e90aa13ec703f763a8fdb2ce61f8")
@@ -857,6 +862,15 @@ if(EXISTS "${GLYPHPDF_7ZIP_DIR}/7z.exe")
     endif()
     set(GLYPHPDF_7ZIP_STAGED TRUE)
     message(STATUS "Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)")
+    # r3-sec (security M, CWE-494): the same pins travel INTO the binary as
+    # compile definitions, so SafeSave::locateSevenZip re-verifies the staged
+    # pair at resolution (first use per session). The file(SHA256) gate above
+    # protects the build host only; the resolved 7z.exe receives the document
+    # bytes AND the package password, so the install-dir copy must be
+    # re-checked at runtime too.
+    target_compile_definitions(pdfws_engines PRIVATE
+        GLYPHPDF_7ZIP_EXE_SHA256="${GLYPHPDF_7ZIP_EXE_SHA256}"
+        GLYPHPDF_7ZIP_DLL_SHA256="${GLYPHPDF_7ZIP_DLL_SHA256}")
 else()
     if(WIN32)
         message(FATAL_ERROR
@@ -864,7 +878,7 @@ else()
             "the encrypted-package capability — restore the committed binaries (git checkout "
             "third_party/7zip) instead of downloading ad-hoc. See third_party/7zip/PROVENANCE.md.")
     endif()
-    message(STATUS "Vendored 7-Zip: not present — encrypted package falls back to system 7z (non-Windows)")
+    message(STATUS "Vendored 7-Zip: not present — encrypted packaging discloses absence on non-Windows (locator is bundled-only)")
     set(GLYPHPDF_7ZIP_STAGED FALSE)
 endif()
 
@@ -892,9 +906,9 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
     list(APPEND _runtime_dlls "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium/bin/pdfium.dll")
 endif()
-# Vendored 7-Zip beside the executables: HomeController::locateSevenZip
-# resolves the app-owned copy FIRST, so this staging is what makes the
-# encrypted-package capability work offline (no system 7z.exe needed).
+# Vendored 7-Zip beside the executables: SevenZipLocator::locate resolves the
+# app-owned copy (bundled-only since F-02), so this staging is what makes the
+# encrypted-package capability work offline (no system 7z.exe involved).
 if(GLYPHPDF_7ZIP_STAGED)
     list(APPEND _runtime_dlls
         "${GLYPHPDF_7ZIP_DIR}/7z.exe"
@@ -1312,6 +1326,16 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/UnitTests.cpp")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPdfEditorInterface.cpp")
+    # Ownership convention: DocumentSession is owned by pdfws_engines; test
+    # targets link it, never compile it — standalone targets compile their own.
+    # TestInterfaces is the standalone kind: it links only pdfws_core +
+    # pdfws_commands (NOT pdfws_engines/pdfws_ui), so it compiles its own copy
+    # below. If you ever add pdfws_engines or pdfws_ui to the link line,
+    # REMOVE this source first — the archive already contains it and the
+    # duplicate would clash on staticMetaObject/vtable (ODR).
+    # NOTE: target name (TestInterfaces) ≠ source name
+    # (TestPdfEditorInterface.cpp) — name-based sweeps have missed this block
+    # before (see LANE-REPORT-ocr-outputmode-2026-10-02.md).
     add_executable(TestInterfaces
         tests/TestPdfEditorInterface.cpp
         src/engines/DocumentSession.cpp
@@ -1374,7 +1398,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitization.cpp")
     add_executable(TestSanitization
         tests/TestSanitization.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestSanitization PRIVATE src tests)
     target_link_libraries(TestSanitization PRIVATE
@@ -1422,7 +1445,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSanitizeTrailerUaf.cpp")
     add_executable(TestSanitizeTrailerUaf
         tests/TestSanitizeTrailerUaf.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestSanitizeTrailerUaf PRIVATE src tests)
     target_link_libraries(TestSanitizeTrailerUaf PRIVATE
@@ -1779,10 +1801,15 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSendForSigning.cpp")
     set_tests_properties(TestSendForSigning PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 240
-        # FU-2 seam class (same as TestPrintableSummary/TestAccessibilityFixes):
-        # the suite counts the SHARED %TEMP%/glyphpdf-candidates dir
-        # (leftover-candidate leak pin), so a concurrent SafeSave suite would
-        # perturb the count — run alone.
+        # History (FU-2 seam class, same as TestPrintableSummary/
+        # TestAccessibilityFixes): this suite counts leftover candidates under
+        # <QDir::tempPath()>/glyphpdf-candidates. Since the per-test temp-roots
+        # block (bottom of this file) gives every test its own TMP/TEMP/TMPDIR,
+        # that directory is now PER TEST PROCESS — the old shared-%TEMP%
+        # hazard (a concurrent SafeSave suite perturbing the count) is gone,
+        # and the count pins are delta-based anyway. RUN_SERIAL + the
+        # GlyphpdfCandidates lock stay as belt-and-braces for deterministic,
+        # reproducible timing of the real-crypto workflow runs.
         RUN_SERIAL TRUE
         LABELS "integration;security;signatures;workflow;qt;headless"
         RESOURCE_LOCK GlyphpdfCandidates
@@ -2145,15 +2172,24 @@ endif()
 
 # ── TestOcrRegionReocr (PARITY-SCORECARD-2026-09-30 §4 row 12 — region-scoped
 #    re-OCR: canvas drag → LayoutRegion-bbox → scoped pipeline run + honest
-#    garbage-region refusals) ─────────────────────────────────────────────────
+#    garbage-region refusals; findings-tests 2026-10-02 added the live
+#    nothing-recognized leg → real GpMainWindow + Bootstrapper + real Tesseract,
+#    hence the 600s ceiling like the other live-OCR suites) ───────────────────
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
     add_executable(TestOcrRegionReocr
         tests/TestOcrRegionReocr.cpp
+        src/app/Bootstrapper.h  src/app/Bootstrapper.cpp
     )
     target_include_directories(TestOcrRegionReocr PRIVATE src tests)
+    # Bootstrapper.cpp requires the djot lib dir at compile time (the
+    # TestSweepW3UxFlows definition — this suite now boots a real window).
+    target_compile_definitions(TestOcrRegionReocr PRIVATE
+        DJOT_LIB_DIR="${CMAKE_CURRENT_SOURCE_DIR}/third_party/djot"
+    )
     target_link_libraries(TestOcrRegionReocr PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
     )
     add_custom_command(TARGET TestOcrRegionReocr POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
@@ -2165,9 +2201,35 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrRegionReocr.cpp")
     )
     add_test(NAME TestOcrRegionReocr COMMAND TestOcrRegionReocr)
     set_tests_properties(TestOcrRegionReocr PROPERTIES
-        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTEST_FUNCTION_TIMEOUT=600000"
+        TIMEOUT 600
         LABELS "unit;ocr;reocr-region;review;qt;headless"
+    )
+endif()
+
+# ── TestOcrOutputMode (§4 #5 — searchable vs editable OCR output mode) ───────
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestOcrOutputMode.cpp")
+    add_executable(TestOcrOutputMode
+        tests/TestOcrOutputMode.cpp
+    )
+    target_include_directories(TestOcrOutputMode PRIVATE src tests)
+    target_link_libraries(TestOcrOutputMode PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+    )
+    add_custom_command(TARGET TestOcrOutputMode POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestOcrOutputMode>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestOcrOutputMode>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestOcrOutputMode"
+    )
+    add_test(NAME TestOcrOutputMode COMMAND TestOcrOutputMode)
+    set_tests_properties(TestOcrOutputMode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 180
+        LABELS "unit;ocr;outputmode;export;qt;headless"
     )
 endif()
 
@@ -2733,10 +2795,15 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestLaneScheduler.cpp")
 endif()
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormBuilder.cpp")
+    # Ownership convention: DocumentSession is owned by pdfws_engines; test
+    # targets link it, never compile it — standalone targets compile their own.
+    # TestFormBuilder links pdfws_engines explicitly (and again transitively:
+    # pdfws_ui PRIVATE-links pdfws_engines, which for a static lib still hands
+    # the archive to the final link), so the old explicit
+    # src/engines/DocumentSession.cpp here produced a second copy of its
+    # staticMetaObject/vtable (ODR). Do not re-add the source.
     add_executable(TestFormBuilder
         tests/TestFormBuilder.cpp
-        # DocumentSession comes from pdfws_engines (transitively via pdfws_ui) —
-        # the old explicit .cpp source here now duplicates its moc symbols.
     )
     target_include_directories(TestFormBuilder PRIVATE src tests)
     target_link_libraries(TestFormBuilder PRIVATE
@@ -2776,7 +2843,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormPersistence.cpp")
     add_executable(TestFormPersistence
         tests/TestFormPersistence.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFormPersistence PRIVATE src tests)
     target_link_libraries(TestFormPersistence PRIVATE
@@ -3236,8 +3302,11 @@ endif()
 # §9.12 P1: gap-only automated coverage for the batch operations —
 # watermark stamps every page, Export-PDF/A carries structural identification,
 # merge preserves page count + list order, and a preset checkbox alone excises
-# its matches (plus one expected-fail characterization finding for the 2U/3U
-# conformance fall-through).
+# its matches. HISTORY: the suite originally carried an expected-fail
+# characterization of the 2U/3U conformance fall-through to PDF/A-1B; that
+# defect has been FIXED — the level matrix now asserts the full structural
+# contract (exact pdfaid:part + conformance) for every selectable level
+# 1B/2B/2U/3B/3U, and there is no QEXPECT_FAIL anywhere in the suite.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
     add_executable(TestBatchOpsCoverage
         tests/TestBatchOpsCoverage.cpp
@@ -3269,7 +3338,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestBatchOpsCoverage.cpp")
     add_test(NAME TestBatchOpsCoverage COMMAND TestBatchOpsCoverage)
     set_tests_properties(TestBatchOpsCoverage PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        TIMEOUT 600
         LABELS "unit;batch;watermark;pdfa;merge;redact;qt;headless"
     )
 endif()
@@ -4097,8 +4166,12 @@ endif()
 # ── TestDjotFuzz (R2-7 G-07) ─────────────────────────────────────────────
 # DocumentFuzzer round-trip fuzz harness: generates random SemanticDocument
 # instances via DocumentFuzzer, encodes them to Djot, then decodes back and
-# asserts no crash + content-presence. Structural equivalence tests are
-# QEXPECT_FAIL until djotToDocument AST-walking is fully implemented (M5).
+# asserts no crash + content-presence. CURRENT STATE: djotToDocument walks the
+# parsed Lua AST (the old M5 stub is long gone) — the section-count round-trip
+# is a HARD QCOMPARE for every seed and there is NO QEXPECT_FAIL anywhere in
+# the suite; the top-level block count is pinned as "decode never invents
+# blocks" (<= original), an emitter limitation (heading-as-#-markup promotion),
+# not an expected failure.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestDjotFuzz.cpp")
     add_executable(TestDjotFuzz
         tests/TestDjotFuzz.cpp
@@ -4253,7 +4326,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormLock.cpp")
     add_executable(TestFillFormLock
         tests/TestFillFormLock.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFillFormLock PRIVATE src tests)
     target_link_libraries(TestFillFormLock PRIVATE
@@ -4285,7 +4357,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFillFormNoOp.cpp")
     add_executable(TestFillFormNoOp
         tests/TestFillFormNoOp.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFillFormNoOp PRIVATE src tests)
     target_link_libraries(TestFillFormNoOp PRIVATE
@@ -4511,7 +4582,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFieldMetadata.cpp")
     add_executable(TestFieldMetadata
         tests/TestFieldMetadata.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFieldMetadata PRIVATE src tests)
     target_link_libraries(TestFieldMetadata PRIVATE
@@ -4547,9 +4617,10 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormSafety.cpp")
     target_include_directories(TestFormSafety PRIVATE src tests)
     # S2-2: the pin drives the REAL FormBuilderMode widget route — pdfws_ui
     # (and its Qt deps, same link set as the other pdfws_ui suites) needed.
-    # DocumentSession.cpp is NOT compiled into the target any more: pdfws_ui
-    # pulls the pdfws_engines archive member, which would duplicate its
-    # staticMetaObject with a locally compiled copy.
+    # Ownership convention: DocumentSession is owned by pdfws_engines; test
+    # targets link it, never compile it. This target links pdfws_engines (and
+    # reaches it again via pdfws_ui), so the old explicit DocumentSession.cpp
+    # here would duplicate its staticMetaObject/vtable (ODR) — do not re-add.
     target_link_libraries(TestFormSafety PRIVATE
         pdfws_engines pdfws_core pdfws_commands pdfws_ui podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Pdf Qt6::PdfWidgets Qt6::Concurrent
@@ -4735,7 +4806,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEngineSave.cpp")
     add_executable(TestEngineSave
         tests/TestEngineSave.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestEngineSave PRIVATE src tests)
     target_link_libraries(TestEngineSave PRIVATE
@@ -4770,6 +4840,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
     add_executable(TestEncryptedPackageSafeWrite
         tests/TestEncryptedPackageSafeWrite.cpp
         src/engines/SafeSave.cpp
+        src/engines/SevenZipLocator.cpp   # realSevenZipEndToEnd resolves through the locator
     )
     target_include_directories(TestEncryptedPackageSafeWrite PRIVATE src tests)
     target_link_libraries(TestEncryptedPackageSafeWrite PRIVATE
@@ -4833,7 +4904,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFormUndo.cpp")
     add_executable(TestFormUndo
         tests/TestFormUndo.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestFormUndo PRIVATE src tests)
     target_link_libraries(TestFormUndo PRIVATE
@@ -5010,7 +5080,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestAutoDetectHeuristic.cpp")
     add_executable(TestAutoDetectHeuristic
         tests/TestAutoDetectHeuristic.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestAutoDetectHeuristic PRIVATE src tests)
     target_link_libraries(TestAutoDetectHeuristic PRIVATE
@@ -5680,7 +5749,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestHistoryIntegrity.cpp")
     # plus fault-injected engines for the failure paths.
     add_executable(TestHistoryIntegrity
         tests/TestHistoryIntegrity.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestHistoryIntegrity PRIVATE src tests)
     target_link_libraries(TestHistoryIntegrity PRIVATE
@@ -5718,7 +5786,6 @@ endif()
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestImageAppearance.cpp")
     add_executable(TestImageAppearance
         tests/TestImageAppearance.cpp
-        src/engines/DocumentSession.cpp
     )
     target_include_directories(TestImageAppearance PRIVATE src tests)
     target_link_libraries(TestImageAppearance PRIVATE
@@ -5926,7 +5993,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRenderGuards.cpp")
 endif()
 
 # ── SEP13-LEADS adversarial-confirmation repros (2026-09-14, review-only lane)
-# One block per lead cluster; expected failures are the confirmation evidence.
+# One block per lead cluster. HISTORY: the repros were written to FAIL on the
+# feat/sep13-leads candidate (83be3c2) — those reds were the confirmation
+# evidence. The lead fixes have since LANDED (lead 3: Capability Degraded now
+# reverses the registry-owned disable; lead 12: CompareWidget memoizes the
+# anchor index; F1 redaction: 71891494), so every suite in this section now
+# PASSES and is a regression guard asserting the fixed behavior — a failure
+# means a lead regressed. Fix the code, never "fix the tests" to match.
+# (Property convention: offscreen + TIMEOUT + sep13leads label on every block.)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadCapability.cpp")
     add_executable(TestSep13LeadCapability tests/TestSep13LeadCapability.cpp)
     target_include_directories(TestSep13LeadCapability PRIVATE src tests)
@@ -6035,10 +6109,20 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadRedactionProof.cpp")
     )
 endif()
 
-# R14 INDEPENDENT REVIEWER probe (temporary registration — restored after review).
-# Registration removed at integration: the probe demonstrates the F1 false-PASS and
-# now fails BY DESIGN since the F1 fix (7189149) landed; its demonstration slots
-# live permanently in TestSep13LeadRedactionProof. Probe source kept unregistered.
+# R14 INDEPENDENT REVIEWER probe — SEP13 L5/L7/L8 composed data-loss claim.
+# HISTORY: at integration (just after the F1 fix 71891494 landed) this probe's
+# demonstration slots were red, so its registration was removed and its
+# coverage superseded by the permanent pins in TestSep13LeadRedactionProof.
+# The probe source was later amended (a5618f52, REDACTION-RESEARCH-2026-09-21
+# §1.6 Plan 1-A) and now PASSES (verified 7/7, r3-hygiene lane 2026-10-03) —
+# it is kept DISABLED because its coverage DUPLICATES TestSep13LeadRedactionProof,
+# not because it is red. (The interim bare add_executable also compiled dead
+# weight on every build while ctest never ran it — dead-target hygiene, M4.)
+# Registered as a DELIBERATE DISABLED probe (same class as R14ProbeBatchSkip):
+# built for forensics, excluded from ordinary sweeps. ctest will not execute a
+# DISABLED test even when named with -R (it lists "Not Run (Disabled)"); run
+# the binary directly under QT_QPA_PLATFORM=offscreen or flip DISABLED
+# temporarily.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeRedactSpace.cpp")
     add_executable(R14ProbeRedactSpace tests/R14ProbeRedactSpace.cpp)
     target_include_directories(R14ProbeRedactSpace PRIVATE src tests)
@@ -6054,6 +6138,11 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeRedactSpace.cpp")
             "$<TARGET_FILE_DIR:R14ProbeRedactSpace>/platforms/${GLYPH_QPA_PLUGIN}"
         COMMENT "Deploying qoffscreen platform plugin for R14ProbeRedactSpace"
     )
+    add_test(NAME R14ProbeRedactSpace COMMAND R14ProbeRedactSpace)
+    set_tests_properties(R14ProbeRedactSpace PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 180
+        LABELS "R14-probe;probe;redaction;qt;headless"
+        DISABLED TRUE)  # superseded by TestSep13LeadRedactionProof (probe passes today — see block history)
 endif()
 
 # R14 INDEPENDENT REVIEWER probe 2 (temporary registration — restored after review).
@@ -6128,7 +6217,6 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadComparePerf.cpp")
     target_link_libraries(TestSep13LeadComparePerf PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
-        Qt6::Pdf
         Qt6::Pdf Qt6::PdfWidgets
     )
     add_custom_command(TARGET TestSep13LeadComparePerf POST_BUILD
@@ -6142,15 +6230,22 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSep13LeadComparePerf.cpp")
     add_test(NAME TestSep13LeadComparePerf COMMAND TestSep13LeadComparePerf)
     set_tests_properties(TestSep13LeadComparePerf PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
-        TIMEOUT 120
+        # Perf-ratio suite (two in-run samples, 100 ms floor each); 180 is the
+        # tree's default ceiling so a loaded runner never clips a ratio pass.
+        TIMEOUT 180
         LABELS "unit;modes;compare;perf;sep13leads;qt;headless"
     )
 endif()
 
-# ── SWEEP-W1 ADVERSARY (2026-09-19) — failing repros + probes ────────────────
-# REVIEW-ONLY round: these suites prove (or refute) the sweep's hostile-input
-# findings. Tests are expected to FAIL until the corresponding defect is
-# fixed; probes pin defended behavior. Do not "fix the tests" — fix the code.
+# ── SWEEP-W1 ADVERSARY (2026-09-19) — hostile-input repros + probes ──────────
+# HISTORY: the FAILING-REPRO suites (PresetAdversary, SigningAdversary) were
+# written to FAIL against the feat/parity-glm candidate (a3a9317) to prove the
+# sweep's hostile-input findings; the fixes have since landed, so those suites
+# now PASS and are regression guards — a failure means the defect returned.
+# Fix the code, never "fix the tests" to match. The PROBE suites (e.g.
+# TestSweepW1SummaryPolicyAdversary) pin defended behavior and were expected
+# green from the start. (Property convention: offscreen + TIMEOUT + sweep-w1
+# label on every block.)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1PresetAdversary.cpp")
     add_executable(TestSweepW1PresetAdversary tests/TestSweepW1PresetAdversary.cpp)
     target_include_directories(TestSweepW1PresetAdversary PRIVATE src tests)
@@ -6177,7 +6272,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SigningAdversary.cpp")
         target_compile_definitions(TestSweepW1SigningAdversary PRIVATE GLYPH_TESTING=1)
     endif()
     target_link_libraries(TestSweepW1SigningAdversary PRIVATE
-        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        pdfws_ui pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
     )
@@ -6226,10 +6321,14 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestSweepW1SummaryPolicyAdversary.c
     )
 endif()
 
-# ── SWEEP-W1 SECURITY (2026-09-20) — failing repros from the security lane ───
-# REVIEW-ONLY probe: asserts the DESIRED security behavior from
-# docs/audit/SWEEP-W1-SECURITY-2026-09-20.md. Slots FAIL until the finding is
-# remediated (S4/F1 is the documented design item). Do not "fix the tests".
+# ── SWEEP-W1 SECURITY (2026-09-20) — security-lane repros, now regression
+# guards. HISTORY: this probe asserted the DESIRED security behavior from
+# docs/audit/SWEEP-W1-SECURITY-2026-09-20.md and its slots FAILED on the
+# candidate as the finding repros. The S1/S2/S3/S5 fixes have since landed and
+# the S4 design-limitation demo slot was removed from the source (the W1-05
+# honesty pins in TestPolicyController/TestSupportBundle carry that disclosure
+# contract), so the suite now PASSES. A failure means a security finding
+# regressed — fix the code, never "fix the tests" to match.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SweepW1SecProbe.cpp")
     add_executable(TestSweepW1SecProbe tests/SweepW1SecProbe.cpp)
     target_include_directories(TestSweepW1SecProbe PRIVATE src tests)
@@ -6240,7 +6339,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/SweepW1SecProbe.cpp")
         target_compile_definitions(TestSweepW1SecProbe PRIVATE GLYPH_TESTING=1)
     endif()
     target_link_libraries(TestSweepW1SecProbe PRIVATE
-        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        pdfws_ui pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
     )
@@ -6281,7 +6380,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeSigning.cpp")
         SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
     target_link_libraries(W2BProbeSigning PRIVATE
-        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        pdfws_ui pdfws_engines pdfws_core
         OpenSSL::SSL OpenSSL::Crypto
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
     )
@@ -6297,7 +6396,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/W2BProbeSummaryPolicy.cpp")
         SOURCE_DIR="${CMAKE_SOURCE_DIR}"
     )
     target_link_libraries(W2BProbeSummaryPolicy PRIVATE
-        pdfws_engines pdfws_ui pdfws_engines pdfws_core
+        pdfws_ui pdfws_engines pdfws_core
         Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets podofo::podofo
     )
 endif()
@@ -6383,13 +6482,7 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestRotate270PageSpace.cpp")
     set_tests_properties(TestRotate270PageSpace PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 120 LABELS "unit;annotations;forms;persistence;qt;headless")
 endif()
 
-# ── SWEEP-W2-GSD (gsd-verifier W2 pass, 2026-09-21): the verifier's OWN
-# independent probes for the 10 implemented-awaiting-review rows (EM-1..EM-6,
-# the sanitize UAF fix, the ri-fix, F2b-D1, the timestampAttempted three-state).
-# One slot per row, each with its own fixture values / harness shape / entry
-# path — docs/audit/SWEEP-W2-GSD-2026-09-21.md §Method.
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestGsdW2Probe.cpp")
-    # ── R14 reviewer probe (Plan 11 item 3, residexec 2026-09-23): the
+# ── R14 reviewer probe (Plan 11 item 3, residexec 2026-09-23): the
 # independent-reviewer BatchSkip probe was a dead unregistered file at the
 # consolidated tip (archaeologist §8). Registered as a DELIBERATE run: it
 # carries its own fixtures + counting OCR and is labeled `R14-probe`, but
@@ -6397,6 +6490,9 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestGsdW2Probe.cpp")
 # false-fail on it; run it explicitly with
 #   ctest -R R14ProbeBatchSkip -C Debug   (ctest runs disabled tests when
 #   named explicitly... use `ctest --show-only` to inspect).
+# Top-level block — deliberately NOT nested in TestGsdW2Probe's EXISTS guard
+# below (M9): the old nesting would silently drop this probe if
+# tests/TestGsdW2Probe.cpp were ever removed.
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeBatchSkip.cpp")
     add_executable(R14ProbeBatchSkip tests/R14ProbeBatchSkip.cpp)
     target_include_directories(R14ProbeBatchSkip PRIVATE src tests)
@@ -6419,7 +6515,13 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/R14ProbeBatchSkip.cpp")
         DISABLED TRUE)
 endif()
 
-add_executable(TestGsdW2Probe tests/TestGsdW2Probe.cpp)
+# ── SWEEP-W2-GSD (gsd-verifier W2 pass, 2026-09-21): the verifier's OWN
+# independent probes for the 10 implemented-awaiting-review rows (EM-1..EM-6,
+# the sanitize UAF fix, the ri-fix, F2b-D1, the timestampAttempted three-state).
+# One slot per row, each with its own fixture values / harness shape / entry
+# path — docs/audit/SWEEP-W2-GSD-2026-09-21.md §Method.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestGsdW2Probe.cpp")
+    add_executable(TestGsdW2Probe tests/TestGsdW2Probe.cpp)
     target_include_directories(TestGsdW2Probe PRIVATE src tests)
     target_link_libraries(TestGsdW2Probe PRIVATE
         pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo

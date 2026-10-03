@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "engines/FormManager.h"
+#include "engines/ConversionManager.h" // csvFormulaSafeCell (wave-2b security audit F-01)
 #include "engines/SafeSave.h"
 #include "engines/formjs/FormJsRunner.h"
 #include "engines/podofo/PdfStringEscape.h"
@@ -1462,11 +1463,18 @@ bool FormManager::exportFormData(const QString &pdfFilePath, const QString &outp
 #endif
 
         if (format.toLower() == "csv") {
+            // Wave-2b security audit F-01 (CWE-1236): field names/values come
+            // from an attacker-supplied AcroForm, so every cell goes through
+            // the same csvFormulaSafeCell guard the conversion exporter uses —
+            // a leading =+-@/tab/CR must never reach a spreadsheet as a
+            // formula. Plain numbers stay exempt (M3); quote-doubling and the
+            // surrounding quotes stay here.
             out << "FieldName,FieldValue\n";
             for (auto it = data.cbegin(); it != data.cend(); ++it) {
-                QString v = it.value().toString();
+                const QString k = ConversionManager::csvFormulaSafeCell(it.key());
+                QString v = ConversionManager::csvFormulaSafeCell(it.value().toString());
                 v.replace("\"", "\"\"");
-                out << "\"" << it.key() << "\",\"" << v << "\"\n";
+                out << "\"" << k << "\",\"" << v << "\"\n";
             }
         } else if (format.toLower() == "fdf") {
             out << "%FDF-1.2\n1 0 obj\n<< /FDF << /Fields [\n";
@@ -1543,6 +1551,48 @@ bool decodeUtf8Strict(const QByteArray& bytes, const QString& what, QString& out
             what + QStringLiteral(": invalid UTF-8 byte sequence"));
     }
     return true;
+}
+
+// ISO 32000 §7.9.2.2 text-string decode (wave-2b F-1). FDF field names and
+// values are TEXT strings: PDFDocEncoding or UTF-16BE — and Acrobat, the
+// canonical producer, exports UTF-16BE (hex-escaped with the FE FF BOM, or
+// literal with \376\377 octal escapes). Strict UTF-8 refused exactly those
+// files ("the feature inverts for the most common real-world producer") and,
+// worse, a BOM-less UTF-16BE payload slipped through strict UTF-8 as
+// NUL-padded mojibake. So the string-value decoder sniffs UTF-16BE:
+//   * a FE FF BOM → UTF-16BE (BOM stripped before the fixed-endian decode);
+//   * else an even-length payload whose high bytes are all 0x00 with at
+//     least one non-zero low byte → BOM-less UTF-16BE;
+//   * anything else → strict UTF-8 (genuinely invalid bytes still refuse —
+//     the fail-closed contract is unchanged).
+bool decodePdfTextString(const QByteArray& bytes, const QString& what, QString& out, ErrorInfo* err) {
+    const bool hasBom =
+        bytes.size() >= 2
+        && static_cast<unsigned char>(bytes.at(0)) == 0xFE
+        && static_cast<unsigned char>(bytes.at(1)) == 0xFF;
+    bool utf16be = hasBom;
+    if (!utf16be && bytes.size() >= 2 && bytes.size() % 2 == 0) {
+        bool allHighZero = true;
+        bool anyLowNonZero = false;
+        for (qsizetype i = 0; i + 1 < bytes.size(); i += 2) {
+            const unsigned char hi = static_cast<unsigned char>(bytes.at(i));
+            const unsigned char lo = static_cast<unsigned char>(bytes.at(i + 1));
+            if (hi != 0x00) { allHighZero = false; break; }
+            if (lo != 0x00) anyLowNonZero = true;
+        }
+        utf16be = allHighZero && anyLowNonZero;
+    }
+    if (utf16be) {
+        QStringDecoder dec(QStringConverter::Utf16BE);
+        out = dec.decode(hasBom ? bytes.mid(2) : bytes);
+        if (dec.hasError()) {
+            return importErr(err,
+                QObject::tr("The form data file contains a malformed UTF-16BE text string and was not imported."),
+                what + QStringLiteral(": truncated UTF-16BE data"));
+        }
+        return true;
+    }
+    return decodeUtf8Strict(bytes, what, out, err);
 }
 
 // Bounded string-aware FDF scanner. Every branch advances `i`, so a scan is
@@ -1686,14 +1736,15 @@ bool skipCompound(FdfCursor& c, QString& why) {
     }
 }
 
-// pdfUnescapeLiteralString + strict UTF-8: the canonical inverse of the
-// export-side escaper, then a refuse-don't-mojibake decode.
+// pdfUnescapeLiteralString + §7.9.2.2 text-string decode: the canonical
+// inverse of the export-side escaper, then a refuse-don't-mojibake decode
+// that still admits the UTF-16BE text strings the FDF format defines.
 bool decodePdfString(const QString& rawEscaped, QString& out, ErrorInfo* err) {
     const QByteArray utf8 = rawEscaped.toUtf8();
     const std::string bytes = pdfUnescapeLiteralString(
         std::string(utf8.constData(), static_cast<size_t>(utf8.size())));
-    return decodeUtf8Strict(QByteArray(bytes.data(), static_cast<int>(bytes.size())),
-                            QStringLiteral("FDF string value"), out, err);
+    return decodePdfTextString(QByteArray(bytes.data(), static_cast<int>(bytes.size())),
+                               QStringLiteral("FDF string value"), out, err);
 }
 
 bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
@@ -1789,7 +1840,7 @@ bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
                 if (hex.size() % 2 != 0)
                     return importErr(err, kRefused, QObject::tr("hex string has an odd digit count"));
                 QString decoded;
-                if (!decodeUtf8Strict(QByteArray::fromHex(hex), QStringLiteral("FDF hex string value"), decoded, err))
+                if (!decodePdfTextString(QByteArray::fromHex(hex), QStringLiteral("FDF hex string value"), decoded, err))
                     return false;
                 if (key == QLatin1String("/T"))      { name = decoded;  haveName = true; }
                 else if (key == QLatin1String("/V")) { value = decoded; haveValue = true; }
@@ -1805,8 +1856,18 @@ bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
                     return importErr(err, kRefused,
                         QObject::tr("unexpected character after key %1 at offset %2").arg(key).arg(c.i));
                 if (key == QLatin1String("/V") && !haveValue) {
-                    value = c.s.mid(vs + 1, c.i - vs - 1);  // name value: text after '/'
-                    haveValue = true;
+                    // Wave-2b adversarial audit F-2: the +1 offset is only correct
+                    // after a '/' delimiter — for a bare keyword it sliced off the
+                    // first character (/V null imported as "ull"). Take the whole
+                    // token for non-delimiter values; the PDF `null` keyword means
+                    // "no value", so it leaves the field untouched rather than
+                    // importing a bogus string.
+                    const int take = (v == '/') ? vs + 1 : vs;
+                    const QString token = c.s.mid(take, c.i - take);
+                    if (token != QLatin1String("null")) {
+                        value = token;
+                        haveValue = true;
+                    }
                 }
             }
         }
@@ -2000,7 +2061,21 @@ bool FormManager::importFormData(const QString &pdfFilePath, const QString &data
 
     // R01: import lands on the same transactional boundary via fillForm
     // (import + flatten paths must not direct-write either).
-    return fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true, unsupportedFields, jsFailures);
+    const bool ok = fillForm(pdfFilePath, data, outputPath, /*lockFields=*/true,
+                             unsupportedFields, jsFailures);
+    if (!ok && err && err->isOk()) {
+        // ONE refusal channel: every false must leave a typed reason in `err`.
+        // The parsers above populate it for input refusals; this covers the
+        // remaining false — a CLEAN file whose save transaction was refused
+        // (load failure, change validation, checked-commit refusal). Never a
+        // bare false beside a silent channel.
+        *err = ErrorInfo::error(
+            QObject::tr("The form data file was read successfully, but the "
+                        "document could not be saved — nothing was imported."),
+            QStringLiteral("importFormData: the fillForm save transaction "
+                           "refused the import (no output written)"));
+    }
+    return ok;
 }
 
 bool FormManager::flattenForm(const QString &pdfFilePath, const QString &outputPath)

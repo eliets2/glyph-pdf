@@ -195,9 +195,12 @@ public:
     /// PARITY-SCORECARD-2026-09-30 §4 row 8: the data-file parsers are bounded
     /// and fail-closed — truncated/malformed FDF, malformed CSV records,
     /// non-UTF-8 bytes, and over-cap inputs (file size, field count, per-string
-    /// size) refuse the WHOLE import with no output written. When `err` is
-    /// non-null it receives a typed ErrorInfo explaining the refusal; true
-    /// means every parsed field was handed to fillForm — never a half-import.
+    /// size) refuse the WHOLE import with no output written. `err` is THE
+    /// refusal channel: when non-null it receives a typed ErrorInfo for EVERY
+    /// false — a parser refusal AND a refused save transaction alike — so a
+    /// caller holding an ErrorInfo never has to guess why a false happened.
+    /// true means every parsed field was handed to fillForm — never a
+    /// half-import — and `err` is left untouched.
     virtual bool importFormData(const QString &pdfFilePath, const QString &dataFilePath, const QString &outputPath, QStringList *unsupportedFields = nullptr, QList<FormJsFailure> *jsFailures = nullptr, ErrorInfo *err = nullptr) = 0;
     virtual bool flattenForm(const QString &pdfFilePath, const QString &outputPath) = 0;
 protected:

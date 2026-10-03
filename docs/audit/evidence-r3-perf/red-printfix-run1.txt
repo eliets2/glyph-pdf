@@ -1,0 +1,54 @@
+=== RED pre-fix (tree = seam-only commit 9189d0cd + pins, fixes absent) ===
+2026-10-03T04:00Z
+
+--- TestHotFolder::reentrantIngestDoesNotRescanTree
+********* Start testing of TestHotFolder *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestHotFolder::initTestCase()
+FAIL!  : TestHotFolder::reentrantIngestDoesNotRescanTree() 'c.ingestScansForTest() == scansBefore + 1' returned FALSE. (a re-entrant ingestDeliver ran a second full-tree scan (RED pre-fix: the handler's nested call re-walked the whole tree))
+D:/pdf/pdf-r3-perf/tests/TestHotFolder.cpp(713) : failure location
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 15ms
+********* Finished testing of TestHotFolder *********
+EXIT=1
+
+--- TestThumbnailOffGui::staleRenderIsNotInsertedIntoCache
+********* Start testing of TestThumbnailOffGui *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestThumbnailOffGui::initTestCase()
+FAIL!  : TestThumbnailOffGui::staleRenderIsNotInsertedIntoCache() 'cache->getOrRender(0, 1.0, nullptr).isNull()' returned FALSE. (a stale (superseded) render was inserted into the cache — the epoch check must precede the insert)
+D:/pdf/pdf-r3-perf/tests/TestThumbnailOffGui.cpp(456) : failure location
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 5195ms
+********* Finished testing of TestThumbnailOffGui *********
+EXIT=1
+
+--- TestThumbnailOffGui::duplicateAsyncRequestCoalescesIntoOneWorker (expected assert FAIL printed; deterministic teardown segfault of the pre-fix orphaned-delivery path is documented in the lane report)
+********* Start testing of TestThumbnailOffGui *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestThumbnailOffGui::initTestCase()
+FAIL!  : TestThumbnailOffGui::duplicateAsyncRequestCoalescesIntoOneWorker() Compared values are not the same
+   Actual   (cache->asyncWorkerRunsForTest()): 2
+   Expected (1)                              : 1
+D:/pdf/pdf-r3-perf/tests/TestThumbnailOffGui.cpp(405) : failure location
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 2768ms
+********* Finished testing of TestThumbnailOffGui *********
+A crash occurred in D:\pdf\pdf-r3-perf\build-rel\TestThumbnailOffGui.exe.
+Function time: 2655ms Total time: 5379ms
+
+Exception address: 0x0000000726fff1d0
+Exception code   : 0xc0000005
+
+Stack:
+#  1: ZN24QAbstractItemModelTester11qt_metacallEN11QMetaObject4CallEiPPv() - 0x00007fffc067b2c0
+#  2: UnhandledExceptionFilter() - 0x00007ff85baaf400
+#  3: strncpy() - 0x00007ff85e2e7f90
+#  4: _C_specific_handler() - 0x00007ff85e2a4ac0
+#  5: _chkstk() - 0x00007ff85e2e6280
+#  6: RtlWow64GetCurrentMachine() - 0x00007ff85e2439e0
+#  7: KiUserExceptionDispatcher() - 0x00007ff85e2e5c30
+#  8: Unable to obtain symbol
+
+/usr/bin/bash: line 7:  5753 Segmentation fault         ./TestThumbnailOffGui.exe duplicateAsyncRequestCoalescesIntoOneWorker 2>&1
+EXIT=139

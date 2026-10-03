@@ -87,22 +87,12 @@ bool runBoundedProcess(const QString& program, const QStringList& args,
                        bool* canceled, int* exitCode, QString* error,
                        const QByteArray& stdinData = {});
 
-// PARITY-SCORECARD-2026-09-30 §4 row 14 (July audit §3 row 75) — locate the
-// 7-Zip console tool this module's external-writer transactions launch:
-// the APPLICATION-OWNED (vendored, SHA-256-pinned) copy beside the executable
-// FIRST, then PATH, then the conventional 7-Zip install dirs. Preferring the
-// app-owned copy removes the last external-binary dependency — encrypted
-// packages no longer require a system-installed 7z.exe — and pins the exact
-// binary the M-1 stdin-prompt contract was verified against (the `-p` prompt
-// behavior is version-sensitive; see third_party/7zip/PROVENANCE.md).
-// The app-owned branch requires BOTH 7z.exe and 7z.dll (7z.exe is only a
-// launcher — without its format engine it fails at process start), so a
-// half-copied bundle degrades to the fallbacks instead of a launch error.
-// An EMPTY return means "no 7-Zip anywhere": the caller must disclose that
-// honestly (see HomeController::createEncryptedPackage), never guess.
-// Pure lookup (no side effects); `appDirOverride` exists purely for tests
-// (empty = QCoreApplication::applicationDirPath()).
-QString locateSevenZip(const QString& appDirOverride = {});
+// PARITY-SCORECARD-2026-09-30 §4 row 14 — the 7-Zip tool locator NO LONGER
+// lives here: resolving WHICH external tool launches a transaction is that
+// tool's install policy, and this module is deliberately program-agnostic.
+// The locator (bundled-only since the wave-2b security audit F-02) moved to
+// engines/SevenZipLocator.h — the dedicated owner of the vendored-bundle
+// layout. SafeSave's transactions take the program path from their caller.
 
 
 ExternalWriteResult runExternalWriterCommit(

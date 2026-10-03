@@ -1,0 +1,588 @@
+[1/168] Automatic MOC and UIC for target pdfws_ui
+[2/168] Automatic MOC and UIC for target TestPageLabels
+[3/167] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/ModeController.cpp.obj
+[4/167] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/mocs_compilation.cpp.obj
+[5/167] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/HotFolderController.cpp.obj
+[6/167] Automatic MOC and UIC for target TestFillFormNoOp
+[7/165] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/BatchMode.cpp.obj
+[8/165] Linking CXX static library libpdfws_ui.a
+[9/165] Building CXX object CMakeFiles/TestPageLabels.dir/tests/TestPageLabels.cpp.obj
+[10/165] Automatic MOC and UIC for target TestBatchMode
+[11/164] Automatic MOC and UIC for target TestSweepW3UxFlows
+[12/163] Automatic MOC and UIC for target TestBatchPresets
+[13/162] Automatic MOC and UIC for target TestBatchPresetsP2
+[14/161] Automatic MOC and UIC for target TestHotFolder
+[15/160] Automatic MOC and UIC for target TestBatchOcrLanguage
+[16/159] Automatic MOC and UIC for target TestBatchOpsCoverage
+[17/158] Automatic MOC and UIC for target TestBatchOcrSkipText
+[18/157] Automatic MOC and UIC for target TestBatchOcrConfidence
+[19/156] Automatic MOC and UIC for target TestSep13LeadBatchMerge
+[20/155] Automatic MOC and UIC for target R14ProbeSep13Fixes
+[21/154] Automatic MOC and UIC for target R14ProbeBatchSkip
+[22/153] Automatic MOC and UIC for target TestPgr35BatchCollision
+[23/152] Automatic MOC and UIC for target TestGsdW2Probe
+[24/151] Building CXX object CMakeFiles/TestSweepW3UxFlows.dir/tests/TestSweepW3UxFlows.cpp.obj
+D:/pdf/pdf-f-code/tests/TestSweepW3UxFlows.cpp:257:6: warning: 'void {anonymous}::pickMultiFilesByTitle(const QString&, const QStringList&, int)' defined but not used [-Wunused-function]
+  257 | void pickMultiFilesByTitle(const QString &title, const QStringList &paths, int budgetMs = 60000)
+      |      ^~~~~~~~~~~~~~~~~~~~~
+[25/151] Linking CXX executable TestSanitizeSelective.exe; Deploying podofo 1.1.0 DLL for TestSanitizeSelective
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[26/151] Linking CXX executable PdfWorkstation.exe; AR-11 D4: Stripping DWARF paths from Release PdfWorkstation.exe
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[27/151] Linking CXX executable TestDocumentIdentity.exe; Deploying qoffscreen platform plugin for TestDocumentIdentity
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:68:7: warning: type 'struct PdfAValidationPanel' violates the C++ One Definition Rule [-Wodr]
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:68:7: note: a different type is defined in another translation unit
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:120:24: note: the first difference of corresponding definitions is field 'm_issuesLayout'
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:120:24: note: a field of same name but different type is defined in another translation unit
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:120:11: note: type name 'gp::QVBoxLayout' should match type name 'QVBoxLayout'
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |           ^
+C:/msys64/ucrt64/include/qt6/QtWidgets/qboxlayout.h:91:24: note: the incompatible type is defined here
+   91 | class Q_WIDGETS_EXPORT QVBoxLayout : public QBoxLayout
+      |                        ^
+lto-wrapper.exe: warning: using serial compilation of 114 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[28/151] Linking CXX executable TestBatesBatchSafety.exe; Deploying qoffscreen platform plugin for TestBatesBatchSafety
+lto-wrapper.exe: warning: using serial compilation of 116 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[29/151] Linking CXX executable TestRecoverySave.exe; Deploying qoffscreen platform plugin for TestRecoverySave
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[30/151] Linking CXX executable TestReadOnlyGate.exe; Deploying qoffscreen platform plugin for TestReadOnlyGate
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[31/151] Linking CXX executable TestSignatureRealCrypto.exe; Deploying podofo 1.1.0 DLL for TestSignatureRealCrypto
+lto-wrapper.exe: warning: using serial compilation of 9 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[32/151] Linking CXX executable TestSidecarReopenState.exe; Deploying qoffscreen platform plugin for TestSidecarReopenState
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[33/151] Linking CXX executable TestSendForSigning.exe; Deploying podofo 1.1.0 DLL for TestSendForSigning
+lto-wrapper.exe: warning: using serial compilation of 11 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[34/151] Linking CXX executable TestOcrRegionReocr.exe; Deploying qoffscreen platform plugin for TestOcrRegionReocr
+lto-wrapper.exe: warning: using serial compilation of 18 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[35/151] Linking CXX executable TestOcrReviewLifecycle.exe; Deploying qoffscreen platform plugin for TestOcrReviewLifecycle
+lto-wrapper.exe: warning: using serial compilation of 33 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[36/151] Linking CXX executable TestOcrOutputMode.exe; Deploying qoffscreen platform plugin for TestOcrOutputMode
+lto-wrapper.exe: warning: using serial compilation of 26 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[37/151] Linking CXX executable TestOcrVerifyPort.exe; Deploying qoffscreen platform plugin for TestOcrVerifyPort
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[38/151] Linking CXX executable TestOcrVerifyNavigation.exe; Deploying qoffscreen platform plugin for TestOcrVerifyNavigation
+lto-wrapper.exe: warning: using serial compilation of 50 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[39/151] Linking CXX executable TestSevenZipBundle.exe
+[40/151] Linking CXX executable TestControllers.exe; Deploying qoffscreen platform plugin for TestControllers
+lto-wrapper.exe: warning: using serial compilation of 93 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[41/151] Linking CXX executable TestRibbonIntegrity.exe; Deploying qoffscreen platform plugin for TestRibbonIntegrity
+lto-wrapper.exe: warning: using serial compilation of 93 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[42/151] Linking CXX executable TestMenuBarIntegrity.exe; Deploying qoffscreen platform plugin for TestMenuBarIntegrity
+lto-wrapper.exe: warning: using serial compilation of 92 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[43/151] Linking CXX executable TestCommandBinding.exe; Deploying qoffscreen platform plugin for TestCommandBinding
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[44/151] Linking CXX executable TestWelcomeRoutes.exe; Deploying qoffscreen platform plugin for TestWelcomeRoutes
+lto-wrapper.exe: warning: using serial compilation of 116 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[45/151] Linking CXX executable TestSweepW3UxFlows.exe; Deploying qoffscreen platform plugin for TestSweepW3UxFlows
+lto-wrapper.exe: warning: using serial compilation of 119 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[46/151] Linking CXX executable TestUiAccessibility.exe; Deploying qoffscreen platform plugin for TestUiAccessibility
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[47/151] Linking CXX executable TestAccessibilityPanel.exe
+lto-wrapper.exe: warning: using serial compilation of 9 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[48/151] Linking CXX executable TestFormBuilder.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormBuilder; Deploying podofo 1.1.0 DLL for TestFormBuilder
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[49/151] Linking CXX executable TestReadingOrderAsync.exe
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:68:7: warning: type 'struct PdfAValidationPanel' violates the C++ One Definition Rule [-Wodr]
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:68:7: note: a different type is defined in another translation unit
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:117:19: note: the first difference of corresponding definitions is field 'm_statusLabel'
+  117 |     class QLabel* m_statusLabel{nullptr};
+      |                   ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:117:19: note: a field of same name but different type is defined in another translation unit
+  117 |     class QLabel* m_statusLabel{nullptr};
+      |                   ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:117:11: note: type name 'gp::QLabel' should match type name 'QLabel'
+  117 |     class QLabel* m_statusLabel{nullptr};
+      |           ^
+C:/msys64/ucrt64/include/qt6/QtWidgets/qlabel.h:20:24: note: the incompatible type is defined here
+   20 | class Q_WIDGETS_EXPORT QLabel : public QFrame
+      |                        ^
+lto-wrapper.exe: warning: using serial compilation of 72 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[50/151] Linking CXX executable TestCompareEntry.exe; Deploying qoffscreen platform plugin for TestCompareEntry
+lto-wrapper.exe: warning: using serial compilation of 11 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[51/151] Linking CXX executable TestCompareIntegration.exe; Deploying qoffscreen platform plugin for TestCompareIntegration
+lto-wrapper.exe: warning: using serial compilation of 10 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[52/151] Linking CXX executable TestPageLabels.exe; Deploying podofo 1.1.0 DLL for TestPageLabels
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[53/151] Linking CXX executable TestPagesMode.exe; Deploying qoffscreen platform plugin for TestPagesMode
+lto-wrapper.exe: warning: using serial compilation of 23 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[54/151] Linking CXX executable TestBatchMode.exe; Deploying qoffscreen platform plugin for TestBatchMode
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[55/151] Linking CXX executable TestBatchPresets.exe; Deploying qoffscreen platform plugin for TestBatchPresets; Deploying podofo 1.1.0 DLL for TestBatchPresets
+lto-wrapper.exe: warning: using serial compilation of 32 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[56/151] Linking CXX executable TestBatchPresetsP2.exe; Deploying qoffscreen platform plugin for TestBatchPresetsP2; Deploying podofo 1.1.0 DLL for TestBatchPresetsP2
+lto-wrapper.exe: warning: using serial compilation of 35 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[57/151] Linking CXX executable TestHotFolder.exe; Deploying qoffscreen platform plugin for TestHotFolder
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[58/151] Linking CXX executable TestBatchOcrLanguage.exe; Deploying qoffscreen platform plugin for TestBatchOcrLanguage
+lto-wrapper.exe: warning: using serial compilation of 29 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[59/151] Linking CXX executable TestOcrPreprocessPrefs.exe; Deploying qoffscreen platform plugin for TestOcrPreprocessPrefs
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[60/151] Linking CXX executable TestOpenRouting.exe; Deploying qoffscreen platform plugin for TestOpenRouting
+[61/151] Linking CXX executable TestBatchOcrSkipText.exe; Deploying qoffscreen platform plugin for TestBatchOcrSkipText
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[62/151] Linking CXX executable TestExcisionCorruption.exe; Deploying qoffscreen platform plugin for TestExcisionCorruption
+lto-wrapper.exe: warning: using serial compilation of 18 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[63/151] Linking CXX executable TestReadingOrderThreshold.exe; Deploying qoffscreen platform plugin for TestReadingOrderThreshold
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[64/151] Linking CXX executable TestReadingOrderMcid.exe; Deploying podofo 1.1.0 DLL for TestReadingOrderMcid; Deploying pdfium DLL for TestReadingOrderMcid; Deploying qoffscreen platform plugin for TestReadingOrderMcid
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[65/151] Linking CXX executable TestBatchOpsCoverage.exe; Deploying qoffscreen platform plugin for TestBatchOpsCoverage; Deploying podofo 1.1.0 DLL for TestBatchOpsCoverage
+lto-wrapper.exe: warning: using serial compilation of 35 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[66/151] Linking CXX executable TestLinkBookmarkRoundTrip.exe; Deploying qoffscreen platform plugin for TestLinkBookmarkRoundTrip
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[67/151] Linking CXX executable TestSignatureSessionCache.exe; Deploying qoffscreen platform plugin for TestSignatureSessionCache
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[68/151] Linking CXX executable TestTaskNavRegistry.exe; Deploying qoffscreen platform plugin for TestTaskNavRegistry
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[69/151] Linking CXX executable TestScreenStateSync.exe; Deploying qoffscreen platform plugin for TestScreenStateSync
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[70/151] Linking CXX executable TestRibbonCollapse.exe; Deploying qoffscreen platform plugin for TestRibbonCollapse
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[71/151] Linking CXX executable TestModeStripPins.exe; Deploying qoffscreen platform plugin for TestModeStripPins
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[72/151] Linking CXX executable TestReadingOrderDepthCap.exe; Deploying podofo 1.1.0 DLL for TestReadingOrderDepthCap; Deploying pdfium DLL for TestReadingOrderDepthCap; Deploying qoffscreen platform plugin for TestReadingOrderDepthCap
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:68:7: warning: type 'struct PdfAValidationPanel' violates the C++ One Definition Rule [-Wodr]
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:68:7: note: a different type is defined in another translation unit
+   68 | class PdfAValidationPanel : public QFrame {
+      |       ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:120:24: note: the first difference of corresponding definitions is field 'm_issuesLayout'
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:120:24: note: a field of same name but different type is defined in another translation unit
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |                        ^
+D:/pdf/pdf-f-code/src/modes/PdfAValidationPanel.h:120:11: note: type name 'gp::QVBoxLayout' should match type name 'QVBoxLayout'
+  120 |     class QVBoxLayout* m_issuesLayout{nullptr};
+      |           ^
+C:/msys64/ucrt64/include/qt6/QtWidgets/qboxlayout.h:91:24: note: the incompatible type is defined here
+   91 | class Q_WIDGETS_EXPORT QVBoxLayout : public QBoxLayout
+      |                        ^
+lto-wrapper.exe: warning: using serial compilation of 72 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[73/151] Linking CXX executable TestCommentsReview.exe; Deploying qoffscreen platform plugin for TestCommentsReview
+lto-wrapper.exe: warning: using serial compilation of 8 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[74/151] Linking CXX executable TestWelcomeLayout.exe; Deploying qoffscreen platform plugin for TestWelcomeLayout
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[75/151] Linking CXX executable TestStatusBarSlim.exe; Deploying qoffscreen platform plugin for TestStatusBarSlim
+lto-wrapper.exe: warning: using serial compilation of 72 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[76/151] Linking CXX executable TestBatchOcrConfidence.exe; Deploying qoffscreen platform plugin for TestBatchOcrConfidence
+lto-wrapper.exe: warning: using serial compilation of 29 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[77/151] Linking CXX executable TestInspector.exe; Deploying qoffscreen platform plugin for TestInspector
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[78/151] Linking CXX executable TestSignatureBadges.exe; Deploying qoffscreen platform plugin for TestSignatureBadges
+lto-wrapper.exe: warning: using serial compilation of 76 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[79/151] Linking CXX executable TestReviewSummary.exe; Deploying qoffscreen platform plugin for TestReviewSummary
+lto-wrapper.exe: warning: using serial compilation of 7 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[80/151] Linking CXX executable TestPrintableSummary.exe; Deploying qoffscreen platform plugin for TestPrintableSummary
+lto-wrapper.exe: warning: using serial compilation of 7 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[81/151] Linking CXX executable TestDynamicStamps.exe; Deploying qoffscreen platform plugin for TestDynamicStamps
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[82/151] Linking CXX executable TestStampImageImport.exe; Deploying qoffscreen platform plugin for TestStampImageImport
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[83/151] Linking CXX executable TestFindReplace.exe; Deploying qoffscreen platform plugin for TestFindReplace
+lto-wrapper.exe: warning: using serial compilation of 118 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[84/151] Linking CXX executable TestRedactClearMarks.exe
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[85/151] Linking CXX executable TestLinkSchemeSafety.exe
+[86/151] Linking CXX executable TestThumbnailZoom.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[87/151] Linking CXX executable TestAutoBookmarks.exe; Deploying qoffscreen platform plugin for TestAutoBookmarks
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[88/151] Linking CXX executable TestMergeSuccess.exe
+[89/151] Linking CXX executable TestThumbnailOffGui.exe; Deploying qoffscreen platform plugin for TestThumbnailOffGui
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[90/151] Linking CXX executable TestReadingOrderInheritance.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[91/151] Linking CXX executable TestMeasurePanelHonesty.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[92/151] Linking CXX executable TestQuadPointsMarkup.exe; Deploying podofo 1.1.0 DLL for TestQuadPointsMarkup
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[93/151] Linking CXX executable TestMeasureCsvExport.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[94/151] Linking CXX executable TestCompressDialogHonesty.exe; Deploying qoffscreen platform plugin for TestCompressDialogHonesty
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[95/151] Linking CXX executable TestFormJsAdversarial.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormJsAdversarial; Deploying podofo 1.1.0 DLL for TestFormJsAdversarial; Deploying quickjs-ng runtime DLL for TestFormJsAdversarial
+lto-wrapper.exe: warning: using serial compilation of 8 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[96/151] Linking CXX executable TestFormSafety.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormSafety; Deploying podofo 1.1.0 DLL for TestFormSafety
+lto-wrapper.exe: warning: using serial compilation of 12 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[97/151] Linking CXX executable TestFormStaleDisclosure.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormStaleDisclosure; Deploying podofo 1.1.0 DLL for TestFormStaleDisclosure; Deploying quickjs-ng runtime DLL for TestFormStaleDisclosure
+lto-wrapper.exe: warning: using serial compilation of 7 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[98/151] Linking CXX executable TestFormKeystroke.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormKeystroke; Deploying podofo 1.1.0 DLL for TestFormKeystroke; Deploying quickjs-ng runtime DLL for TestFormKeystroke
+lto-wrapper.exe: warning: using serial compilation of 8 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[99/151] Linking CXX executable TestValidateAllSignatures.exe
+[100/151] Linking CXX executable TestExportPathBadge.exe
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[101/151] Linking CXX executable TestRedactTransaction.exe; Deploying qoffscreen platform plugin and podofo DLL for TestRedactTransaction; Deploying podofo 1.1.0 DLL for TestRedactTransaction
+lto-wrapper.exe: warning: using serial compilation of 27 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[102/151] Linking CXX executable TestEraseWiring.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[103/151] Linking CXX executable TestRibbonMarkupTools.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[104/151] Linking CXX executable TestRedactionProof.exe; Deploying qoffscreen platform plugin and podofo DLL for TestRedactionProof; Deploying podofo 1.1.0 DLL for TestRedactionProof
+lto-wrapper.exe: warning: using serial compilation of 26 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[105/151] Linking CXX executable TestViewerRotation.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[106/151] Linking CXX executable TestRotateView.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[107/151] Linking CXX executable TestTwoPageOverlay.exe; Deploying podofo 1.1.0 DLL for TestTwoPageOverlay
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[108/151] Linking CXX executable TestViewingModes.exe; Deploying podofo 1.1.0 DLL for TestViewingModes
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[109/151] Linking CXX executable TestSignaturePicker.exe; Deploying podofo 1.1.0 DLL for TestSignaturePicker
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[110/151] Linking CXX executable TestCertEncryptPicker.exe; Deploying podofo 1.1.0 DLL for TestCertEncryptPicker
+lto-wrapper.exe: warning: using serial compilation of 20 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[111/151] Linking CXX executable TestCertifySelector.exe; Deploying podofo 1.1.0 DLL for TestCertifySelector
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[112/151] Linking CXX executable TestPolicyController.exe
+lto-wrapper.exe: warning: using serial compilation of 76 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[113/151] Linking CXX executable TestPolicyWiring.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[114/151] Linking CXX executable TestViewParity.exe; Deploying qoffscreen platform plugin for TestViewParity
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[115/151] Linking CXX executable TestOcspConsent.exe
+lto-wrapper.exe: warning: using serial compilation of 75 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[116/151] Linking CXX executable TestSupportBundle.exe
+lto-wrapper.exe: warning: using serial compilation of 75 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[117/151] Linking CXX executable TestOcrAcceptSeam.exe
+[118/151] Linking CXX executable TestSearchFlags.exe
+[119/151] Linking CXX executable TestExportPresets.exe
+[120/151] Linking CXX executable TestOcrAcceptScope.exe
+lto-wrapper.exe: warning: using serial compilation of 13 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[121/151] Linking CXX executable TestViewerLinkSeam.exe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[122/151] Linking CXX executable TestRedactMarkAll.exe; Deploying podofo 1.1.0 DLL for TestRedactMarkAll
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[123/151] Linking CXX executable TestAiProvider.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[124/151] Linking CXX executable TestOllamaProvider.exe
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[125/151] Linking CXX executable TestNetworkDisclosure.exe
+lto-wrapper.exe: warning: using serial compilation of 75 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[126/151] Linking CXX executable TestCheckedMutationCoverage.exe
+lto-wrapper.exe: warning: using serial compilation of 81 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[127/151] Linking CXX executable render_path_profile.exe; Deploying qoffscreen platform plugin for render_path_profile
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[128/151] Linking CXX executable TestRenderGuards.exe; Deploying qoffscreen platform plugin for TestRenderGuards
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[129/151] Linking CXX executable TestPersistenceOutcomes.exe; Deploying qoffscreen platform plugin for TestPersistenceOutcomes
+lto-wrapper.exe: warning: using serial compilation of 114 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[130/151] Linking CXX executable TestSep13LeadOcrGuards.exe; Deploying qoffscreen platform plugin for TestSep13LeadOcrGuards
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[131/151] Linking CXX executable TestSep13LeadBatchMerge.exe; Deploying qoffscreen platform plugin for TestSep13LeadBatchMerge
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[132/151] Linking CXX executable TestSep13LeadRedactionProof.exe; Deploying qoffscreen platform plugin for TestSep13LeadRedactionProof
+lto-wrapper.exe: warning: using serial compilation of 23 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[133/151] Linking CXX executable R14ProbeRedactSpace.exe; Deploying qoffscreen platform plugin for R14ProbeRedactSpace
+lto-wrapper.exe: warning: using serial compilation of 23 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[134/151] Linking CXX executable TestSep13LeadBtDowngrade.exe; Deploying podofo 1.1.0 DLL for TestSep13LeadBtDowngrade; Deploying qoffscreen platform plugin for TestSep13LeadBtDowngrade
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[135/151] Linking CXX executable TestSep13LeadComparePerf.exe; Deploying qoffscreen platform plugin for TestSep13LeadComparePerf
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[136/151] Linking CXX executable TestSweepW1PresetAdversary.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[137/151] Linking CXX executable TestSweepW1SigningAdversary.exe; Deploying podofo 1.1.0 DLL for TestSweepW1SigningAdversary
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[138/151] Linking CXX executable TestSweepW1SummaryPolicyAdversary.exe; Deploying podofo 1.1.0 DLL for TestSweepW1SummaryPolicyAdversary
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[139/151] Linking CXX executable TestSweepW1SecProbe.exe; Deploying podofo 1.1.0 DLL for TestSweepW1SecProbe
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[140/151] Linking CXX executable R14ProbeSep13Fixes-r2.exe; Deploying qoffscreen platform plugin for R14ProbeSep13Fixes
+lto-wrapper.exe: warning: using serial compilation of 31 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[141/151] Linking CXX executable W2BProbeSigning.exe; Deploying podofo 1.1.0 DLL for W2BProbeSigning; Deploying qoffscreen platform plugin for W2BProbeSigning
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[142/151] Linking CXX executable W2BProbeSummaryPolicy.exe; Deploying podofo 1.1.0 DLL for W2BProbeSummaryPolicy; Deploying qoffscreen platform plugin for W2BProbeSummaryPolicy
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[143/151] Linking CXX executable R14ProbeBatchSkip.exe; Deploying podofo 1.1.0 DLL for R14ProbeBatchSkip
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[144/151] Linking CXX executable TestGsdW2Probe.exe; Deploying podofo 1.1.0 DLL for TestGsdW2Probe
+lto-wrapper.exe: warning: using serial compilation of 41 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[145/151] Linking CXX executable W2CProbeRotate270.exe; Deploying podofo 1.1.0 DLL for W2CProbeRotate270; Deploying qoffscreen platform plugin for W2CProbeRotate270
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[146/151] Linking CXX executable TestPgr37PageSpaceLaw.exe; Deploying qoffscreen platform plugin for TestPgr37PageSpaceLaw
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[147/151] Linking CXX executable TestPgr35BatchCollision.exe
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[148/151] Linking CXX executable TestPgr36StaleSigningPanel.exe
+lto-wrapper.exe: warning: using serial compilation of 74 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[149/151] Linking CXX executable TestCommandRegistry.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[150/151] Staging runtime DLLs into build dir
+[151/151] Linking CXX executable TestFileHandleCoordination.exe
+lto-wrapper.exe: warning: using serial compilation of 116 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-code/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^

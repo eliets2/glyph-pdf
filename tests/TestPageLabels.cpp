@@ -21,6 +21,7 @@
 
 #include <QtTest/QtTest>
 #include <QString>
+#include <QStringDecoder>
 #include <QStringList>
 #include <QTemporaryDir>
 #include <QFile>
@@ -78,6 +79,25 @@ Style styleFromName(const QString& name)
 // always written by the writer, but defaults to 1 when absent per the spec;
 // /P is decoded when present and stays empty when absent). Empty result when
 // /PageLabels is absent or malformed.
+//
+// The /P decode is §7.9.2.2-aware (wave-2b F-15): PoDoFo's GetString()
+// returns UTF-8 whether the stored text string was PDFDocEncoding/ASCII or
+// UTF-16BE, so a plain fromUtf8 of GetString() cannot tell them apart and
+// masked the raw-UTF-8 writer bug (it self-roundtripped). The helper below
+// inspects the RAW stored bytes: a FE FF BOM marks the UTF-16BE form.
+static QString decodeStoredPdfTextString(const PoDoFo::PdfString& s)
+{
+    const std::string_view raw = s.GetRawData();
+    const QByteArray bytes(raw.data(), static_cast<qsizetype>(raw.size()));
+    if (bytes.size() >= 2
+            && static_cast<unsigned char>(bytes.at(0)) == 0xFE
+            && static_cast<unsigned char>(bytes.at(1)) == 0xFF) {
+        QStringDecoder dec(QStringConverter::Utf16BE);
+        return dec.decode(bytes.mid(2));
+    }
+    return QString::fromUtf8(bytes);
+}
+
 QList<PageLabelNumEntry> readNumberTree(const QString& path)
 {
     QList<PageLabelNumEntry> entries;
@@ -106,8 +126,7 @@ QList<PageLabelNumEntry> readNumberTree(const QString& path)
                 ? static_cast<int>(st->GetNumber()) : 1;
             const PoDoFo::PdfObject* p = value.GetDictionary().FindKey("P");
             if (p && p->IsString())
-                e.prefix = QString::fromUtf8(p->GetString().GetString().data(),
-                                             static_cast<qsizetype>(p->GetString().GetString().size()));
+                e.prefix = decodeStoredPdfTextString(p->GetString());
             entries.append(e);
         }
     } catch (const std::exception& e) {
@@ -494,6 +513,61 @@ private slots:
         for (const QString& label : computed)
             composed.append(QStringLiteral("App-") + label);
         QCOMPARE(composed, QStringList({"App-7", "App-8", "App-9", "App-10"}));
+    }
+
+    // ── Wave-2b F-15: a NON-ASCII /P prefix is a §7.9.2.2 text string ──────
+    // The spec demands PDFDocEncoding or UTF-16BE (with the FE FF BOM); the
+    // pre-fix writer handed PoDoFo raw UTF-8 bytes, which SELF-ROUNDTRIP
+    // through a UTF-8 decoder (the in-tree gate was blind) but render as
+    // mojibake in every spec-conforming viewer. Two oracles:
+    //  1. QPdfDocument (pdfium) — a real third-party consumer reading the
+    //     page label per spec — must show "Kapitel–4", not mojibake.
+    //  2. The stored /P string's RAW bytes must carry the UTF-16BE BOM.
+    void writeNumberTree_prefixNonAsciiIsUtf16BETextString() {
+        QTemporaryDir dir;
+        QVERIFY(dir.isValid());
+        const QString path = dir.filePath(QStringLiteral("pfx16be.pdf"));
+        QVERIFY(makeNPdf(path, 3));
+        const QString prefix = QStringLiteral("Kapitel\u2013"); // en dash — outside ASCII/PDFDocEncoding
+
+        QVERIFY(writeNumberTree(path, 4, Style::Decimal, prefix));
+
+        // Oracle 1: pdfium's page-label decoder.
+        {
+            QPdfDocument doc;
+            QCOMPARE(doc.load(path), QPdfDocument::Error::None);
+            QVERIFY2(doc.pageCount() == 3, "fixture pages must survive");
+            QCOMPARE(doc.pageLabel(0), prefix + QStringLiteral("4"));
+            QCOMPARE(doc.pageLabel(1), prefix + QStringLiteral("5"));
+        }
+
+        // Oracle 2: the stored text string is the UTF-16BE form (BOM'd).
+        PoDoFo::PdfMemDocument doc;
+        doc.Load(path.toUtf8().constData());
+        const PoDoFo::PdfObject* labels =
+            doc.GetCatalog().GetDictionary().FindKey("PageLabels");
+        QVERIFY(labels != nullptr);
+        if (labels->IsReference())
+            labels = doc.GetObjects().GetObject(labels->GetReference());
+        QVERIFY(labels && labels->IsDictionary());
+        const PoDoFo::PdfObject* nums = labels->GetDictionary().FindKey("Nums");
+        QVERIFY(nums && nums->IsArray());
+        const PoDoFo::PdfObject* range0 = nums->GetArray().FindAt(1);
+        QVERIFY(range0 && range0->IsDictionary());
+        const PoDoFo::PdfObject* p = range0->GetDictionary().FindKey("P");
+        QVERIFY2(p && p->IsString(), "non-empty prefix must produce a /P string");
+        const std::string_view raw = p->GetString().GetRawData();
+        const QByteArray rawBytes(raw.data(), static_cast<qsizetype>(raw.size()));
+        QVERIFY2(rawBytes.size() >= 2
+                     && static_cast<unsigned char>(rawBytes.at(0)) == 0xFE
+                     && static_cast<unsigned char>(rawBytes.at(1)) == 0xFF,
+                 "a non-ASCII /P must be stored as the UTF-16BE+BOM text "
+                 "string, not raw UTF-8 bytes");
+
+        // Spec-aware readback round-trips through readNumberTree too.
+        const QList<PageLabelNumEntry> tree = readNumberTree(path);
+        QCOMPARE(tree, numberTreeEntries(4, Style::Decimal, 3, prefix));
+        QCOMPARE(tree[0].prefix, prefix);
     }
 
     // The PagesMode staged SafeSave flow (candidate → label → commit) must

@@ -53,6 +53,12 @@ public:
                        const QList<QImage>& pageImages,
                        const QList<PageOcrResult>& pageResults,
                        MrcMode mode = MrcMode::Balanced) override;
+    // OCR OutputMode "editable" writer (PARITY-SCORECARD-2026-09-30 §4 #5):
+    // the recognized text replaces the page content — visible text at the
+    // word boxes, no scan image in the output.
+    bool exportEditableTextPdf(const QString& outputPath,
+                               const QList<QImage>& pageImages,
+                               const QList<PageOcrResult>& pageResults) override;
     bool encryptDocument(const QString &userPassword, const QString &ownerPassword, const DocumentPermissions& perms = DocumentPermissions()) override;
     bool removeEncryption(const QString &ownerPassword) override;
     bool encryptWithCertificate(const QString &inputPath, const QString &outputPath, const QStringList &certPaths) override;

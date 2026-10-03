@@ -8,6 +8,7 @@
 
 #include "engines/ocr/OcrPipeline.h"       // MergedOcrWord, PageOcrResult
 #include "modes/OcrReviewSession.h"         // OcrReviewedWord (R08 review records)
+#include "core/OcrTypes.h"                  // OcrOutputMode (§4 #5 searchable-vs-editable)
 #include "docmodel/SemanticDocument.h"       // SemanticDocument
 #include "pdfws_djot/LuaDjotCodec.h"         // documentToDjot (encode only)
 
@@ -52,6 +53,22 @@ public:
     Q_ENUM(ReviewState)
 
     ReviewState reviewState() const { return m_reviewState; }
+
+    // ── §4 #5: OCR output mode (searchable vs editable) ─────────────────────
+    // The PERSISTED PREF (ocr/outputMode) is the canonical channel between
+    // this panel and the consumers: the combo is this widget's only truth and
+    // setOutputMode is its one writer, while EditController re-reads the pref
+    // at accept time (outputModeFromSettings) — the same QSettings wire
+    // pattern as ocr/language and ocr/orientDetect. A test that sets the
+    // combo and a test that sets the pref exercise the same wire.
+    /// The mode the toolbar combo currently shows (parsed from the combo's
+    /// item data through ocrOutputModeFromPref). Test/inspection seam — the
+    /// accept flow itself re-reads the persisted pref at accept time.
+    OcrOutputMode outputMode() const;
+    /// Set the output mode: updates the combo (the single source of widget
+    /// truth) and persists the canonical value through the shared
+    /// ocr/outputMode key. THE writer for user choice, hosts and tests.
+    void setOutputMode(OcrOutputMode mode);
 
     /// R07: last lifecycle message shown for the current state (failure,
     /// cancellation, or save outcome). Empty until something is reported.
@@ -339,6 +356,7 @@ private:
     QCheckBox*   m_chkBinarize   = nullptr;
     QCheckBox*   m_chkDenoise    = nullptr;
     QCheckBox*   m_chkOrientDetect = nullptr;  // §9.4: persisted Auto-Rotate pref
+    QComboBox*   m_outputModeCombo = nullptr;  // §4 #5: searchable vs editable
     QToolButton* m_btnRun        = nullptr;
     QToolButton* m_btnAccept     = nullptr;
     QToolButton* m_btnReject     = nullptr;

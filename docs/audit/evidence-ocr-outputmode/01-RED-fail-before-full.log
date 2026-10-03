@@ -1,0 +1,253 @@
+ninja: warning: premature end of file; recovering
+[1/63] Automatic MOC and UIC for target pdfws_engines
+[2/62] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/ReorderPermutationCommand.cpp.obj
+[3/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/Capability.cpp.obj
+[4/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/OcrEngine.cpp.obj
+[5/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/RedactOperation.cpp.obj
+[6/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/PdfEditorEngine.cpp.obj
+[7/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/AutosaveManager.cpp.obj
+[8/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/BackendRouter.cpp.obj
+[9/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/HeadingOutlineDetector.cpp.obj
+[10/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrPipeline.cpp.obj
+[11/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/podofo/PoDoFoBackend.cpp.obj
+[12/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/PpOcrDecoder.cpp.obj
+[13/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/RapidOcrEngine.cpp.obj
+[14/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/ocr/OcrDjotMapper.cpp.obj
+[15/62] Building CXX object CMakeFiles/pdfws_commands.dir/src/commands/CropPageCommand.cpp.obj
+[16/62] Linking CXX static library libpdfws_commands.a
+[17/62] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/mrc/MrcPageProcessor.cpp.obj
+[18/62] Linking CXX static library libpdfws_engines.a
+[19/62] Automatic MOC and UIC for target pdfws_ui
+[20/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PdfViewerWidget.cpp.obj
+[21/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/EditAnnotationCommand.cpp.obj
+[22/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AutoBookmarkDialog.cpp.obj
+[23/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/HeaderFooterDialog.cpp.obj
+[24/62] Building CXX object CMakeFiles/pdfws_ui.dir/pdfws_ui_autogen/mocs_compilation.cpp.obj
+[25/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BatesNumberingDialog.cpp.obj
+[26/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CompareWidget.cpp.obj
+[27/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/InspectorWidget.cpp.obj
+[28/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/BookmarkPanel.cpp.obj
+[29/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/PermissionsDialog.cpp.obj
+[30/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/MetadataDialog.cpp.obj
+[31/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/CommentsWidget.cpp.obj
+[32/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/AnnotationLayer.cpp.obj
+[33/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ThumbnailSidebar.cpp.obj
+[34/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/GpMainWindow.cpp.obj
+[35/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/HomeController.cpp.obj
+[36/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ViewController.cpp.obj
+[37/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/PagesController.cpp.obj
+[38/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/ConvertController.cpp.obj
+[39/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/EditController.cpp.obj
+[40/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/FormsController.cpp.obj
+[41/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/CertEncryptController.cpp.obj
+[42/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SendForSigningController.cpp.obj
+[43/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/SecurityController.cpp.obj
+[44/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/StatusBar.cpp.obj
+[45/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/MenuBar.cpp.obj
+[46/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/Sidebar.cpp.obj
+[47/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/ModeController.cpp.obj
+[48/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/RedactMode.cpp.obj
+[49/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/OCRMode.cpp.obj
+D:/pdf/pdf-w2b-ocrmode/src/modes/OCRMode.cpp: In member function 'void gp::OCRMode::updateInfoStrip()':
+D:/pdf/pdf-w2b-ocrmode/src/modes/OCRMode.cpp:1528:9: warning: variable 'verifiedCount' set but not used [-Wunused-but-set-variable=]
+ 1528 |     int verifiedCount = 0;
+      |         ^~~~~~~~~~~~~
+[50/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PagesMode.cpp.obj
+[51/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/FormBuilderMode.cpp.obj
+[52/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/SignaturesPanel.cpp.obj
+[53/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/BatchMode.cpp.obj
+[54/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/PdfAValidationPanel.cpp.obj
+[55/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/MeasureMode.cpp.obj
+[56/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/WatermarkDialog.cpp.obj
+[57/62] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/CompressDialog.cpp.obj
+[58/62] Linking CXX static library libpdfws_ui.a
+[59/62] Automatic MOC and UIC for target TestOcrOutputMode
+[60/61] Building CXX object CMakeFiles/TestOcrOutputMode.dir/tests/TestOcrOutputMode.cpp.obj
+FAILED: [code=1] CMakeFiles/TestOcrOutputMode.dir/tests/TestOcrOutputMode.cpp.obj 
+C:\msys64\ucrt64\bin\c++.exe -DGLYPHPDF_QUICKJS_VERSION=\"0.15.1\" -DHAS_OPENJPEG2 -DHAS_PDFIUM -DHAS_QPDF -DHAS_QUICKJS -DHAS_TESSERACT -DMINGW_HAS_SECURE_API=1 -DQT_CONCURRENT_LIB -DQT_CORE_LIB -DQT_GUI_LIB -DQT_NO_DEBUG -DQT_TESTCASE_BUILDDIR=\"D:/pdf/pdf-w2b-ocrmode/build-rel\" -DQT_TESTCASE_SOURCEDIR=\"D:/pdf/pdf-w2b-ocrmode\" -DQT_TESTLIB_LIB -DQT_WIDGETS_LIB -DUNICODE -DUSING_QJS_SHARED -DWIN32 -DWIN64 -D_ENABLE_EXTENDED_ALIGNED_STORAGE -D_UNICODE -D_WIN64 -ID:/pdf/pdf-w2b-ocrmode/build-rel/TestOcrOutputMode_autogen/include -ID:/pdf/pdf-w2b-ocrmode/src -ID:/pdf/pdf-w2b-ocrmode/tests -IC:/msys64/ucrt64/include/leptonica -IC:/msys64/ucrt64/include/libpng16 -IC:/msys64/ucrt64/include/webp -isystem C:/msys64/ucrt64/include/qt6/QtCore -isystem C:/msys64/ucrt64/include/qt6 -isystem C:/msys64/ucrt64/share/qt6/mkspecs/win32-g++ -isystem C:/msys64/ucrt64/include/qt6/QtGui -isystem C:/msys64/ucrt64/include/qt6/QtWidgets -isystem C:/msys64/ucrt64/include/openjpeg-2.5 -isystem D:/pdf/pdf-w2b-ocrmode/third_party/pdfium/include -isystem D:/pdf/pdf-w2b-ocrmode/third_party/podofo/install/include -isystem C:/msys64/ucrt64/include/qt6/QtTest -isystem C:/msys64/ucrt64/include/qt6/QtConcurrent -O3 -DNDEBUG -std=gnu++17 -Wall -Wextra -Wno-unused-parameter -Werror=return-type -Werror=unused-result -Werror=shadow -fstack-protector-strong -D_FORTIFY_SOURCE=2 -flto=auto -MD -MT CMakeFiles/TestOcrOutputMode.dir/tests/TestOcrOutputMode.cpp.obj -MF CMakeFiles\TestOcrOutputMode.dir\tests\TestOcrOutputMode.cpp.obj.d -o CMakeFiles/TestOcrOutputMode.dir/tests/TestOcrOutputMode.cpp.obj -c D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp
+In file included from C:/msys64/ucrt64/include/qt6/QtTest/qtesteventloop.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qsignalspy.h:10,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:10,
+                 from D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:23:
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::prefParsesToModeAndRoundTrips()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:139:37: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  139 |     QCOMPARE(ocrOutputModePrefValue(OcrOutputMode::Editable),
+      |                                     ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:139:14: error: 'ocrOutputModePrefValue' was not declared in this scope
+  139 |     QCOMPARE(ocrOutputModePrefValue(OcrOutputMode::Editable),
+      |              ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:141:37: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  141 |     QCOMPARE(ocrOutputModePrefValue(OcrOutputMode::Searchable),
+      |                                     ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:141:14: error: 'ocrOutputModePrefValue' was not declared in this scope
+  141 |     QCOMPARE(ocrOutputModePrefValue(OcrOutputMode::Searchable),
+      |              ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:143:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+  143 |     QCOMPARE(ocrOutputModeFromPref(QStringLiteral("editable")),
+      |              ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:144:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  144 |              OcrOutputMode::Editable);
+      |              ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:145:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+  145 |     QCOMPARE(ocrOutputModeFromPref(QStringLiteral("EDITABLE")),
+      |              ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:146:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  146 |              OcrOutputMode::Editable);
+      |              ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:149:18: error: 'ocrOutputModeFromPref' was not declared in this scope
+  149 |         QCOMPARE(ocrOutputModeFromPref(v), OcrOutputMode::Searchable);
+      |                  ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:149:44: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  149 |         QCOMPARE(ocrOutputModeFromPref(v), OcrOutputMode::Searchable);
+      |                                            ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:152:59: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  152 |     QCOMPARE(ocrOutputModeFromPref(ocrOutputModePrefValue(OcrOutputMode::Editable)),
+      |                                                           ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:152:36: error: 'ocrOutputModePrefValue' was not declared in this scope
+  152 |     QCOMPARE(ocrOutputModeFromPref(ocrOutputModePrefValue(OcrOutputMode::Editable)),
+      |                                    ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:152:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+  152 |     QCOMPARE(ocrOutputModeFromPref(ocrOutputModePrefValue(OcrOutputMode::Editable)),
+      |              ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:153:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  153 |              OcrOutputMode::Editable);
+      |              ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:154:59: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  154 |     QCOMPARE(ocrOutputModeFromPref(ocrOutputModePrefValue(OcrOutputMode::Searchable)),
+      |                                                           ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:154:36: error: 'ocrOutputModePrefValue' was not declared in this scope
+  154 |     QCOMPARE(ocrOutputModeFromPref(ocrOutputModePrefValue(OcrOutputMode::Searchable)),
+      |                                    ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:154:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+  154 |     QCOMPARE(ocrOutputModeFromPref(ocrOutputModePrefValue(OcrOutputMode::Searchable)),
+      |              ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:155:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  155 |              OcrOutputMode::Searchable);
+      |              ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:156:14: error: 'ocrOutputModePrefKey' was not declared in this scope
+  156 |     QCOMPARE(ocrOutputModePrefKey(), QStringLiteral("ocr/outputMode"));
+      |              ^~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::unknownPrefNeverSilentlySelectsEditable()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:164:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+  164 |     QCOMPARE(ocrOutputModeFromPref(QStringLiteral("edittable")),
+      |              ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:165:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  165 |              OcrOutputMode::Searchable);
+      |              ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:166:14: error: 'ocrOutputModeFromPref' was not declared in this scope
+  166 |     QCOMPARE(ocrOutputModeFromPref(QStringLiteral(" editableView ")),
+      |              ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:167:14: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  167 |              OcrOutputMode::Searchable);
+      |              ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::outputModeFromSettingsReadsThePref()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:175:30: error: 'outputModeFromSettings' is not a member of 'gp::EditController'
+  175 |     QCOMPARE(EditController::outputModeFromSettings(), OcrOutputMode::Searchable);
+      |                              ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:175:56: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  175 |     QCOMPARE(EditController::outputModeFromSettings(), OcrOutputMode::Searchable);
+      |                                                        ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:177:30: error: 'outputModeFromSettings' is not a member of 'gp::EditController'
+  177 |     QCOMPARE(EditController::outputModeFromSettings(), OcrOutputMode::Editable);
+      |                              ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:177:56: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  177 |     QCOMPARE(EditController::outputModeFromSettings(), OcrOutputMode::Editable);
+      |                                                        ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:179:30: error: 'outputModeFromSettings' is not a member of 'gp::EditController'
+  179 |     QCOMPARE(EditController::outputModeFromSettings(), OcrOutputMode::Searchable);
+      |                              ^~~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:179:56: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  179 |     QCOMPARE(EditController::outputModeFromSettings(), OcrOutputMode::Searchable);
+      |                                                        ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::dialogTitleAndStatusNameTheEditableCopy()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:186:54: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  186 |     QVERIFY(EditController::ocrSaveDialogTitle(1, 0, OcrOutputMode::Editable)
+      |                                                      ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:188:55: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  188 |     QVERIFY(!EditController::ocrSaveDialogTitle(1, 0, OcrOutputMode::Editable)
+      |                                                       ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:190:69: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  190 |     const QString multi = EditController::ocrSaveDialogTitle(40, 2, OcrOutputMode::Editable);
+      |                                                                     ^~~~~~~~~~~~~
+      |                                                                     TestOcrOutputMode
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:195:59: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  195 |                                                           OcrOutputMode::Editable);
+      |                                                           ^~~~~~~~~~~~~
+      |                                                           TestOcrOutputMode
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:200:44: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  200 |                                            OcrOutputMode::Editable)
+      |                                            ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::searchableViewKeepsHistoricalStrings()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:210:55: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  210 |     QCOMPARE(EditController::ocrSaveDialogTitle(1, 0, OcrOutputMode::Searchable),
+      |                                                       ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::editableWriterReplacesContentWithVisibleText()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:223:20: error: 'class PdfEditorEngine' has no member named 'exportEditableTextPdf'
+  223 |     QVERIFY(engine.exportEditableTextPdf(out, { makeScanPage() },
+      |                    ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:243:20: error: 'class PdfEditorEngine' has no member named 'exportEditableTextPdf'
+  243 |     QVERIFY(engine.exportEditableTextPdf(uni, { makeScanPage() },
+      |                    ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::editableWriterRefusesAnAllEmptyPayload()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:275:22: error: 'class PdfEditorEngine' has no member named 'exportEditableTextPdf'
+  275 |     QVERIFY2(!engine.exportEditableTextPdf(out, { makeScanPage() },
+      |                      ^~~~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::ocrModeComboExposesAndPersistsTheChoice()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:292:20: error: 'class gp::OCRMode' has no member named 'outputMode'
+  292 |     QCOMPARE(panel.outputMode(), OcrOutputMode::Searchable);
+      |                    ^~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:292:34: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  292 |     QCOMPARE(panel.outputMode(), OcrOutputMode::Searchable);
+      |                                  ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:296:11: error: 'class gp::OCRMode' has no member named 'setOutputMode'
+  296 |     panel.setOutputMode(OcrOutputMode::Editable);
+      |           ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:296:25: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  296 |     panel.setOutputMode(OcrOutputMode::Editable);
+      |                         ^~~~~~~~~~~~~
+      |                         TestOcrOutputMode
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:297:20: error: 'class gp::OCRMode' has no member named 'outputMode'
+  297 |     QCOMPARE(panel.outputMode(), OcrOutputMode::Editable);
+      |                    ^~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:297:34: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  297 |     QCOMPARE(panel.outputMode(), OcrOutputMode::Editable);
+      |                                  ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:304:20: error: 'class gp::OCRMode' has no member named 'outputMode'
+  304 |     QCOMPARE(fresh.outputMode(), OcrOutputMode::Editable);
+      |                    ^~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:304:34: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  304 |     QCOMPARE(fresh.outputMode(), OcrOutputMode::Editable);
+      |                                  ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:307:11: error: 'class gp::OCRMode' has no member named 'setOutputMode'
+  307 |     fresh.setOutputMode(OcrOutputMode::Searchable);
+      |           ^~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:307:25: error: 'OcrOutputMode' has not been declared; did you mean 'TestOcrOutputMode'?
+  307 |     fresh.setOutputMode(OcrOutputMode::Searchable);
+      |                         ^~~~~~~~~~~~~
+      |                         TestOcrOutputMode
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp: In member function 'void TestOcrOutputMode::probeClassifiesTextVsScannedDocuments()':
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:317:33: error: 'probeDocumentText' is not a member of 'gp::ConvertController'
+  317 |     QCOMPARE(ConvertController::probeDocumentText(writeTextPdf(dir.filePath("text.pdf"))),
+      |                                 ^~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:318:33: error: 'gp::ConvertController::TextProbe' has not been declared
+  318 |              ConvertController::TextProbe::HasText);
+      |                                 ^~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:319:33: error: 'probeDocumentText' is not a member of 'gp::ConvertController'
+  319 |     QCOMPARE(ConvertController::probeDocumentText(writeScannedPdf(dir.filePath("scan.pdf"))),
+      |                                 ^~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:320:33: error: 'gp::ConvertController::TextProbe' has not been declared
+  320 |              ConvertController::TextProbe::Scanned);
+      |                                 ^~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:322:33: error: 'probeDocumentText' is not a member of 'gp::ConvertController'
+  322 |     QCOMPARE(ConvertController::probeDocumentText(dir.filePath("missing.pdf")),
+      |                                 ^~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:323:33: error: 'gp::ConvertController::TextProbe' has not been declared
+  323 |              ConvertController::TextProbe::Unknown);
+      |                                 ^~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:327:43: error: 'scannedOfferPrefKey' is not a member of 'gp::ConvertController'
+  327 |     QSettings().remove(ConvertController::scannedOfferPrefKey());
+      |                                           ^~~~~~~~~~~~~~~~~~~
+D:/pdf/pdf-w2b-ocrmode/tests/TestOcrOutputMode.cpp:328:51: error: 'scannedOfferPrefKey' is not a member of 'gp::ConvertController'
+  328 |     QCOMPARE(QSettings().value(ConvertController::scannedOfferPrefKey(), true).toBool(), true);
+      |                                                   ^~~~~~~~~~~~~~~~~~~
+ninja: build stopped: cannot make progress due to previous errors.

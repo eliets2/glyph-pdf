@@ -1,0 +1,39 @@
+=== AFTER (fix commit 21c66127): 4 pins x3 SERIAL, final harness ===
+2026-10-03T07:27Z
+
+--- run 1
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 31ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 40ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 160ms
+EXIT=0
+--- run 2
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 28ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 33ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 156ms
+EXIT=0
+--- run 3
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 33ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 38ms
+EXIT=0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 159ms
+EXIT=0
+
+=== AFTER benchmark (fix tree) ===
+QINFO  : TestThumbnailOffGui::churnDuplicateRequestsClearLatencyBenchmark() [r3-perf benchmark] requests: 8 queued in renderPage at clear(): 1 clear() join+wipe latency: 178 ms workerRuns: 1 coalesced: 7 deliveries: 0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 508ms
+EXIT=0
+=== AFTER benchmark run 2 ===
+QINFO  : TestThumbnailOffGui::churnDuplicateRequestsClearLatencyBenchmark() [r3-perf benchmark] requests: 8 queued in renderPage at clear(): 1 clear() join+wipe latency: 180 ms workerRuns: 1 coalesced: 7 deliveries: 0
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 502ms
+EXIT=0

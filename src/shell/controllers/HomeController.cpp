@@ -9,6 +9,7 @@
 #include "engines/ConversionManager.h"
 #include "engines/DocumentSession.h"   // ARC04: session clean baseline after a checked save
 #include "engines/SafeSave.h"          // WP-R04: external-writer transaction (candidate → validate → commit)
+#include "engines/SevenZipLocator.h"   // row 14: the vendored 7-Zip bundle locator
 #include "commands/CheckedHistory.h"   // G08: checked undo traversal (no index move on failed restore)
 
 #ifdef Q_OS_WIN
@@ -471,9 +472,12 @@ void HomeController::shareViaEmail(const QString& filePath) {
     QDesktopServices::openUrl(QUrl(url, QUrl::TolerantMode));
 }
 
-// Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using a
-// 7-Zip executable — the COPY VENDORED WITH THE APPLICATION first (see
-// locateSevenZip), falling back to a system installation.
+// Secure sharing (§9.11): bundle the PDF into an AES-256 encrypted ZIP using
+// the 7-Zip executable VENDORED WITH THE APPLICATION (third_party/7zip/,
+// hash-pinned, staged beside the executable — SevenZipLocator). There is no
+// system-install fallback: the wave-2b security audit (F-02, CWE-427)
+// removed those legs because a planted 7z.exe on PATH or in an install dir
+// would receive the document AND the package password with no verification.
 //
 // WP-R04 (WHOLE-ARCHITECTURE-REVIEW-2026-09-10 A03): the previous flow deleted
 // the destination before launching 7-Zip and let the tool write the FINAL path
@@ -486,20 +490,34 @@ void HomeController::shareViaEmail(const QString& filePath) {
 // touched before commit; Cancel kills the 7-Zip process we own.
 void HomeController::createEncryptedPackage(const QString& filePath) {
     // Resolved via SafeSave::locateSevenZip (the transaction layer owns "which
-    // 7-Zip"): the vendored app-owned copy first, then PATH/install dirs.
-    const QString sevenZip = gp::SafeSave::locateSevenZip();
+    // 7-Zip"): the vendored app-owned copy, RE-VERIFIED at resolution against
+    // the SHA-256 pins compiled into this binary (r3-sec, CWE-494 — the
+    // configure-time pin protects the build host, not the install directory;
+    // the resolved 7z.exe receives the document bytes AND the package
+    // password, so a tampered/stale staged copy is refused, never launched).
+    QString integrityError;
+    const QString sevenZip = gp::SevenZipLocator::locateVerified(&integrityError);
     if (sevenZip.isEmpty()) {
+        if (!integrityError.isEmpty()) {
+            // The staged pair EXISTS but failed its runtime integrity check —
+            // same honest-disclosure channel as absence, different message.
+            QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+                                 integrityError);
+            return;
+        }
         // PARITY-SCORECARD-2026-09-30 §4 row 14: official installs carry a
         // vendored 7-Zip (third_party/7zip/, staged beside the app), so this
         // disclosure only fires for dev/stripped trees — and it says exactly
-        // what is missing (both the bundled copy AND any system install).
+        // what is missing (the bundled pair; there is no system-install
+        // leg to fall back to, by security-audit design).
         QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
             tr("Encrypted packaging is unavailable: the 7-Zip tools bundled "
                "with GlyphPDF (7z.exe/7z.dll beside the application) were not "
-               "found, and no system 7-Zip installation was detected. "
-               "Reinstall GlyphPDF or install 7-Zip to create AES-256 "
-               "encrypted packages, or use Protect \xE2\x96\xB8 Encrypt to "
-               "password-protect the PDF directly."));
+               "found. GlyphPDF does not fall back to a system 7-Zip "
+               "installation — the vendored copy is the hash-pinned binary "
+               "the encryption flow is verified against. Reinstall GlyphPDF "
+               "to restore encrypted packages, or use Protect \xE2\x96\xB8 "
+               "Encrypt to password-protect the PDF directly."));
         return;
     }
 

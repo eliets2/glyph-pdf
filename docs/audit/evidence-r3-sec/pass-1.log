@@ -1,0 +1,20 @@
+Test project D:/pdf/pdf-r3-sec/build-rel
+    Start 42: TestSevenZipBundle
+1/2 Test #42: TestSevenZipBundle ...............   Passed    0.59 sec
+    Start 69: TestHotFolder
+2/2 Test #69: TestHotFolder ....................   Passed   14.07 sec
+
+100% tests passed, 0 tests failed out of 2
+
+Label Time Summary:
+batch          =  14.07 sec*proc (1 test)
+controllers    =   0.59 sec*proc (1 test)
+headless       =  14.66 sec*proc (2 tests)
+hotfolder      =  14.07 sec*proc (1 test)
+modes          =  14.07 sec*proc (1 test)
+qt             =  14.66 sec*proc (2 tests)
+security       =   0.59 sec*proc (1 test)
+ui             =  14.07 sec*proc (1 test)
+unit           =  14.66 sec*proc (2 tests)
+
+Total Test time (real) =  14.67 sec

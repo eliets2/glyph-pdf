@@ -4,6 +4,7 @@
 #include <QFuture>
 #include <QThread>
 #include <QDebug>
+#include <QScopeGuard>
 #include <algorithm>
 
 #ifdef Q_OS_WIN
@@ -373,6 +374,62 @@ void RenderCache::prefetchViewport(int centerPage, qreal scale, IPdfRenderer* re
     }
 }
 
+// R3-perf (audit finding 7): the worker's render half. The legacy path called
+// getOrRender(), whose insert ran unconditionally BEFORE the post-render
+// token check — a superseded render paid a full insert into the cache and
+// could evict fresh entries (the cache is LRU) for content clear() would
+// only mop up later. This explicit sequence is getOrRender's miss path with
+// ONE reordering: the epoch is re-checked inside the write lock that performs
+// the insert, so a stale render inserts nothing. (clear()'s wipe happens
+// after drainPrefetches() joins this very worker, so check-then-insert under
+// the cache lock cannot interleave with a wipe.)
+//
+// Auto-tile routing (Session 16 D5) is preserved verbatim: a tile-worthy page
+// (>50 MP at this scale) still goes through getOrRender's center-tile path —
+// a corner case far outside the thumbnail scales this async path serves.
+QImage RenderCache::renderForAsyncWorker(int page, qreal scale,
+                                         IPdfRenderer* renderer,
+                                         int currentToken,
+                                         const RenderCacheKey &key) {
+    if (shouldAutoTile(page, scale, renderer))
+        return getOrRender(page, scale, renderer);
+
+    checkMemoryPressure();
+
+    // 1. Another path may have rendered this key while we were queued.
+    {
+        WriteLockGuard guard(m_lock);
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            m_hits.fetchAndAddRelaxed(1);
+            touchLru(key, *it);
+            return it->image;
+        }
+    }
+
+    // 2. Miss: render OUTSIDE the lock (same shape as getOrRender).
+    m_misses.fetchAndAddRelaxed(1);
+    const int dpi = static_cast<int>(scale * 72.0);
+    QImage rendered = renderer->renderPage(page, dpi);
+    if (rendered.isNull()) return QImage();
+
+    // 3. Insert — epoch re-checked under the insert's write lock (the fix):
+    //    a render superseded mid-flight inserts NOTHING and is dropped by the
+    //    caller's delivery gate.
+    {
+        WriteLockGuard guard(m_lock);
+        auto it = m_renderedPages.find(key);
+        if (it != m_renderedPages.end()) {
+            m_hits.fetchAndAddRelaxed(1);
+            touchLru(key, *it);
+            return it->image;
+        }
+        if (m_prefetchCancelToken.loadRelaxed() == currentToken)
+            insertLocked(key, rendered);
+    }
+    return rendered;
+}
+
 bool RenderCache::renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
                                   std::function<void(const QImage&)> onRendered) {
     RenderCacheKey key{page, scale, false, QRectF()};
@@ -391,16 +448,46 @@ bool RenderCache::renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
 
     if (!renderer) return false;
 
-    // 2. Miss: schedule the render on the prefetch worker path. The cancel
-    //    token is NOT bumped per request (see header contract) — the captured
-    //    epoch is the CURRENT one, so only drainPrefetches()/prefetchViewport
-    //    supersession (i.e. clear() on document change, or an explicit
-    //    viewport prefetch on this cache instance) invalidates it.
-    const int currentToken = m_prefetchCancelToken.loadRelaxed();
+    // 2. Miss. R3-perf (audit finding 2): a request for a key that is ALREADY
+    //    being rendered attaches to the in-flight job — the running worker
+    //    delivers to every attached callback when it completes. No second
+    //    worker is queued (scroll churn used to saturate the pool with
+    //    renders whose results were thrown away at the TOCTOU re-check), and
+    //    drainPrefetches() consequently joins at most one worker per distinct
+    //    key on document change (finding 3's bound).
+    QSharedPointer<AsyncRenderJob> job;
+    int currentToken = 0;
+    {
+        WriteLockGuard guard(m_lock);
+        auto jit = m_asyncJobs.find(key);
+        if (jit != m_asyncJobs.end()) {
+            (*jit)->waiters.append(std::move(onRendered));
+            m_asyncCoalescedRequests.fetchAndAddRelaxed(1);
+            return false;   // the in-flight worker owns the delivery
+        }
+
+        // Register a fresh job and capture the epoch under the same lock.
+        job = QSharedPointer<AsyncRenderJob>::create();
+        if (onRendered) job->waiters.append(std::move(onRendered));
+        m_asyncJobs.insert(key, job);
+        currentToken = m_prefetchCancelToken.loadRelaxed();
+
+        // EC06: retain the future alongside every still-running predecessor;
+        // finished futures are pruned so the list stays bounded.
+        m_inFlightPrefetches.erase(
+            std::remove_if(m_inFlightPrefetches.begin(), m_inFlightPrefetches.end(),
+                           [](const QFuture<void>& f) { return f.isFinished(); }),
+            m_inFlightPrefetches.end());
+    }
+
     std::weak_ptr<RenderCache> weakThis = weak_from_this();
 
+    // R3-perf seam: one counter tick per worker actually scheduled (the
+    // coalesced attach above returned already).
+    m_asyncWorkerRuns.fetchAndAddRelaxed(1);
+
     auto future = QtConcurrent::run([weakThis, page, scale, renderer,
-                                     currentToken, onRendered]() {
+                                     currentToken, job, key]() {
         auto self = weakThis.lock();
         if (!self) return;
 
@@ -410,40 +497,50 @@ bool RenderCache::renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
         if (QThread* t = QThread::currentThread())
             t->setPriority(QThread::LowestPriority);
 
-        if (self->m_prefetchCancelToken.loadRelaxed() != currentToken)
-            return;
+        QImage rendered;
+        // Superseded before we even started (clear()/prefetch bump): render
+        // nothing, deliver nothing — but the job is still retired below.
+        if (self->m_prefetchCancelToken.loadRelaxed() == currentToken)
+            rendered = self->renderForAsyncWorker(page, scale, renderer,
+                                                  currentToken, key);
 
-        // getOrRender is the thread-safe lookup->render->insert path (renders
-        // OUTSIDE the cache lock; concurrent duplicate workers dedupe at
-        // insert time via the TOCTOU re-check).
-        QImage rendered = self->getOrRender(page, scale, renderer);
-        if (rendered.isNull()) return;
+        // Retire the job BEFORE delivering, under the cache lock — on EVERY
+        // exit path: from this point a new request either cache-hits (fresh
+        // render inserted) or starts fresh (superseded render inserted
+        // nothing) — it can never attach to a worker that is about to exit.
+        // The waiters snapshot is taken under the same lock, so every attach
+        // that happened during the render is captured exactly once.
+        QList<std::function<void(const QImage&)>> waiters;
+        {
+            WriteLockGuard guard(self->m_lock);
+            self->m_asyncJobs.remove(key);
+            waiters = job->waiters;
+            self->m_asyncWorkerCompletions.fetchAndAddRelaxed(1);
+        }
 
         // Cancellation between render and delivery: a stale render (document
-        // changed mid-render) is never DELIVERED to the consumer. (It may
-        // already have been inserted by getOrRender; that is safe by
-        // construction — the cache is keyed by page+scale only, so every
-        // document change necessarily routes through clear(), which joins
-        // this worker via drainPrefetches() BEFORE wiping, so no stale entry
-        // survives the wipe and nothing is ever misattributed to new content.)
-        if (self->m_prefetchCancelToken.loadRelaxed() != currentToken)
-            return;
+        // changed mid-render) is neither inserted (renderForAsyncWorker) nor
+        // DELIVERED to the consumer. The renderPageAsync hit path and the
+        // token epoch make every document change route through clear(),
+        // which joins this worker via drainPrefetches() BEFORE wiping, so
+        // nothing stale is ever misattributed to new content.
+        if (rendered.isNull()) return;
+        if (self->m_prefetchCancelToken.loadRelaxed() != currentToken) return;
 
-        if (onRendered) onRendered(rendered);
+        // Deliver to THE requester and every coalesced duplicate. All waiters
+        // run sequentially on THIS worker thread (consumers marshal).
+        for (const auto& waiter : waiters)
+            if (waiter) waiter(rendered);
     });
 
     {
         WriteLockGuard guard(m_lock);
-        m_inFlightPrefetches.erase(
-            std::remove_if(m_inFlightPrefetches.begin(), m_inFlightPrefetches.end(),
-                           [](const QFuture<void>& f) { return f.isFinished(); }),
-            m_inFlightPrefetches.end());
         m_inFlightPrefetches.append(future);
     }
 
     // Stats: hits/misses are counted by the actual cache accesses (the sync
-    // hit above, getOrRender inside the worker) — a scheduled-but-cancelled
-    // request counts as neither.
+    // hit above, renderForAsyncWorker inside the worker) — a scheduled-but-
+    // cancelled request counts as neither.
     return false;
 }
 

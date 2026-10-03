@@ -379,6 +379,15 @@ private:
         qint64 lastAccessed = 0;
         qint64 bytes = 0;       // cached pixmap size; tracked so eviction needn't re-sum
     };
+    // SESSION-SCOPED KEYS (rotate-view disclosure): an entry keyed on a
+    // non-zero m_viewRotation becomes unreachable the moment the view resets
+    // (resetViewRotation/loadDocument) — it is never served again, and it is
+    // NOT actively wiped. The memory is still bounded honestly: at most ONE
+    // entry per page lives here, the page's next renderPage() at the new
+    // rotation REPLACES it (the old entry's bytes are discounted before the
+    // insert), and MaxCacheBytes LRU eviction applies throughout. A reset
+    // therefore costs at most one re-render per visited page — acceptable,
+    // disclosed here rather than swept into an extra invalidation pass.
     mutable QHash<int, CachedPage> m_pageCache;
     mutable qint64 m_cacheAccessCounter = 0;
     mutable qint64 m_cacheTotalBytes = 0;   // P9: running sum of all cached pixmap bytes

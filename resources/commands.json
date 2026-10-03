@@ -3560,6 +3560,20 @@
    "shortcut": "Ctrl+-",
    "status": "toolid",
    "toolId": "ZoomOut"
+  },
+  "rotateViewCW": {
+   "description": "Rotate the view 90° clockwise. Session-only: the file is not changed and the view resets when the document closes. Free pixel scrolling is unavailable while rotated; page navigation still works.",
+   "icon": "arrow_rotate_clockwise",
+   "label": "Rotate View Clockwise",
+   "status": "toolid",
+   "toolId": "RotateViewCW"
+  },
+  "rotateViewCCW": {
+   "description": "Rotate the view 90° counter-clockwise. Session-only: the file is not changed and the view resets when the document closes. Free pixel scrolling is unavailable while rotated; page navigation still works.",
+   "icon": "arrow_rotate_counterclockwise",
+   "label": "Rotate View Counter-Clockwise",
+   "status": "toolid",
+   "toolId": "RotateViewCCW"
   }
  }
 }

@@ -1,0 +1,45 @@
+=== NC (negative control) pre-fix: existing pins over the same machinery must PASS against the seam-only tree ===
+2026-10-03T04:02Z
+
+--- TestThumbnailOffGui::renderPageAsyncRunsOffThreadAndDelivers
+PASS   : TestThumbnailOffGui::initTestCase()
+PASS   : TestThumbnailOffGui::renderPageAsyncRunsOffThreadAndDelivers()
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 2695ms
+EXIT=0
+--- TestThumbnailOffGui::renderPageAsyncCacheHitServedSynchronously
+PASS   : TestThumbnailOffGui::initTestCase()
+PASS   : TestThumbnailOffGui::renderPageAsyncCacheHitServedSynchronously()
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 2823ms
+EXIT=0
+--- TestThumbnailOffGui::clearCancelsInFlightRenderJoinsAndDeliversNothing
+PASS   : TestThumbnailOffGui::initTestCase()
+PASS   : TestThumbnailOffGui::clearCancelsInFlightRenderJoinsAndDeliversNothing()
+PASS   : TestThumbnailOffGui::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 3489ms
+EXIT=0
+--- TestCompareIntegration::progressDialogTracksStagesDuringDiff
+PASS   : TestCompareIntegration::initTestCase()
+PASS   : TestCompareIntegration::progressDialogTracksStagesDuringDiff()
+PASS   : TestCompareIntegration::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 289ms
+EXIT=0
+--- TestCompareIntegration::cancelMidDiffStopsWorkerAndKeepsStateClean
+PASS   : TestCompareIntegration::initTestCase()
+PASS   : TestCompareIntegration::cancelMidDiffStopsWorkerAndKeepsStateClean()
+PASS   : TestCompareIntegration::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 429ms
+EXIT=0
+--- TestHotFolder::pollingDedupsAndFlatDrops
+PASS   : TestHotFolder::initTestCase()
+PASS   : TestHotFolder::pollingDedupsAndFlatDrops()
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 1382ms
+EXIT=0
+--- TestHotFolder::controllerBulkFileEventsDoNotWalkPerEvent
+PASS   : TestHotFolder::initTestCase()
+PASS   : TestHotFolder::controllerBulkFileEventsDoNotWalkPerEvent()
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 3 passed, 0 failed, 0 skipped, 0 blacklisted, 902ms
+EXIT=0

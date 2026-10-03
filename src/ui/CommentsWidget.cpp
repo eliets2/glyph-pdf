@@ -819,22 +819,16 @@ void CommentsWidget::restoreSelection(const QString &annoId)
 // double-quoted with inner quotes doubled. PGR-17: comment text/author is
 // attacker-influenceable input meeting a spreadsheet interpreter; a field
 // whose FIRST character is '=', '+', '-' or '@' (or TAB/CR) evaluates as a
-// formula or DDE payload when the exported CSV is opened. The formula guard
-// is the CONVERSION export's csvFormulaSafeCell — a single contract so the
-// two exporters cannot drift; since M3 it exempts plain numbers ("-42",
-// "+3.14", "-2,5") from the apostrophe. The RFC-4180 quoting stays local.
-// Public so the escaping contract is directly testable.
+// formula or DDE payload when the exported CSV is opened. The whole
+// composition (formula-safe then RFC-4180 quote-when-needed) is THE shared
+// cell contract, ConversionManager::csvCell (r3-api harmonization — the
+// composition used to be duplicated here and in A11yReportWriter::csvCell),
+// since M3 it exempts plain numbers ("-42", "+3.14", "-2,5") from the
+// apostrophe. Kept as a member so the comments contract stays nameable and
+// directly testable.
 QString CommentsWidget::csvEscapeField(const QString &raw)
 {
-    const QString safe = ConversionManager::csvFormulaSafeCell(raw);
-    const bool needsQuoting = safe.contains(QLatin1Char('"'))
-                           || safe.contains(QLatin1Char(','))
-                           || safe.contains(QLatin1Char('\n'))
-                           || safe.contains(QLatin1Char('\r'));
-    if (!needsQuoting) return safe;
-    QString escaped = safe;
-    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
-    return QLatin1Char('"') + escaped + QLatin1Char('"');
+    return ConversionManager::csvCell(raw);
 }
 
 // CSV of the DISPLAYED scope only. Columns use the persisted fields confirmed
