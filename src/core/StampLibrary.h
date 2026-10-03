@@ -25,13 +25,22 @@
 //
 // ── Row 18 image variant ────────────────────────────────────────────────────
 // A template carries EXACTLY ONE placement carrier: a text template OR an
-// image path. An image stamp is an imported picture (pick file → name it →
-// it lands in the catalog); placing it arms the EXISTING signature-Upload
-// placement so the annotation rides the §9.7 P0 /Stamp + image-appearance
-// writer unchanged. The image itself is a COPY owned by the catalog (never
-// a reference to the user's original file), stored as a path RELATIVE to
-// the stamps.json directory — the profile stays self-contained, and
-// absolute/traversing paths are refused at load (tamper resistance).
+// image path (text XOR image — a text entry with a non-empty imagePath, or
+// an image entry with no path, is an INVALID carrier). The rule is enforced
+// at every boundary that builds or reads persisted entries — loadCustomFrom
+// refuses a text entry carrying an unsafe image path, and addImageStampTo
+// writes exactly one carrier — but StampTemplate is an aggregate, so an
+// IN-MEMORY construction site owns the duty too: set imagePath only for the
+// image variant and keep textTemplate the sole carrier otherwise. Placing
+// goes through loadStampImage/imageAbsolutePath, which fail closed on an
+// unsafe path either way. An image stamp is an imported picture (pick file →
+// name it → it lands in the catalog); placing it arms the EXISTING
+// signature-Upload placement so the annotation rides the §9.7 P0 /Stamp +
+// image-appearance writer unchanged. The image itself is a COPY owned by
+// the catalog (never a reference to the user's original file), stored as a
+// path RELATIVE to the stamps.json directory — the profile stays
+// self-contained, and absolute/traversing paths are refused at load (tamper
+// resistance).
 struct StampTemplate {
     QString id;            // "builtin:<name>" or "custom:<uuid>"
     QString name;          // display name ("Approved")
@@ -70,12 +79,14 @@ public:
     // ONE committed import step: the source must FULLY decode as an image,
     // a normalized PNG copy lands in stamp-images/, the entry is appended
     // and persisted. On any failure returns nullopt and (when provided)
-    // fills *error with a typed, user-facing reason — never a silent accept,
+    // fills *errorOut with a typed, user-facing reason — the same
+    // bool/opt + errorOut refusal shape as the sibling utility writers
+    // (ReviewSummaryWriter, A11yReportWriter) — never a silent accept,
     // never a half import.
     static std::optional<StampTemplate> addImageStampTo(const QString& jsonPath,
                                                         const QString& name,
                                                         const QString& sourceImagePath,
-                                                        QString* error = nullptr);
+                                                        QString* errorOut = nullptr);
     // Decode the stamp image for placement/preview (EXIF orientation honored).
     // A null image means missing or undecodable — callers must surface that
     // honestly (typed message, no placement), never place a blank stamp.

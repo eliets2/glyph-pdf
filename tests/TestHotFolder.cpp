@@ -542,6 +542,53 @@ private slots:
         c.stop();
     }
 
+    // r3-api harmonization pin — CROSS-PATH DEDUP: the fs-event pass (debounce
+    // fire) and the poll tick share ONE processed set, so each drop is
+    // delivered exactly once even with BOTH paths live at once (the
+    // network-share reality: a stray fs-event arriving while polling, or a
+    // poll tick landing between an fs-event burst). Whichever pass runs first
+    // delivers; the other must stay silent — per file, in both directions.
+    void crossPathIngestSharesOneProcessedSet() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));                              // fs-event path live
+        QVERIFY(c.startPolling(hotDir(), /*intervalMs=*/200));   // poll path ALSO live
+
+        // Drop A: delivered exactly once, no matter which pass wins the race.
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("cross-a.pdf")).isEmpty());
+        c.triggerDirectoryChangedForTest();                      // arms the debounce too
+        const int ceilingMs = 5000;
+        int waited = 0;
+        while (ingested.size() < 1 && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(ingested.size() == 1, "cross-path drop A was never delivered");
+        QTest::qWait(700);   // a full debounce window + ≥2 poll ticks
+        QVERIFY2(ingested.size() == 1,
+                 "drop A was re-ingested by the OTHER live path");
+
+        // Drop B: same exactly-once contract in the other direction's shadow.
+        QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("cross-b.pdf")).isEmpty());
+        waited = 0;
+        while (ingested.size() < 2 && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(ingested.size() == 2, "cross-path drop B was never delivered");
+        QTest::qWait(700);   // a full debounce window + ≥2 poll ticks
+        QVERIFY2(ingested.size() == 2,
+                 "a delivered file was re-ingested by the other path");
+        QVERIFY2(c.ingestDeliver().isEmpty(),
+                 "a direct ingest pass after both paths delivered must find nothing new");
+        c.stop();
+    }
+
     // The identity key is subtree-unique: the same stem in different
     // subdirectories ingests BOTH (filename|mtime alone would collide — the
     // recursion capability fixed the key to the root-relative path). The

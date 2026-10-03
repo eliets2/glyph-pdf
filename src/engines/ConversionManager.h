@@ -85,6 +85,18 @@ public:
     // guidance). Public so the escaping contract is directly testable.
     static QString csvFormulaSafeCell(const QString &cell);
 
+    // THE one-cell CSV contract (r3-api harmonization, wave-2b audit finding
+    // 8): csvFormulaSafeCell (PGR-16/M3, layer 1) followed by RFC-4180
+    // quoting — quote exactly when the cell carries '"', ',' or a newline,
+    // doubling inner quotes (layer 2). The composition was previously
+    // duplicated in CommentsWidget::csvEscapeField and
+    // A11yReportWriter::csvCell; both now delegate here so the three CSV
+    // exporters cannot drift one level up. Public so the combined contract
+    // is directly testable. (The conversion table export emits its own
+    // always-quoted rows on top of csvFormulaSafeCell — a deliberately
+    // different, older emission shape pinned by its own suite.)
+    static QString csvCell(const QString &raw);
+
 private:
     bool exportToWord(const QString &outputPath, const QList<QList<TextElement>> &rows);
     bool exportToExcel(const QString &outputPath, const QList<QList<TextElement>> &rows);

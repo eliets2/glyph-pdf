@@ -25,10 +25,11 @@
 //     silent.
 //
 // CSV discipline (single-contract): every cell leaves through
-// csvCell() = ConversionManager::csvFormulaSafeCell (PGR-16/M3
-// formula-injection hardening, shared with the conversion and comments
-// exporters so the three cannot drift) + RFC-4180 quoting, UTF-8, CRLF —
-// the same emission discipline as CommentsWidget::csvEscapeField.
+// csvCell() = ConversionManager::csvCell — csvFormulaSafeCell (PGR-16/M3
+// formula-injection hardening) + RFC-4180 quoting, ONE composition shared
+// with the conversion and comments exporters so the three cannot drift at
+// the composition layer — UTF-8, CRLF, the same emission discipline as
+// CommentsWidget::csvEscapeField.
 namespace gp {
 
 class A11yReportWriter {
@@ -43,10 +44,12 @@ public:
     // testable seam, like CommentsWidget::displayedCsv.
     static QString csvPayload(const A11yReport& report);
 
-    // ONE cell-escaping contract: ConversionManager::csvFormulaSafeCell +
-    // RFC-4180 quoting (quote when the cell carries '"', ',' or a newline;
-    // inner quotes doubled). Public so the escaping contract is directly
-    // testable — the same reasoning as CommentsWidget::csvEscapeField.
+    // ONE cell-escaping contract: ConversionManager::csvCell
+    // (csvFormulaSafeCell + RFC-4180 quoting — quote when the cell carries
+    // '"', ',' or a newline; inner quotes doubled). Public so the escaping
+    // contract is directly testable — the same reasoning as
+    // CommentsWidget::csvEscapeField (both delegate to the ONE shared
+    // composition).
     static QString csvCell(const QString& raw);
 
     // Write the print-ready PDF summary. Delivered through the SafeSave

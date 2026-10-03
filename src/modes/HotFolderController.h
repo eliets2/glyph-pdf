@@ -35,7 +35,9 @@ public:
     // Debounce window for fs-event storms — BatchMode's historical 500 ms.
     static constexpr int kDebounceMs = 500;
     // Polling-fallback tick for network shares: fresh enough for a
-    // watched-folder ingest, light enough for a share.
+    // watched-folder ingest, light enough for a share. Public because the
+    // owner of the toggle (BatchMode) passes it to startPolling — the
+    // constant and the parameter are one contract, not two magic numbers.
     static constexpr int kPollIntervalMs = 2000;
 
     explicit HotFolderController(QObject* parent = nullptr);
@@ -101,6 +103,13 @@ private:
     // size (flat files yield the historical filename|mtime key shape plus
     // the size term; wave-2b F-5 — mtime-preserving or same-tick rewrites on
     // NAS-class shares used to share the old key and never re-ingest).
+    //
+    // CROSS-PATH DEDUP INVARIANT: the fs-event path (debounce fire) and the
+    // polling path (tick) funnel through the SAME ingestDeliver() pass and
+    // the SAME m_processed key set, so a file delivered by either path is
+    // never re-delivered by the other — even when both paths are live at
+    // once (a stray fs-event on a polled network share). Pinned by
+    // TestHotFolder::crossPathIngestSharesOneProcessedSet.
     QString hotFileKey(const QFileInfo& fi) const;
 
     QString m_dir;

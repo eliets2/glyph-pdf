@@ -20,22 +20,17 @@
 #include "engines/ConversionManager.h"
 
 // ── CSV ──────────────────────────────────────────────────────────────────────
-// ONE cell-escaping contract, delegated: the PGR-16/M3 formula-injection
-// hardening lives in ConversionManager::csvFormulaSafeCell (shared with the
-// conversion exporter and CommentsWidget::csvEscapeField, so the three
-// exporters cannot drift); the RFC-4180 quoting is the local emission rule.
+// ONE cell-escaping contract, DELEGATED (r3-api harmonization): csvCell is
+// ConversionManager::csvCell — csvFormulaSafeCell (PGR-16/M3 formula-injection
+// hardening, layer 1) + RFC-4180 quote-when-needed (layer 2) — the single
+// composition shared with the conversion exporter and
+// CommentsWidget::csvEscapeField, so the three exporters cannot drift at the
+// composition layer either. Kept as a member so the writer's contract stays
+// nameable and directly testable.
 namespace gp {
 
 QString A11yReportWriter::csvCell(const QString& raw) {
-    const QString safe = ConversionManager::csvFormulaSafeCell(raw);
-    const bool needsQuoting = safe.contains(QLatin1Char('"'))
-                           || safe.contains(QLatin1Char(','))
-                           || safe.contains(QLatin1Char('\n'))
-                           || safe.contains(QLatin1Char('\r'));
-    if (!needsQuoting) return safe;
-    QString escaped = safe;
-    escaped.replace(QLatin1Char('"'), QStringLiteral("\"\""));
-    return QLatin1Char('"') + escaped + QLatin1Char('"');
+    return ConversionManager::csvCell(raw);
 }
 
 QString A11yReportWriter::severityLabel(gp::A11ySeverity s) {
