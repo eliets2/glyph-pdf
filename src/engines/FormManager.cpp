@@ -1553,6 +1553,48 @@ bool decodeUtf8Strict(const QByteArray& bytes, const QString& what, QString& out
     return true;
 }
 
+// ISO 32000 §7.9.2.2 text-string decode (wave-2b F-1). FDF field names and
+// values are TEXT strings: PDFDocEncoding or UTF-16BE — and Acrobat, the
+// canonical producer, exports UTF-16BE (hex-escaped with the FE FF BOM, or
+// literal with \376\377 octal escapes). Strict UTF-8 refused exactly those
+// files ("the feature inverts for the most common real-world producer") and,
+// worse, a BOM-less UTF-16BE payload slipped through strict UTF-8 as
+// NUL-padded mojibake. So the string-value decoder sniffs UTF-16BE:
+//   * a FE FF BOM → UTF-16BE (BOM stripped before the fixed-endian decode);
+//   * else an even-length payload whose high bytes are all 0x00 with at
+//     least one non-zero low byte → BOM-less UTF-16BE;
+//   * anything else → strict UTF-8 (genuinely invalid bytes still refuse —
+//     the fail-closed contract is unchanged).
+bool decodePdfTextString(const QByteArray& bytes, const QString& what, QString& out, ErrorInfo* err) {
+    const bool hasBom =
+        bytes.size() >= 2
+        && static_cast<unsigned char>(bytes.at(0)) == 0xFE
+        && static_cast<unsigned char>(bytes.at(1)) == 0xFF;
+    bool utf16be = hasBom;
+    if (!utf16be && bytes.size() >= 2 && bytes.size() % 2 == 0) {
+        bool allHighZero = true;
+        bool anyLowNonZero = false;
+        for (qsizetype i = 0; i + 1 < bytes.size(); i += 2) {
+            const unsigned char hi = static_cast<unsigned char>(bytes.at(i));
+            const unsigned char lo = static_cast<unsigned char>(bytes.at(i + 1));
+            if (hi != 0x00) { allHighZero = false; break; }
+            if (lo != 0x00) anyLowNonZero = true;
+        }
+        utf16be = allHighZero && anyLowNonZero;
+    }
+    if (utf16be) {
+        QStringDecoder dec(QStringConverter::Utf16BE);
+        out = dec.decode(hasBom ? bytes.mid(2) : bytes);
+        if (dec.hasError()) {
+            return importErr(err,
+                QObject::tr("The form data file contains a malformed UTF-16BE text string and was not imported."),
+                what + QStringLiteral(": truncated UTF-16BE data"));
+        }
+        return true;
+    }
+    return decodeUtf8Strict(bytes, what, out, err);
+}
+
 // Bounded string-aware FDF scanner. Every branch advances `i`, so a scan is
 // O(n) in the (capped) input — no regex backtracking on hostile content.
 struct FdfCursor {
@@ -1694,14 +1736,15 @@ bool skipCompound(FdfCursor& c, QString& why) {
     }
 }
 
-// pdfUnescapeLiteralString + strict UTF-8: the canonical inverse of the
-// export-side escaper, then a refuse-don't-mojibake decode.
+// pdfUnescapeLiteralString + §7.9.2.2 text-string decode: the canonical
+// inverse of the export-side escaper, then a refuse-don't-mojibake decode
+// that still admits the UTF-16BE text strings the FDF format defines.
 bool decodePdfString(const QString& rawEscaped, QString& out, ErrorInfo* err) {
     const QByteArray utf8 = rawEscaped.toUtf8();
     const std::string bytes = pdfUnescapeLiteralString(
         std::string(utf8.constData(), static_cast<size_t>(utf8.size())));
-    return decodeUtf8Strict(QByteArray(bytes.data(), static_cast<int>(bytes.size())),
-                            QStringLiteral("FDF string value"), out, err);
+    return decodePdfTextString(QByteArray(bytes.data(), static_cast<int>(bytes.size())),
+                               QStringLiteral("FDF string value"), out, err);
 }
 
 bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
@@ -1797,7 +1840,7 @@ bool parseFdfFields(const QString& content, QVariantMap& out, ErrorInfo* err) {
                 if (hex.size() % 2 != 0)
                     return importErr(err, kRefused, QObject::tr("hex string has an odd digit count"));
                 QString decoded;
-                if (!decodeUtf8Strict(QByteArray::fromHex(hex), QStringLiteral("FDF hex string value"), decoded, err))
+                if (!decodePdfTextString(QByteArray::fromHex(hex), QStringLiteral("FDF hex string value"), decoded, err))
                     return false;
                 if (key == QLatin1String("/T"))      { name = decoded;  haveName = true; }
                 else if (key == QLatin1String("/V")) { value = decoded; haveValue = true; }

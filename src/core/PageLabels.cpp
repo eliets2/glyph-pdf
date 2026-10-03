@@ -7,6 +7,7 @@
 #include "PageLabels.h"
 
 #include <QFile>
+#include <QStringDecoder>
 #include "engines/SafeSave.h"
 
 #include <podofo/podofo.h>
@@ -53,6 +54,52 @@ QString letters(int value, bool uppercase)
     const int repeats = (value - 1) / 26 + 1;
     const QLatin1Char letter((uppercase ? 'A' : 'a') + (value - 1) % 26);
     return QString(repeats, letter);
+}
+
+// ── §7.9.2.2 text-string encoding (wave-2b F-15) ────────────────────────────
+// ISO 32000 §7.9.2.2: a TEXT string is PDFDocEncoding or UTF-16BE with the
+// FE FF byte-order mark. PoDoFo's PdfString(UTF-8) constructor carries the
+// UTF-8 bytes as a simple (non-unicode) string: it self-roundtrips through a
+// UTF-8 decoder — so an in-tree readback gate speaking UTF-8 cannot see the
+// bug — but a spec-conforming viewer decodes the bytes as PDFDocEncoding and
+// renders mojibake. ASCII(-safe) prefixes keep the byte-identical literal
+// form (PDFDocEncoding is ASCII-identical in 0x00–0x7F); anything outside is
+// written as the UTF-16BE+BOM text string every consumer must accept.
+bool prefixIsAsciiSafe(const QString& prefix)
+{
+    for (const QChar ch : prefix) {
+        if (ch.unicode() >= 0x80)
+            return false;
+    }
+    return true;
+}
+
+QByteArray utf16beTextStringBytes(const QString& prefix)
+{
+    QByteArray be;
+    be.reserve(2 + prefix.size() * 2);
+    be += char(0xFE);
+    be += char(0xFF);
+    const ushort* units = prefix.utf16();
+    for (qsizetype i = 0; i < prefix.size(); ++i) {
+        be += char((units[i] >> 8) & 0xFF);
+        be += char(units[i] & 0xFF);
+    }
+    return be;
+}
+
+// The §7.9.2.2 inverse used by the write-path validation gate: a BOM'd
+// payload decodes as UTF-16BE; anything else is the byte form this writer
+// emits for the ASCII-safe case (raw bytes == UTF-8 there).
+QString decodePdfTextStringBytes(const QByteArray& raw)
+{
+    if (raw.size() >= 2
+            && static_cast<unsigned char>(raw.at(0)) == 0xFE
+            && static_cast<unsigned char>(raw.at(1)) == 0xFF) {
+        QStringDecoder dec(QStringConverter::Utf16BE);
+        return dec.decode(raw.mid(2));
+    }
+    return QString::fromUtf8(raw.constData(), raw.size());
 }
 
 } // namespace
@@ -151,11 +198,23 @@ bool writeNumberTree(PoDoFo::PdfMemDocument& doc, int startValue, Style style,
             // /P (ISO 32000 Table 159): a text string PREPENDED to every
             // computed label of the range (prefix precedes the number).
             // Written ONLY for a non-empty prefix — an empty prefix must
-            // never produce a /P key.
+            // never produce a /P key. Encoded per §7.9.2.2 (wave-2b F-15):
+            // ASCII-safe stays literal, anything else goes out as the
+            // UTF-16BE+BOM text string.
             if (!e.prefix.isEmpty()) {
-                range.GetDictionary().AddKey(
-                    "P", PoDoFo::PdfObject(
-                             PoDoFo::PdfString(e.prefix.toStdString())));
+                if (prefixIsAsciiSafe(e.prefix)) {
+                    range.GetDictionary().AddKey(
+                        "P", PoDoFo::PdfObject(
+                                 PoDoFo::PdfString(e.prefix.toStdString())));
+                } else {
+                    const QByteArray be = utf16beTextStringBytes(e.prefix);
+                    range.GetDictionary().AddKey(
+                        "P", PoDoFo::PdfObject(PoDoFo::PdfString::FromRaw(
+                                 PoDoFo::bufferview(
+                                     be.constData(),
+                                     static_cast<size_t>(be.size())),
+                                 /*hex=*/false)));
+                }
             }
             nums.Add(range);
         }
@@ -226,7 +285,10 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
                             == expected.size() * 2
                      && static_cast<int>(check.GetPages().GetCount()) == pageCount;
             // The written /P must match the request exactly: present iff the
-            // prefix was non-empty, and byte-equal to it when present.
+            // prefix was non-empty, and text-string-equal to it when present
+            // — decoded per §7.9.2.2 (UTF-16BE+BOM or the ASCII literal
+            // form), not blindly as UTF-8 (the blind decode was exactly what
+            // made the raw-UTF-8 writer self-certify, wave-2b F-15).
             if (ok) {
                 const PoDoFo::PdfObject* range0 = nums->GetArray().FindAt(1);
                 const PoDoFo::PdfObject* p =
@@ -236,10 +298,10 @@ bool writeNumberTree(const QString& pdfPath, int startValue, Style style,
                 ok = prefix.isEmpty()
                          ? p == nullptr
                          : p && p->IsString()
-                               && QString::fromUtf8(
+                               && decodePdfTextStringBytes(QByteArray(
                                       p->GetString().GetString().data(),
                                       static_cast<qsizetype>(
-                                          p->GetString().GetString().size()))
+                                          p->GetString().GetString().size())))
                                       == prefix;
             }
         }

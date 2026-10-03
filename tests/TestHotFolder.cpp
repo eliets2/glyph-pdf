@@ -430,8 +430,11 @@ private slots:
         c.stop();
     }
 
-    // A subdirectory created AFTER start gets watched on the next change
-    // delivery (watch refresh in the directory-changed path).
+    // A subdirectory created AFTER start gets watched on the next debounce
+    // fire (wave-2b F-7 moved the watch refresh OUT of the per-event path
+    // into the debounce fire, together with the ingest pass it always
+    // accompanied — discovery is asserted AFTER the debounce window now, not
+    // synchronously per event).
     void controllerDiscoversSubdirCreatedAfterStart() {
         HotFolderController c;
         QDir().mkpath(hotDir());
@@ -441,6 +444,7 @@ private slots:
 
         QDir().mkpath(hotDir(QStringLiteral("late")));
         c.triggerDirectoryChangedForTest();  // what a parent-change event does
+        QTest::qWait(700);  // one full debounce window: the refresh fires there
         QVERIFY2(c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late"))),
                  qPrintable(c.watchedDirectoriesForTest().join(',')));
         c.stop();
@@ -585,6 +589,94 @@ private slots:
             waited += 100;
         }
         QVERIFY2(sameStemCount() == 2, "nested same-stem drops not both ingested");
+        c.stop();
+    }
+
+    // ── Wave-2b F-5: the identity key must carry content-bearing state ──────
+    // path+mtime swallows rewrites with preserved mtimes (cp -p, archive
+    // restore, robocopy /COPYTIMES) and same-tick rewrites on the NAS-class
+    // shares polling targets (1–2 s timestamp granularity): the replaced
+    // file's key equals the old key and is silently NEVER re-ingested. With
+    // size in the key, a rewrite that changes the file's length re-ingests
+    // even under a forged-identical mtime. Residual, by design (poll tick
+    // cadence): a same-size same-mtime rewrite is still one ingest.
+    void pollingRewriteForgedMtimeDifferentSizeReingests() {
+        HotFolderController c;
+        QStringList ingested;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+
+        QDir().mkpath(hotDir());
+        const QString pdf = createMinimalPdf(hotDir(), QStringLiteral("r.pdf"));
+        QVERIFY(!pdf.isEmpty());
+        // Forge a stable, already-stale mtime BEFORE start: seeding marks the
+        // pre-start file, and the same forged time is restored after the
+        // rewrite (exactly what cp -p / archive restore produce).
+        const QDateTime forged = QDateTime::currentDateTimeUtc().addSecs(-60);
+        QVERIFY2(forgeMTime(pdf, forged), "mtime forge failed — pin premise broken");
+        const qint64 oldSize = QFileInfo(pdf).size();
+
+        QVERIFY(c.startPolling(hotDir(), /*intervalMs=*/200));
+        QVERIFY(c.isPolling());
+        QTest::qWait(450);  // ≥2 ticks: the pre-start file stays seeded
+        QVERIFY2(ingested.isEmpty(), "seeded file re-ingested — seeding broken");
+
+        // Rewrite in place: different content (different size), mtime forged
+        // back to the exact pre-rewrite value. Under the pre-fix path+mtime
+        // key this rewrite is invisible forever.
+        QVERIFY(writeFile(pdf,
+            "%PDF-1.4\n%rewritten-in-place-with-a-different-length-body\n"
+            "%second-line-to-change-the-size\n%%EOF\n"));
+        QVERIFY2(forgeMTime(pdf, forged), "mtime forge failed — pin premise broken");
+        QVERIFY2(QFileInfo(pdf).lastModified() == forged,
+                 "premise: forged mtime not preserved across the rewrite");
+        QVERIFY2(QFileInfo(pdf).size() != oldSize,
+                 "premise: the rewrite must change the size for this pin");
+
+        const int ceilingMs = 5000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(),
+                 "mtime-preserved size-changing rewrite never re-ingested (F-5)");
+        QCOMPARE(ingested.size(), 1);
+        QVERIFY(ingested.first().contains(QStringLiteral("r.pdf")));
+        c.stop();
+    }
+
+    // ── Wave-2b F-7: the watch refresh must NOT walk the whole tree per ─────
+    // fs-event. A bulk FILE copy-in (no new directories) fires one
+    // directoryChanged per file; the pre-fix code ran the full-tree
+    // QDirIterator walk synchronously for EVERY event (O(events x dirs) on
+    // the GUI thread — a local DoS for any 10k-file drop). Counted via the
+    // watchWalkCountForTest seam: events inside one debounce window must
+    // produce ZERO synchronous walks and exactly ONE walk at the fire.
+    void controllerBulkFileEventsDoNotWalkPerEvent() {
+        HotFolderController c;
+        int deliveries = 0;
+        c.setIngestHandler([&deliveries](const QStringList&) { ++deliveries; });
+
+        QDir().mkpath(hotDir());
+        QVERIFY(c.start(hotDir()));
+        const int walksAtStart = c.watchWalkCountForTest();
+        QVERIFY2(walksAtStart >= 1, "start must perform the initial watch walk");
+
+        for (int i = 0; i < 4; ++i) {
+            QVERIFY(!createMinimalPdf(hotDir(),
+                                      QStringLiteral("bulk%1.pdf").arg(i)).isEmpty());
+            c.triggerDirectoryChangedForTest();  // one per copied-in file
+        }
+        QVERIFY2(c.watchWalkCountForTest() == walksAtStart,
+                 "directory-changed walked the whole tree synchronously per "
+                 "event (F-7)");
+        QTest::qWait(700);  // one full debounce window + margin
+        QVERIFY2(c.watchWalkCountForTest() == walksAtStart + 1,
+                 "the debounce fire must refresh the watch exactly once");
+        QCOMPARE(c.debouncePassesForTest(), 1);
+        QCOMPARE(deliveries, 1);  // the four drops still land in one pass
         c.stop();
     }
 

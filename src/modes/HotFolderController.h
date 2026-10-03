@@ -76,12 +76,17 @@ public:
 
     // ── Test seams ─────────────────────────────────────────────────────────
     // Drives exactly what a QFileSystemWatcher::directoryChanged delivery
-    // does (watch refresh + debounce restart), without OS-event timing.
+    // does (debounce restart; the watch refresh runs at the fire — F-7),
+    // without OS-event timing.
     void triggerDirectoryChangedForTest() { onDirectoryChanged(); }
     // Debounce passes delivered so far (trigger→one-pass wiring pins).
     int debouncePassesForTest() const { return m_debouncePasses; }
     // The directories currently under QFileSystemWatcher watch.
     QStringList watchedDirectoriesForTest() const;
+    // Number of full-tree watch-walks performed (start + refresh passes).
+    // Wave-2b F-7 pin seam: the refresh must run once per debounce fire,
+    // never once per fs-event.
+    int watchWalkCountForTest() const { return m_watchWalks; }
 
 private slots:
     void onDirectoryChanged();
@@ -92,8 +97,10 @@ private:
     void watchSubdirectories();  // keep root + every subdirectory under watch
     QList<QFileInfo> recursivePdfEntries() const;  // the whole tree, *.pdf/*.PDF
 
-    // Subtree-unique identity: path relative to the watched root + mtime
-    // (flat files yield exactly the historical filename|mtime key).
+    // Subtree-unique identity: path relative to the watched root + mtime +
+    // size (flat files yield the historical filename|mtime key shape plus
+    // the size term; wave-2b F-5 — mtime-preserving or same-tick rewrites on
+    // NAS-class shares used to share the old key and never re-ingest).
     QString hotFileKey(const QFileInfo& fi) const;
 
     QString m_dir;
@@ -103,6 +110,7 @@ private:
     QTimer* m_pollTimer = nullptr;      // polling fallback (network shares)
     std::function<void(const QStringList&)> m_ingestHandler;
     int m_debouncePasses = 0;
+    int m_watchWalks = 0;               // full-tree walk counter (F-7 seam)
 };
 
 } // namespace gp
