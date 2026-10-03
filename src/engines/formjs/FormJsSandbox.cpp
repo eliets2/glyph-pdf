@@ -206,6 +206,43 @@ FormJsSandbox::FormJsSandbox(const SandboxLimits& limits)
         m_impl->rt = nullptr;
         return;
     }
+    // r4-misc (security-auditor finding 4): the LINKED-library gate. The
+    // configure-time pin (CMakeLists) parses quickjs.h macros — it proves
+    // the HEADERS advertise the pinned version, not that the libqjs this
+    // binary actually loaded is that engine (a mismatched package — headers
+    // 0.15.1, runtime 0.15.0 or a locally-built variant — passed the pin
+    // while silently changing the scripting semantics the AF-shim goldens
+    // pin). quickjs-ng exposes the engine's own version report
+    // (JS_GetVersion), so the verification moves to the point of use, the
+    // same fail-closed discipline as the 7-Zip runtime hash check: on
+    // divergence the runtime is torn down and every entry point refuses
+    // with an honest reason (unavailableReason). Residual gap, disclosed:
+    // the gate verifies the VERSION STRING, not the DLL's bytes — a
+    // same-version rebuilt/tampered libqjs passes; byte identity of the
+    // runtime DLL remains a configure-time ledger record (see CMakeLists),
+    // not an enforced check.
+    {
+        const QString expected = g_expectedRuntimeVersion.isEmpty()
+            ? QStringLiteral(GLYPHPDF_QUICKJS_VERSION)
+            : g_expectedRuntimeVersion;
+        const char* linkedRaw = JS_GetVersion();
+        const QString linked =
+            linkedRaw ? QString::fromUtf8(linkedRaw) : QString();
+        if (linked != expected) {
+            m_unavailableReason = QStringLiteral(
+                "quickjs-ng runtime version mismatch: the linked libqjs "
+                "reports %1, the build enforces %2 — refusing to execute "
+                "form scripts (the configure-time pin reads the headers; "
+                "the deliberate-upgrade path is the ledger)")
+                .arg(linked.isEmpty() ? QStringLiteral("<null>") : linked,
+                     expected);
+            JS_FreeContext(m_impl->ctx);
+            JS_FreeRuntime(m_impl->rt);
+            m_impl->ctx = nullptr;
+            m_impl->rt = nullptr;
+            return;
+        }
+    }
     // §3.1 Memory: hard allocation ceiling + interpreter stack cap.
     JS_SetMemoryLimit(m_impl->rt, static_cast<size_t>(m_limits.memoryLimitBytes));
     JS_SetMaxStackSize(m_impl->rt, static_cast<size_t>(m_limits.stackLimitBytes));

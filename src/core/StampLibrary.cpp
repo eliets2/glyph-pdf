@@ -187,6 +187,37 @@ std::optional<StampTemplate> StampLibrary::addImageStampTo(const QString& jsonPa
     // never accepted into the catalog.
     QImageReader reader(sourceImagePath);
     reader.setAutoTransform(true);   // honor EXIF orientation
+
+    // r4-misc dynamic probe (adversary "needs dynamic probe": decode bomb).
+    // A header that declares an enormous raster (the classic dimension bomb:
+    // tiny file, gigabytes of decoded pixels) is refused BEFORE any pixels
+    // are decoded, with an honest TYPED reason that names the declared
+    // size — the file IS a valid image, so refusing it as "unsupported or
+    // corrupt" would be a lie (and Qt's own allocation-limit failure used
+    // to surface exactly that wording through the null-read branch below).
+    // The ceiling is the reader's allocation limit (QImageReader::
+    // allocationLimit, MB — the guard the dynamic probe pulls down) floored
+    // by the stamp ceiling: a stamp is a small graphic; 256 MB of ARGB32
+    // (~64 Mpx) is orders of magnitude past any honest stamp.
+    const QSize declared = reader.size();
+    if (declared.width() > 0 && declared.height() > 0) {
+        qint64 limitBytes = 256LL * 1024 * 1024;
+        const int readerLimitMb = QImageReader::allocationLimit();
+        if (readerLimitMb > 0)
+            limitBytes = qMin(limitBytes, qint64(readerLimitMb) * 1024 * 1024);
+        const qint64 declaredBytes =
+            qint64(declared.width()) * declared.height() * 4;  // ARGB32 worst case
+        if (declaredBytes > limitBytes) {
+            return refuse(QObject::tr("%1 declares a %2x%3 pixel image — too "
+                                      "large to import as a stamp (the decode "
+                                      "limit is %4 MB). Resize the image first.")
+                              .arg(QFileInfo(sourceImagePath).fileName())
+                              .arg(declared.width())
+                              .arg(declared.height())
+                              .arg(limitBytes / (1024 * 1024)));
+        }
+    }
+
     const QImage img = reader.read();
     if (img.isNull() || img.width() < 1 || img.height() < 1)
         return refuse(QObject::tr("Could not read %1 as an image "

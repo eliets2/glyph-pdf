@@ -714,9 +714,14 @@ if(TARGET qjs)
     #    gates the eventual fixed engine).
     # An unreviewed runtime bump silently changes those semantics. The check
     # parses the version the LINKED headers advertise (quickjs.h QJS_VERSION_*)
-    # and hard-fails on mismatch. The deliberate-upgrade path: bump
-    # GLYPHPDF_QUICKJS_PIN, re-run the goldens, record the new package/runtime
-    # hash + re-authorization in the ledger.
+    # and hard-fails on mismatch. r4-misc (security-auditor finding 4): the
+    # headers are not the library — FormJsSandbox additionally verifies the
+    # LINKED engine at the point of use (JS_GetVersion vs
+    # GLYPHPDF_QUICKJS_VERSION) and refuses to execute scripts on divergence;
+    # the Windows runtime DLL's SHA-256 is recorded against the ledger below.
+    # The deliberate-upgrade path: bump GLYPHPDF_QUICKJS_PIN, re-run the
+    # goldens, record the new package/runtime hash + re-authorization in the
+    # ledger.
     set(GLYPHPDF_QUICKJS_PIN "0.15.1" CACHE STRING
         "Enforced quickjs-ng version pin (R18c); upgrade deliberately, see ledger")
     get_target_property(_qjs_inc_dirs qjs INTERFACE_INCLUDE_DIRECTORIES)
@@ -768,6 +773,21 @@ if(TARGET qjs)
         get_target_property(_qjs_location qjs IMPORTED_LOCATION_RELEASE)
         if(_qjs_location)
             get_filename_component(QUICKJS_RUNTIME_DLL "${_qjs_location}" REALPATH)
+        endif()
+        # r4-misc (security-auditor finding 4): the enforced pin above parses
+        # the HEADERS; the runtime gate (FormJsSandbox, JS_GetVersion vs
+        # GLYPHPDF_QUICKJS_VERSION) verifies the LINKED engine at the point
+        # of use. This records the resolved DLL's SHA-256 against the ledger
+        # row so a drifted runtime is visible to a human at configure time.
+        # Honest scope: the byte hash is a RECORD, not an enforced pin — the
+        # MSYS2 package updates independently of this tree, and a hard byte
+        # pin would fire on every repackage; the residual gap (a same-version
+        # rebuilt/tampered libqjs passes the version gate) is disclosed in
+        # FormJsSandbox.cpp and the lane report.
+        if(QUICKJS_RUNTIME_DLL AND EXISTS "${QUICKJS_RUNTIME_DLL}")
+            file(SHA256 "${QUICKJS_RUNTIME_DLL}" _qjs_dll_sha256)
+            message(STATUS "quickjs-ng runtime DLL sha256: ${_qjs_dll_sha256} "
+                "(ledger 0.15.1: cc92ba7e7ae642c8eee24434e125184fbafe9f975fda5bb3972dc5bc6d4583ce)")
         endif()
     else()
         set(QUICKJS_RUNTIME_DLL "")

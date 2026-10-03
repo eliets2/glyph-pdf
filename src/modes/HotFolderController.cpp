@@ -28,12 +28,24 @@
 // (the ingest scan walks the whole root per tick, so every unwatched
 // subtree is covered), and discloses once per degraded subtree through the
 // degraded-watch log channel (BatchMode's log) plus qWarning.
+//
+// r4-misc (cross-model audit round 4):
+//   * security-auditor finding 3 — the processed-set is BOUNDED (TTL sweep
+//     of unobserved entries + a hard entry cap); see HotFolderController.h
+//     for the honest re-ingest tradeoff.
+//   * adversary dynamic probe (junction loop) — the tree walk is loop-safe
+//     (walkTree's per-pass visited set). Pre-fix, a directory junction
+//     inside the watched root (root/loop → root) was DESCENDED: one real
+//     file delivered 64 times, the walk stopping only at the OS reparse
+//     resolution cap.
 #include "modes/HotFolderController.h"
 
+#include <QDateTime>
 #include <QDir>
-#include <QDirIterator>
 #include <QFileSystemWatcher>
 #include <QTimer>
+
+#include <algorithm>
 
 namespace gp {
 
@@ -64,30 +76,70 @@ QString HotFolderController::hotFileKey(const QFileInfo& fi, const QDir& root) c
          + QString::number(fi.size());
 }
 
-// The whole watched tree, files only, matching the historical two-pattern
-// filter (*.pdf and *.PDF), streamed entry-by-entry through \p visit.
-// R3-perf (audit finding 6): the poll tick runs this every 2 s on a network
-// share — it is a pure STAT walk (QDirIterator never opens file content) and
-// no longer materializes a whole-tree QList<QFileInfo> per tick; per-entry
-// work is the identity-key comparison against the processed set.
-void HotFolderController::forEachPdfEntry(
-        const std::function<void(const QFileInfo&)>& visit) const {
+// The whole watched tree, loop-safe, streamed entry-by-entry through the
+// visitor callbacks. r4-misc (adversary junction-loop probe): the naive
+// QDirIterator walk DESCENDED a directory junction (root/loop → root),
+// enumerating the whole tree once per loop hop — measured pre-fix: one real
+// file delivered 64 times, the walk terminating only where the OS refuses
+// to resolve the 64th reparse hop. An accidental bound is not a bound. The
+// iterative engine keeps a per-pass VISITED set keyed on canonical paths:
+// every real directory is descended exactly once, whatever links point at
+// it (a junction to any already-visited directory is skipped; two junctions
+// to the same target both skip once the target is visited). On POSIX the
+// same guard covers symlink loops. Pure stat/realpath work — never opens
+// file content.
+void HotFolderController::walkTree(
+        const std::function<void(const QFileInfo&)>& visit,
+        const std::function<void(const QFileInfo&)>& dirVisit) const {
     if (m_dir.isEmpty()) return;
-    QDirIterator it(m_dir,
-                    QStringList() << QStringLiteral("*.pdf") << QStringLiteral("*.PDF"),
-                    QDir::Files, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-        visit(it.fileInfo());
+    QSet<QString> visited;   // canonical paths of descended directories
+    QList<QString> stack{m_dir};
+    while (!stack.isEmpty()) {
+        const QString dir = stack.takeLast();
+        const QString canon = QFileInfo(dir).canonicalFilePath();
+        const QString visitedKey = canon.isEmpty() ? QDir::cleanPath(dir) : canon;
+        if (visited.contains(visitedKey)) continue;
+        visited.insert(visitedKey);
+        const QDir d(dir);
+        if (visit) {
+            // The historical two-pattern filter (*.pdf AND *.PDF).
+            const QList<QFileInfo> files =
+                d.entryInfoList(QStringList() << QStringLiteral("*.pdf")
+                                              << QStringLiteral("*.PDF"),
+                                QDir::Files);
+            for (const QFileInfo& fi : files) visit(fi);
+        }
+        const QList<QFileInfo> subs =
+            d.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
+        for (const QFileInfo& sub : subs) {
+            // r4-misc junction-loop probe: an NTFS directory junction is
+            // NEVER descended. Qt's canonicalFilePath does NOT resolve
+            // junctions (measured on Qt 6.11: it reports the junction's own
+            // path, and isSymLink() is false for them), so the canonical
+            // visited-set above cannot catch a junction loop — and descending
+            // one double-enumerates the target tree under different
+            // root-relative identity keys (the adversary probe measured ONE
+            // real file delivered 64 times, the walk stopping only at the OS
+            // reparse resolution cap). A junction is a leaf: drops behind it
+            // ingest via the target's own path when that lies inside the
+            // root; a junction to an external location is not walked (a
+            // documented narrowing — the pre-fix walk descended it, loop and
+            // all). POSIX/Windows true symlinks keep the canonical
+            // visited-set guard: canonicalFilePath resolves those.
+            if (sub.isJunction()) continue;
+            if (dirVisit) dirVisit(sub);
+            stack.append(sub.absoluteFilePath());
+        }
     }
 }
 
 void HotFolderController::seedProcessed() {
     m_processed.clear();
     const QDir root(m_dir);
-    forEachPdfEntry([this, &root](const QFileInfo& fi) {
-        m_processed.insert(hotFileKey(fi, root));
-    });
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    walkTree([this, &root, now](const QFileInfo& fi) {
+        m_processed.insert(hotFileKey(fi, root), now);
+    }, {});
 }
 
 // The single choke point through which every directory enters the native
@@ -142,21 +194,23 @@ void HotFolderController::engagePollingBackstop(const QStringList& failed) {
 
 // Keep the root and every (transitive) subdirectory under native watch so a
 // nested drop raises a change event without waiting for a poll tick.
+// r4-misc: the walk is loop-safe (walkTree's visited set) — a junction to an
+// already-covered directory is no longer re-walked, and (a side benefit)
+// the root and a junction pointing at it no longer BOTH get watch handles
+// (the duplicate watch double-delivered every event on the shared tree).
 void HotFolderController::watchSubdirectories() {
     if (!m_watcher || m_dir.isEmpty()) return;
     ++m_watchWalks;  // F-7 test seam: this is the expensive full-tree walk
     const QStringList already = m_watcher->directories();
     QSet<QString> watched(already.cbegin(), already.cend());
     QStringList toAdd;
-    QDirIterator it(m_dir, QDir::Dirs | QDir::NoDotAndDotDot,
-                    QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        const QString path = it.next();
+    walkTree({}, [this, &watched, &toAdd](const QFileInfo& sub) {
+        const QString path = sub.absoluteFilePath();
         if (!watched.contains(path)) {
             watched.insert(path);
             toAdd << path;
         }
-    }
+    });
     if (!toAdd.isEmpty()) {
         // R3-sec F-6: the refusals are no longer silent — anything the OS
         // would not watch degrades to the polling backstop and is disclosed.
@@ -279,22 +333,77 @@ QStringList HotFolderController::ingestDeliver() {
     } scanGuard(m_scanActive);
 
     ++m_ingestScans;  // R3-perf seam: one full-tree scan per pass
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    // r4-misc (security-auditor finding 3): the bounded-set retention pass.
+    // Entries whose file stopped being observed are swept before the scan;
+    // the cap trim runs after it (both no-ops on a healthy small set).
+    evictStaleProcessed(now);
     const QDir root(m_dir);
-    QDirIterator it(m_dir,
-                    QStringList() << QStringLiteral("*.pdf") << QStringLiteral("*.PDF"),
-                    QDir::Files, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        it.next();
-        const QFileInfo fi = it.fileInfo();
+    walkTree([this, &root, &newFiles, now](const QFileInfo& fi) {
         const QString key = hotFileKey(fi, root);
-        if (!m_processed.contains(key)) {
-            m_processed.insert(key);
-            newFiles << fi.absoluteFilePath();
+        auto known = m_processed.find(key);
+        if (known != m_processed.end()) {
+            // Still present, still the same identity: refresh the
+            // observation so a live file never ages out (a static archive
+            // in the tree must not re-ingest every TTL window).
+            known.value() = now;
+            return;
         }
-    }
+        m_processed.insert(key, now);
+        newFiles << fi.absoluteFilePath();
+    }, {});
+    enforceProcessedCap();
     if (!newFiles.isEmpty() && m_ingestHandler)
         m_ingestHandler(newFiles);
     return newFiles;
+}
+
+// ── r4-misc (security-auditor finding 3): bounded-set retention ──────────────
+
+qint64 HotFolderController::processedTtlMs() const {
+    return m_ttlForTest > 0 ? m_ttlForTest : kProcessedTtlMs;
+}
+
+int HotFolderController::processedCapEntries() const {
+    return m_capForTest > 0 ? m_capForTest : kProcessedMaxEntries;
+}
+
+// Sweep entries whose file stopped being OBSERVED past the TTL. A present
+// file's entry is refreshed by every scan pass, so the sweep only ever
+// removes history for files that vanished or changed — the dead weight the
+// unbounded set used to accumulate forever.
+void HotFolderController::evictStaleProcessed(qint64 nowMs) {
+    const qint64 ttl = processedTtlMs();
+    for (auto it = m_processed.begin(); it != m_processed.end();) {
+        if (nowMs - it.value() > ttl)
+            it = m_processed.erase(it);
+        else
+            ++it;
+    }
+}
+
+// Hard memory bound: never hold more than the cap. Runs after every pass;
+// on a healthy watch it is a size check. Past the cap (drop churn within
+// one TTL window beyond 100k entries) the OLDEST-OBSERVED entries are
+// evicted — an honest at-least-once tradeoff (their identical re-drops
+// re-ingest) against unbounded memory. The key tiebreak keeps the eviction
+// deterministic for the pins.
+void HotFolderController::enforceProcessedCap() {
+    const int cap = processedCapEntries();
+    if (cap <= 0 || m_processed.size() <= cap) return;
+    QList<QPair<qint64, const QString*>> byAge;
+    byAge.reserve(m_processed.size());
+    for (auto it = m_processed.constBegin(); it != m_processed.constEnd(); ++it)
+        byAge.append({it.value(), &it.key()});
+    std::sort(byAge.begin(), byAge.end(),
+              [](const QPair<qint64, const QString*>& a,
+                 const QPair<qint64, const QString*>& b) {
+                  if (a.first != b.first) return a.first < b.first;
+                  return *a.second < *b.second;
+              });
+    const int toRemove = m_processed.size() - cap;
+    for (int i = 0; i < toRemove; ++i)
+        m_processed.remove(*byAge[i].second);
 }
 
 } // namespace gp

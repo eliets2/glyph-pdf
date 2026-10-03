@@ -941,8 +941,11 @@ private slots:
 
     // Guard for the TTL design: a file that stays PRESENT is refreshed by
     // every scan pass and NEVER expires — a static archive in the watched
-    // tree must not re-ingest every TTL window. Green pre-fix (nothing
-    // evicted at all) and post-fix (the refresh keeps the entry alive).
+    // tree must not re-ingest every TTL window. The passes here run INSIDE
+    // each TTL window (the production shape: the poll tick is seconds, the
+    // TTL days) — observation, not wall-clock presence, is what keeps an
+    // entry alive. Green pre-fix (nothing evicted at all) and post-fix (the
+    // refresh keeps the entry alive).
     void presentFilesAreNotReingestedAcrossTtlWindows() {
         HotFolderController c;
         QDir().mkpath(hotDir());
@@ -952,13 +955,14 @@ private slots:
         QVERIFY(!createMinimalPdf(hotDir(), QStringLiteral("static.pdf")).isEmpty());
         QCOMPARE(c.ingestDeliver().size(), 1);
 
-        QTest::qWait(300);  // 3 TTL windows, file present throughout
-        QVERIFY2(c.ingestDeliver().isEmpty(),
-                 "a present file must not re-ingest past the TTL (the scan "
-                 "refreshes its entry)");
-        QTest::qWait(300);
-        QVERIFY2(c.ingestDeliver().isEmpty(),
-                 "a present file must not re-ingest past the TTL");
+        for (int i = 0; i < 6; ++i) {
+            QTest::qWait(60);  // < one TTL window
+            QVERIFY2(c.ingestDeliver().isEmpty(),
+                     "a present file must not re-ingest past the TTL (every "
+                     "pass refreshes its entry)");
+        }
+        // ~360 ms elapsed — several TTL windows in total, each closed by an
+        // observing pass. The entry is alive and singular.
         QCOMPARE(c.processedCountForTest(), 1);
         c.stop();
     }

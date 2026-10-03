@@ -261,7 +261,9 @@ CascadeReport FormJsRunner::runCalculateCascade(PoDoFo::PdfMemDocument& doc,
         if (!sandbox.isValid()) {
             FieldJsFailure f;
             f.kind = QStringLiteral("engine");
-            f.reason = QStringLiteral("quickjs runtime is unavailable in this build");
+            // r4-misc: the honest why — a version-mismatched LINKED engine
+            // names the mismatch (the configure-time pin reads the headers).
+            f.reason = sandbox.unavailableReason();
             report.failures.append(f);
             discloseAllUnreached();
             report.engineAborted = true;
@@ -481,10 +483,15 @@ FormJsRunner::ValidateOutcome FormJsRunner::runValidateEvent(PoDoFo::PdfMemDocum
     out.ran = true;
 
     FormJsSandbox sandbox;
-    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+    QString shimWhy;
+    if (!sandbox.isValid() || !sandbox.installShim(&shimWhy)) {
         out.allowed = false;
-        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
-                                      QStringLiteral("quickjs runtime is unavailable in this build") };
+        // r4-misc: the honest why — a version-mismatched LINKED engine
+        // names the mismatch; a failed shim install names its failure.
+        out.failure = FieldJsFailure{
+            name, QStringLiteral("engine"),
+            !sandbox.isValid() ? sandbox.unavailableReason()
+                               : shimWhy };
         return out;
     }
     // R05/JS-01: the snapshot install is an engine entry; without it the
@@ -579,10 +586,15 @@ FormJsRunner::ValidateOutcome FormJsRunner::runKeystrokeCommitCheck(PoDoFo::PdfM
     out.ran = true;
 
     FormJsSandbox sandbox;
-    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+    QString shimWhy;
+    if (!sandbox.isValid() || !sandbox.installShim(&shimWhy)) {
         out.allowed = false;
-        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
-                                      QStringLiteral("quickjs runtime is unavailable in this build") };
+        // r4-misc: the honest why — a version-mismatched LINKED engine
+        // names the mismatch; a failed shim install names its failure.
+        out.failure = FieldJsFailure{
+            name, QStringLiteral("engine"),
+            !sandbox.isValid() ? sandbox.unavailableReason()
+                               : shimWhy };
         return out;
     }
     // R05/JS-01: the snapshot install is an engine entry; without it the
@@ -663,10 +675,15 @@ FormJsRunner::KeystrokeOutcome FormJsRunner::runKeystrokeEvent(PoDoFo::PdfMemDoc
     out.ran = true;
 
     FormJsSandbox sandbox;
-    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+    QString shimWhy;
+    if (!sandbox.isValid() || !sandbox.installShim(&shimWhy)) {
         out.allowed = false;
-        out.failure = FieldJsFailure{ name, QStringLiteral("engine"),
-                                      QStringLiteral("quickjs runtime is unavailable in this build") };
+        // r4-misc: the honest why — a version-mismatched LINKED engine
+        // names the mismatch; a failed shim install names its failure.
+        out.failure = FieldJsFailure{
+            name, QStringLiteral("engine"),
+            !sandbox.isValid() ? sandbox.unavailableReason()
+                               : shimWhy };
         return out;
     }
     // R05/JS-01: the snapshot install is an engine entry; without it the
@@ -740,11 +757,15 @@ QString FormJsRunner::formatForDisplay(PoDoFo::PdfMemDocument& doc,
     }
 
     FormJsSandbox sandbox;
-    if (!sandbox.isValid() || !sandbox.installShim(nullptr)) {
+    QString shimWhy;
+    if (!sandbox.isValid() || !sandbox.installShim(&shimWhy)) {
         if (failure) {
             failure->fieldName = name;
             failure->kind = QStringLiteral("engine");
-            failure->reason = QStringLiteral("quickjs runtime is unavailable in this build");
+            // r4-misc: the honest why — a version-mismatched LINKED engine
+            // names the mismatch; a failed shim install names its failure.
+            failure->reason = !sandbox.isValid() ? sandbox.unavailableReason()
+                                                 : shimWhy;
         }
         return {};
     }

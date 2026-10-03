@@ -23,6 +23,7 @@
 #include <functional>
 
 #include <QFileInfo>
+#include <QHash>
 #include <QList>
 #include <QObject>
 #include <QSet>
@@ -45,6 +46,19 @@ public:
     // owner of the toggle (BatchMode) passes it to startPolling — the
     // constant and the parameter are one contract, not two magic numbers.
     static constexpr int kPollIntervalMs = 2000;
+    // r4-misc (security-auditor finding 3): the processed-set is BOUNDED.
+    // Entries whose file stopped being OBSERVED by a scan are swept after
+    // this TTL, and the set never holds more than kProcessedMaxEntries
+    // (oldest-observed evicted past the cap). 7 days / 100k entries ≈ a few
+    // MB worst case — a months-long enterprise watch can no longer grow
+    // memory without limit. The honest re-ingest tradeoff: once an entry is
+    // evicted (file absent/changed past the TTL, or churn past the cap), a
+    // byte-identical re-drop of the same file (same relpath|mtime|size key)
+    // RE-INGESTS — at-least-once delivery after eviction, never unbounded
+    // memory. A file that stays present is refreshed by every scan and
+    // never expires.
+    static constexpr qint64 kProcessedTtlMs = 7LL * 24 * 60 * 60 * 1000;
+    static constexpr int kProcessedMaxEntries = 100000;
 
     explicit HotFolderController(QObject* parent = nullptr);
     ~HotFolderController() override;
@@ -151,13 +165,23 @@ private:
     // that engages the polling fallback + disclosure on any refusal.
     QStringList addWatchPaths(const QStringList& paths);
     void engagePollingBackstop(const QStringList& failed);
-    // R3-perf (audit finding 6): stream the watched tree's PDF entries
-    // (stat walk only — *.pdf/*.PDF, files, subdirectories) through \p visit.
-    // Replaces the whole-tree QList<QFileInfo> materialization the poll tick
-    // used to rebuild every 2 s; the tick now allocates nothing proportional
-    // to the tree and never reads file CONTENT (identity keys are pure stat
-    // fields).
-    void forEachPdfEntry(const std::function<void(const QFileInfo&)>& visit) const;
+    // r4-misc (adversary junction-loop probe): the loop-safe whole-tree
+    // engine. An iterative walk with a per-pass VISITED-DIRECTORY set keyed
+    // on canonical paths — a junction or symlink loop inside the watched
+    // root (root/loop → root) makes QDirIterator's naive Subdirectories walk
+    // enumerate the whole tree once per loop hop (measured pre-fix: ONE real
+    // file delivered 64 times, the walk stopping only at the OS reparse
+    // resolution cap — an accidental bound, not a structural one). The
+    // visited set gives the walk a real bound: every REAL directory is
+    // descended exactly once per pass, whatever links point at it.
+    //   \p visit     every PDF file entry (*.pdf / *.PDF) — the ingest scan
+    //                and the seed; pure stat fields, no content reads.
+    //   \p dirVisit  every real directory (the watch refresh); may be null.
+    // Replaces the R3-perf forEachPdfEntry and the two inline QDirIterator
+    // walks (same O(directories) stat cost class, plus one realpath per
+    // directory for loop detection).
+    void walkTree(const std::function<void(const QFileInfo&)>& visit,
+                  const std::function<void(const QFileInfo&)>& dirVisit) const;
 
     // Subtree-unique identity: path relative to the watched root + mtime +
     // size (flat files yield the historical filename|mtime key shape plus
@@ -174,13 +198,25 @@ private:
     // key without re-constructing the root per file.
     QString hotFileKey(const QFileInfo& fi, const QDir& root) const;
 
-    QString m_dir;
-    QSet<QString> m_processed;          // already-seen file keys
-    // r4-misc (security-auditor finding 3): retention-limit overrides for the
-    // bounded-processed-set pins. 0 = the production defaults. Consulted by
-    // the retention pass ONLY — inert in production (no caller sets them).
+    // r4-misc (security-auditor finding 3): the processed-set is BOUNDED —
+    // key → last-observed msecs. Every scan pass refreshes the entries of
+    // files it observes; entries not re-observed for kProcessedTtlMs are
+    // swept (their file is gone or changed), and the set is trimmed to
+    // kProcessedMaxEntries by oldest-observed (see the constants above for
+    // the honest re-ingest tradeoff). The overrides exist ONLY for
+    // TestHotFolder (setProcessedLimitsForTest); production always uses 0 =
+    // the constants.
+    QHash<QString, qint64> m_processed;
     qint64 m_ttlForTest = 0;
     int m_capForTest = 0;
+    // The retention passes (TTL sweep + cap trim). Factored out so the NC
+    // stage can neutralize exactly the bounded-set behavior.
+    void evictStaleProcessed(qint64 nowMs);
+    void enforceProcessedCap();
+    qint64 processedTtlMs() const;
+    int processedCapEntries() const;
+
+    QString m_dir;
     QFileSystemWatcher* m_watcher = nullptr;
     QTimer* m_debounce = nullptr;       // single-shot kDebounceMs
     QTimer* m_pollTimer = nullptr;      // polling fallback (network shares)
