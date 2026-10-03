@@ -193,20 +193,23 @@ if ($vcRedistDir) {
     }
 }
 
-# Fallback: copy from System32 (build-host version — acceptable for dev builds)
+# r4-misc (cross-model security audit, finding 5): the System32 fallback is
+# GONE — hard requirement now. Copying the build host's System32 runtime
+# ships whatever servicing revision that machine happens to carry, which is
+# exactly the "procedure entry point not found" class AR-11 D4 documents (a
+# clean machine can end up with an OLDER or NEWER runtime than the one
+# onnxruntime.dll was built against — and a shippable-looking artifact hides
+# the problem until first launch on a user box). The deploy tree is built
+# from the official VC++ Redist payload ONLY; without it the script fails
+# honestly with the remediation instead of producing a subtly-wrong bundle.
+# The final critical-files validation below still catches a PARTIAL redist
+# staging (any missing VCRUNTIME140*/MSVCP140* fails the deploy).
 if ($vcDllsStaged -eq 0) {
-    Write-Warning 'AR-11 D4: VC++ Redist payload not found. Falling back to System32 DLLs.'
-    Write-Warning '          For release builds, install Visual Studio 2022 or the VC++ Redistributable'
-    Write-Warning '          so the official versioned DLLs are staged (not the build-host System32 copy).'
-    $sys32 = [System.Environment]::SystemDirectory
-    foreach ($dll in $vcDlls) {
-        $src = Join-Path $sys32 $dll
-        if (Test-Path $src) {
-            Copy-Item $src $DeployDir
-        } else {
-            Write-Warning "VC++ runtime DLL not found in System32: $dll"
-        }
-    }
+    throw ('AR-11 D4 (r4-misc): the official VC++ Redist payload was not found and ' +
+           'System32 fallbacks are no longer shipped — build-host runtime revisions ' +
+           'are not a distributable baseline. Install Visual Studio 2022 (any edition: ' +
+           'the payload lives under VC\Redist\MSVC\*\x64\Microsoft.VC143.CRT) or the ' +
+           'standalone vc_redist.x64.exe, then re-run this script.')
 }
 
 #  8. ML models (ROVER ensemble + layout detection)
