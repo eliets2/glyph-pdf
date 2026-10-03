@@ -6,6 +6,7 @@
 #include "core/ToolId.h"
 #include "core/Capability.h"
 #include "core/interfaces/IToolController.h"
+#include "engines/ocr/OcrPreprocessor.h" // OcrPreprocessOptions (§4 #5 OCR-stage seam)
 
 struct AppContext;
 
@@ -38,8 +39,28 @@ public:
     // The persisted master switch for the scanned-document OCR offer
     // (the prompt's "Don't ask again" checkbox writes false here).
     static QString scannedOfferPrefKey();
+    // §4 #5 seam (findings-tests 2026-10-02): the PRODUCT read of that
+    // master switch — the shipped default is ON (the offer exists). Both
+    // consumers below read the key through THIS function, so the default
+    // lives in product code; the pins assert GlyphPDF's choice, never
+    // QSettings' default-argument behavior.
+    static bool scannedOfferEnabledByPref();
     // The user's decision when the export target looks like a scan.
     enum class ScannedChoice { RunOcr, ExportAsIs, Cancel };
+    // §4 #5 seam (findings-tests 2026-10-02; hoisted from the anonymous
+    // namespace, body unchanged): the export pipeline's OCR stage —
+    // whole-document OCR into a temporary searchable MRC PDF/A copy. Returns
+    // the temp path, or EMPTY with a stage-specific, human-readable message
+    // in *errorOut. The empty-result-plus-typed-message shape IS the row-5
+    // honest-abort contract: every export worker consumes exactly this
+    // (`source.isEmpty()` → typed failure, no conversion — never a silent
+    // un-OCR'd fallback of the original document). Static pure seam (the
+    // EditController::buildPageOcrResult idiom): fresh engines per call, no
+    // shared state.
+    static QString buildSearchableOcrCopy(const QString& inputPath,
+                                          const QString& engineLang,
+                                          const OcrPreprocessOptions& preprocess,
+                                          QString* errorOut = nullptr);
 
 private:
     void exportToWord();

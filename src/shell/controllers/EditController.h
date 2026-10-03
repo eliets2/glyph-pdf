@@ -12,6 +12,7 @@
 #include "core/OcrTypes.h"           // OcrOutputMode (§4 #5 searchable-vs-editable)
 #include "core/interfaces/IToolController.h"
 #include "engines/ocr/OcrPipeline.h" // PageOcrResult / MergedOcrWord (§9.4 Accept seam)
+#include "engines/ocr/OcrPreprocessor.h" // OcrPreprocessOptions (§9.4 row-17 pref seam)
 #include "modes/OcrReviewSession.h"  // R08: review session + reviewed word records
 #include "engines/TextMatchFinder.h" // T2-2: TextMatch (replace outcome payload)
 
@@ -248,6 +249,16 @@ public slots:
     // ocrOutputModeFromPref (unknown/empty → Searchable). Static so tests
     // can pin the pref↔mode wiring without a GUI.
     static OcrOutputMode outputModeFromSettings();
+
+    // §9.4 / row 17 seam (findings-tests 2026-10-02): the OCR pipeline's
+    // preprocessing settings EXACTLY as runOcrRegion() resolves them from
+    // the persisted prefs — the four ocr/preprocess* / ocr/orientDetect
+    // keys, shipped default OFF for the destructive chain (F5-F2). Extracted
+    // verbatim from runOcrRegion's inline reads so the "panel agrees with
+    // the pipeline" contract is pinned on the CONSUMPTION side too: a
+    // deleted/retyped/mis-defaulted read now fails the seam pin instead of
+    // silently denoising behind an OFF checkbox (the historical bug shape).
+    static OcrPreprocessOptions ocrPreprocessPrefsFromSettings();
 
 signals:
     // Emitted on the GUI thread when an OCR run finishes, carrying the recognised

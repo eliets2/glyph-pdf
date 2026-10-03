@@ -1072,21 +1072,19 @@ void EditController::runOcrRegion(const QRectF& regionBbox) {
     // thread-safe); the worker only uses the resolved engine code.
     const QString ocrLang = ocrEngineLanguageCode(QSettings().value(
         QStringLiteral("ocr/language"), QStringLiteral("EN")).toString());
-    // §9.4 P0: Auto-Rotate (page-level orientation detection) preference —
-    // read on the GUI thread like ocr/language (QSettings is not thread-safe);
-    // the worker only uses the copied value.
-    const bool orientDetect = QSettings().value(
-        QStringLiteral("ocr/orientDetect"), false).toBool();
     // §9.4: the OCRMode preprocessing checkboxes are persisted prefs — the
-    // pipeline honors all four. F5-F2: the shipped default is OFF for the
-    // destructive chain (deskew/binarize/denoise) — recognition must work out
-    // of the box on a clean scan; the audit observed the old on-by-default
-    // chain zero it (SWEEP-W3-UX F5-F2). Opt-in per scan via the OCR screen.
-    OcrPreprocessOptions preprocessPrefs;
-    preprocessPrefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), false).toBool();
-    preprocessPrefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), false).toBool();
-    preprocessPrefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), false).toBool();
-    preprocessPrefs.orientDetect = orientDetect;
+    // pipeline honors all four (Auto-Rotate / ocr/orientDetect included —
+    // previously read inline here, now inside the seam; QSettings is not
+    // thread-safe, so the read stays on this GUI thread either way). F5-F2:
+    // the shipped default is OFF for the destructive chain
+    // (deskew/binarize/denoise) — recognition must work out of the box on a
+    // clean scan; the audit observed the old on-by-default chain zero it
+    // (SWEEP-W3-UX F5-F2). Opt-in per scan via the OCR screen.
+    // (findings-tests 2026-10-02: the four reads moved verbatim into the
+    // ocrPreprocessPrefsFromSettings() seam so the consumption side of the
+    // panel↔pipeline contract is pinnable; this call site is the seam's
+    // only consumer — the pipeline's setPreprocessing in the worker below.)
+    const OcrPreprocessOptions preprocessPrefs = ocrPreprocessPrefsFromSettings();
     const QString engineLabel = wantEnsemble ? tr("Ensemble (Tesseract + RapidOCR)")
                               : wantRapid    ? tr("RapidOCR / PP-OCRv5")
                               :                tr("Tesseract 5");
@@ -1679,6 +1677,25 @@ QString EditController::ocrSavedStatus(int totalPages, int pageIndex, const QStr
 
 OcrOutputMode EditController::outputModeFromSettings() {
     return ocrOutputModeFromPref(QSettings().value(ocrOutputModePrefKey()).toString());
+}
+
+// §9.4 / row 17 seam — see EditController.h. The reads are the runOcrRegion
+// consumption site's original lines, verbatim (keys, defaults, order): the
+// OCR run's pipeline.setPreprocessing consumes exactly this, so the panel's
+// checkboxes and the pipeline can no longer disagree silently (the historical
+// bug this suite exists for was the pipeline denoising behind an OFF
+// checkbox).
+OcrPreprocessOptions EditController::ocrPreprocessPrefsFromSettings() {
+    OcrPreprocessOptions prefs;
+    prefs.deskew   = QSettings().value(QStringLiteral("ocr/preprocessDeskew"), false).toBool();
+    prefs.binarize = QSettings().value(QStringLiteral("ocr/preprocessBinarize"), false).toBool();
+    prefs.denoise  = QSettings().value(QStringLiteral("ocr/preprocessDenoise"), false).toBool();
+    // §9.4 P0: Auto-Rotate (page-level orientation detection) preference —
+    // read on the GUI thread like the rest (QSettings is not thread-safe);
+    // the worker only uses the copied value.
+    prefs.orientDetect = QSettings().value(
+        QStringLiteral("ocr/orientDetect"), false).toBool();
+    return prefs;
 }
 
 // §9.4 P0: Accept persists the recognised text as an OCR output copy —

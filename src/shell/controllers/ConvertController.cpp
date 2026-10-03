@@ -68,10 +68,22 @@ ConvertController::TextProbe ConvertController::probeDocumentText(const QString&
     return TextProbe::Scanned;
 }
 
+// The PRODUCT read of the scanned-export master switch (§4 #5): the shipped
+// default is ON — the offer exists out of the box. Both consumers
+// (promptScannedOcrChoice's early-out and gateScannedExportChoice's gate)
+// read the key through THIS function, so the default lives in product code
+// and the pins assert GlyphPDF's choice, not QSettings' default-argument
+// behavior. (findings-tests 2026-10-02: extracted from the two inline
+// `settings.value(scannedOfferPrefKey(), true)` reads, byte-identical.)
+bool ConvertController::scannedOfferEnabledByPref()
+{
+    return QSettings().value(scannedOfferPrefKey(), true).toBool();
+}
+
 ConvertController::ScannedChoice ConvertController::promptScannedOcrChoice()
 {
     QSettings settings;
-    if (!settings.value(scannedOfferPrefKey(), true).toBool())
+    if (!scannedOfferEnabledByPref())
         return ScannedChoice::ExportAsIs;   // master switch off — behave as before
 
     QMessageBox box(_mainWindow);
@@ -101,7 +113,7 @@ bool ConvertController::gateScannedExportChoice(const QString& inputPath, bool* 
     *ocrFirst = false;
     {
         QSettings settings;
-        if (!settings.value(scannedOfferPrefKey(), true).toBool())
+        if (!scannedOfferEnabledByPref())
             return true;
     }
     // Only a positive "scanned" probe triggers the offer: a document with
@@ -117,8 +129,6 @@ bool ConvertController::gateScannedExportChoice(const QString& inputPath, bool* 
     return false;
 }
 
-namespace {
-
 // §4 #5: whole-document OCR → temporary SEARCHABLE copy (MRC PDF/A, the same
 // production writer the batch OCR op and the interactive Accept use). The
 // text-format converter then extracts from that copy, so the exported
@@ -126,10 +136,19 @@ namespace {
 // or empty with a stage-specific message in *errorOut. Runs entirely inside
 // the export worker: a fresh OCR engine and a fresh QPdfDocument per call —
 // no shared state with the app-wide engine Batch Mode serializes.
-QString buildSearchableOcrCopy(const QString& inputPath,
-                               const QString& engineLang,
-                               const OcrPreprocessOptions& preprocess,
-                               QString* errorOut)
+//
+// (findings-tests 2026-10-02): hoisted from the anonymous namespace to a
+// public static seam, body UNCHANGED — the row-5 honest-abort contract ("OCR
+// stage fails → the export aborts, never a silent un-OCR'd fallback") is
+// exactly this function's empty-result-plus-typed-message shape, and the
+// export workers consume nothing else (the source.isEmpty() early-failure
+// before convertTo). Static member (the EditController::buildPageOcrResult
+// pure-seam idiom) so the pins can read the contract without driving the
+// five modal export dialogs.
+QString ConvertController::buildSearchableOcrCopy(const QString& inputPath,
+                                                  const QString& engineLang,
+                                                  const OcrPreprocessOptions& preprocess,
+                                                  QString* errorOut)
 {
     auto engine = std::make_shared<OcrEngine>();
     if (!engine->initialize(engineLang)) {
@@ -201,8 +220,6 @@ QString buildSearchableOcrCopy(const QString& inputPath,
     }
     return tmp;
 }
-
-} // anonymous namespace
 
 // ── U08 pre-execution capability disclosure ──────────────────────────────────
 
