@@ -126,6 +126,18 @@ public:
     // never delivered to the consumer. Unlike prefetchViewport this does NOT
     // bump the cancel token per request — a thumbnail grid fires N concurrent
     // requests and none may cancel the others.
+    //
+    // Cancellation invariant (TOKEN-EPOCH-DELIVERY): delivery and insertion
+    // are deliberately asymmetric — a superseded render may already have
+    // INSERTED its bitmap without DELIVERING it (getOrRender inserts; the
+    // epoch re-check then skips onRendered). That is safe by construction,
+    // not by caller discipline: the cache is keyed by page+scale of the
+    // CURRENT document only, and every document change routes through
+    // clear(), which JOINS this worker (drainPrefetches) BEFORE wiping — so
+    // a cancelled render can leave a FRESH entry that a later getOrRender
+    // serves, but a STALE entry can never survive the wipe and nothing is
+    // ever misattributed to new content. Pinned by TestThumbnailOffGui
+    // clearCancelsInFlightRenderJoinsAndDeliversNothing (pin 3).
     bool renderPageAsync(int page, qreal scale, IPdfRenderer* renderer,
                          std::function<void(const QImage&)> onRendered);
 
