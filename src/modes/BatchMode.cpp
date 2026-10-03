@@ -890,6 +890,19 @@ HotFolderController* BatchMode::ensureHotFolder() {
         m_hotFolder->setIngestHandler([this](const QStringList& files) {
             onHotFolderIngest(files);
         });
+        // R3-sec F-6: native watch lost subtrees (OS watch budget exhausted —
+        // QFileSystemWatcher fails silently past it). The controller engages
+        // the polling backstop itself; this log line is the user-facing
+        // disclosure of that degradation.
+        m_hotFolder->setWatchDegradedHandler([this](const QStringList& unwatched) {
+            appendLog(tr("Hot folder: %1 subdirector%2 could not be watched "
+                         "(OS watch limit) — polling fallback engaged for the "
+                         "unwatched subtrees.")
+                          .arg(unwatched.size())
+                          .arg(unwatched.size() == 1 ? QStringLiteral("y was")
+                                                     : QStringLiteral("ies were")),
+                      "#d9534f");
+        });
     }
     return m_hotFolder;
 }

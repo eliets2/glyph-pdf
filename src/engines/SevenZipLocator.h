@@ -37,4 +37,23 @@ QString locate();
 // dir, so the override lives behind a name that says what it is for.
 QString locateForTesting(const QString& appDir);
 
+// Locate the bundle AND re-verify both staged files against the SHA-256 pins
+// compiled into this binary (r3-sec, CWE-494: the configure-time pin protects
+// the build host — the resolved 7z.exe receives the document bytes AND the
+// package password, so a tampered/stale staged copy is refused here, never
+// launched). Returns the native-separated path on success; EMPTY on absence
+// (integrityError untouched) or on an integrity failure (integrityError
+// carries the user-presentable disclosure). The verdict is cached per
+// session, keyed by the resolved path: the hash runs once per first use.
+QString locateVerified(QString* integrityError = nullptr);
+
+// Test seam for locateVerified: the same verify-and-resolve against an
+// EXPLICIT application directory (tests plant staged copies in temp dirs).
+QString locateVerifiedForTesting(const QString& appDir,
+                                 QString* integrityError = nullptr);
+
+// Shared body of the two above; not for direct production use.
+QString locateVerifiedIn(const QString& appDir,
+                         QString* integrityError = nullptr);
+
 } // namespace gp::SevenZipLocator

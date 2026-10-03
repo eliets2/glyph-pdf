@@ -489,10 +489,22 @@ void HomeController::shareViaEmail(const QString& filePath) {
 // committed atomically over the destination. The existing file is never
 // touched before commit; Cancel kills the 7-Zip process we own.
 void HomeController::createEncryptedPackage(const QString& filePath) {
-    // Resolved via SevenZipLocator (the dedicated owner of the vendored-bundle
-    // policy): the app-owned copy beside the executable, or honest absence.
-    const QString sevenZip = gp::SevenZipLocator::locate();
+    // Resolved via SafeSave::locateSevenZip (the transaction layer owns "which
+    // 7-Zip"): the vendored app-owned copy, RE-VERIFIED at resolution against
+    // the SHA-256 pins compiled into this binary (r3-sec, CWE-494 — the
+    // configure-time pin protects the build host, not the install directory;
+    // the resolved 7z.exe receives the document bytes AND the package
+    // password, so a tampered/stale staged copy is refused, never launched).
+    QString integrityError;
+    const QString sevenZip = gp::SevenZipLocator::locateVerified(&integrityError);
     if (sevenZip.isEmpty()) {
+        if (!integrityError.isEmpty()) {
+            // The staged pair EXISTS but failed its runtime integrity check —
+            // same honest-disclosure channel as absence, different message.
+            QMessageBox::warning(_mainWindow, tr("Encrypted Package"),
+                                 integrityError);
+            return;
+        }
         // PARITY-SCORECARD-2026-09-30 §4 row 14: official installs carry a
         // vendored 7-Zip (third_party/7zip/, staged beside the app), so this
         // disclosure only fires for dev/stripped trees — and it says exactly

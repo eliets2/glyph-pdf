@@ -16,6 +16,13 @@
 //   3. absence is disclosed honestly (empty result, never a bogus path);
 //   4. the BUNDLED binary itself performs the real M-1 stdin-password
 //      create/validate round trip (no system 7z involved via the override).
+// plus the r3-sec runtime-integrity property (security M, CWE-494):
+//   5. the staged pair is RE-VERIFIED at resolution against the pins
+//      compiled into THIS binary — the configure-time file(SHA256) gate
+//      protects the build host, not the install directory, and the resolved
+//      7z.exe receives the document bytes AND the package password. A
+//      tampered/stale copy is REFUSED with the honest integrity disclosure;
+//      a good copy passes; the verdict is cached per session.
 #include <QtTest/QtTest>
 #include <QCryptographicHash>
 #include <QDir>
@@ -77,6 +84,36 @@ void plantFakeToolPair(const QString& dir) {
     }
 }
 
+// Plant byte-exact copies of the REAL committed bundle (r3-sec: resolution
+// re-verifies the staged bytes, so resolution-order pins must stage
+// integrity-valid bytes — the fake pair is now the tamper pin's fixture).
+bool plantRealBundle(const QString& dir) {
+    const QString srcExe = bundleDir() + QStringLiteral("/7z.exe");
+    const QString srcDll = bundleDir() + QStringLiteral("/7z.dll");
+    if (!QFileInfo::exists(srcExe) || !QFileInfo::exists(srcDll)) return false;
+    QDir().mkpath(dir);
+    if (!QFile::exists(dir + QStringLiteral("/7z.exe"))
+        && !QFile::copy(srcExe, dir + QStringLiteral("/7z.exe"))) return false;
+    if (!QFile::exists(dir + QStringLiteral("/7z.dll"))
+        && !QFile::copy(srcDll, dir + QStringLiteral("/7z.dll"))) return false;
+    return true;
+}
+
+// Deterministic tamper: flip one bit of a byte deep inside the file (past
+// any header the loader would care about — the bytes stop matching the pin).
+bool flipByte(const QString& path, qint64 offset) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadWrite)) return false;
+    const QByteArray bytes = f.readAll();
+    if (offset >= bytes.size()) return false;
+    QByteArray tampered = bytes;
+    tampered[offset] = static_cast<char>(bytes[offset] ^ 0x01);
+    f.seek(0);
+    return f.write(tampered) == tampered.size();
+}
+
+constexpr qint64 kTamperOffset = 0x200;
+
 } // namespace
 
 class TestSevenZipBundle : public QObject {
@@ -126,11 +163,15 @@ private slots:
 
     // Pin 2 — resolution order: the app-owned directory WINS over any system
     // installation. This is the property that removes the external-binary
-    // dependency: an official install carries its own pinned copy.
+    // dependency: an official install carries its own pinned copy. (r3-sec:
+    // resolution now RE-VERIFIES the staged bytes, so the preference proof
+    // stages integrity-valid copies of the committed bundle — a fake pair
+    // must be REFUSED, which is pin 5's subject.)
     void resolverPrefersAppOwnedBinary() {
         QTemporaryDir appDir;
         QVERIFY(appDir.isValid());
-        plantFakeToolPair(appDir.path());
+        QVERIFY2(plantRealBundle(appDir.path()),
+                 "committed bundle unavailable — pin 1 covers its presence");
 
         const QString resolved =
             gp::SevenZipLocator::locateForTesting(appDir.path());
@@ -153,6 +194,117 @@ private slots:
         QVERIFY2(resolved.isEmpty(),
                  "without the bundled pair the resolver must return EMPTY — "
                  "no PATH or Program-Files fallback may satisfy it");
+
+        // Absence is NOT an integrity failure — the caller discloses the two
+        // states differently, so the out-param must stay empty here.
+        QString absenceErr = QStringLiteral("sentinel");
+        QVERIFY(gp::SevenZipLocator::locateVerifiedForTesting(emptyDir.path(), &absenceErr).isEmpty());
+        QVERIFY2(absenceErr.isEmpty(),
+                 "plain absence must not be reported as an integrity failure");
+    }
+
+    // ── Pin 5 — r3-sec runtime integrity (security M, CWE-494) ─────────────
+    //
+    // The configure-time file(SHA256) gate protects the BUILD HOST only: after
+    // staging/deploy nothing re-checked the bytes, yet the resolved 7z.exe
+    // receives the document bytes AND the package password (the M-1 stdin
+    // contract). The resolver must therefore re-hash BOTH staged files against
+    // the pins compiled into THIS binary at resolution and refuse to launch a
+    // tampered or stale copy with the honest integrity disclosure.
+
+    // A tampered (byte-flipped) 7z.exe — and, symmetric leg, a tampered
+    // 7z.dll — is REFUSED with the integrity message; junk bytes (never a
+    // real 7z at all — the fake-pair fixture pin 2 used pre-r3sec) are
+    // equally refused. Absence stays distinguishable from tamper (pin 3).
+    void tamperedBundledPairIsRefusedWithIntegrityDisclosure() {
+        // Tampered EXE leg: real bytes, one bit flipped.
+        QTemporaryDir appDir;
+        QVERIFY(appDir.isValid());
+        QVERIFY(plantRealBundle(appDir.path()));
+        QVERIFY2(flipByte(appDir.path() + QStringLiteral("/7z.exe"), kTamperOffset),
+                 "tamper fixture failed — pin premise broken");
+        QString integrityError;
+        const QString resolved =
+            gp::SevenZipLocator::locateVerifiedForTesting(appDir.path(), &integrityError);
+        QVERIFY2(resolved.isEmpty(),
+                 "a tampered bundled 7z.exe must be REFUSED at resolution — "
+                 "it would receive the document bytes and the package password");
+        QVERIFY2(integrityError.contains(
+                     QStringLiteral("failed its integrity check")),
+                 qPrintable(QStringLiteral("disclosure missing the honest "
+                                           "integrity message: %1")
+                                .arg(integrityError)));
+
+        // Tampered DLL leg: the launcher alone is not the attack surface —
+        // the format engine is, and the pin covers BOTH files.
+        QTemporaryDir appDirDll;
+        QVERIFY(appDirDll.isValid());
+        QVERIFY(plantRealBundle(appDirDll.path()));
+        QVERIFY(flipByte(appDirDll.path() + QStringLiteral("/7z.dll"), kTamperOffset));
+        QString dllErr;
+        QVERIFY(gp::SevenZipLocator::locateVerifiedForTesting(appDirDll.path(), &dllErr).isEmpty());
+        QVERIFY2(dllErr.contains(QStringLiteral("failed its integrity check")),
+                 qPrintable(dllErr));
+
+        // Junk-bytes leg: a staged pair that never was 7-Zip (stale garbage).
+        QTemporaryDir fakeDir;
+        QVERIFY(fakeDir.isValid());
+        plantFakeToolPair(fakeDir.path());
+        QString fakeErr;
+        QVERIFY(gp::SevenZipLocator::locateVerifiedForTesting(fakeDir.path(), &fakeErr).isEmpty());
+        QVERIFY2(fakeErr.contains(QStringLiteral("failed its integrity check")),
+                 qPrintable(fakeErr));
+    }
+
+    // A GOOD copy — byte-exact against the pins — resolves normally and
+    // carries no integrity error.
+    void goodBundledPairPassesRuntimeVerification() {
+        QTemporaryDir appDir;
+        QVERIFY(appDir.isValid());
+        QVERIFY(plantRealBundle(appDir.path()));
+
+        QString integrityError = QStringLiteral("sentinel");
+        const QString resolved =
+            gp::SevenZipLocator::locateVerifiedForTesting(appDir.path(), &integrityError);
+        QCOMPARE(resolved,
+                 QDir::toNativeSeparators(
+                     QDir(appDir.path()).filePath(QStringLiteral("7z.exe"))));
+        QVERIFY2(integrityError.isEmpty(),
+                 qPrintable(QStringLiteral("a good pair must not carry an "
+                                           "integrity error: %1")
+                                .arg(integrityError)));
+    }
+
+    // The check runs ONCE per session: the first verdict for a resolved path
+    // is cached, so a file that turns hostile AFTER a clean resolution cannot
+    // silently flip the cached verdict — and equally, a clean resolution is
+    // not re-paid with re-hashing on every package operation. The control leg
+    // proves the same tamper IS detectable on a fresh path (cache miss).
+    void integrityCheckRunsOncePerSession() {
+        QTemporaryDir appDir;
+        QVERIFY(appDir.isValid());
+        QVERIFY(plantRealBundle(appDir.path()));
+        // First use: verified clean, verdict cached.
+        QVERIFY(!gp::SevenZipLocator::locateVerifiedForTesting(appDir.path()).isEmpty());
+
+        // Control — cache MISS on a fresh path: the identical tamper is
+        // refused, proving the detection works and the appDir verdict below
+        // can only be the cached one.
+        QTemporaryDir probeDir;
+        QVERIFY(probeDir.isValid());
+        QVERIFY(plantRealBundle(probeDir.path()));
+        QVERIFY(flipByte(probeDir.path() + QStringLiteral("/7z.exe"), kTamperOffset));
+        QString probeErr;
+        QVERIFY2(SafeSave::locateSevenZip(probeDir.path(), &probeErr).isEmpty(),
+                 "control failed: the tamper is not being detected at all");
+        QVERIFY(!probeErr.isEmpty());
+
+        // Now turn the ALREADY-VERIFIED path hostile: the cached verdict
+        // holds for the session (no re-hash, no flip-flop).
+        QVERIFY(flipByte(appDir.path() + QStringLiteral("/7z.exe"), kTamperOffset));
+        QVERIFY2(!gp::SevenZipLocator::locateVerifiedForTesting(appDir.path()).isEmpty(),
+                 "the first-use verdict must be cached per session — a second "
+                 "resolution must not re-hash the staged files");
     }
 
     // Pin 4 — the bundled binary does the real work end-to-end through the

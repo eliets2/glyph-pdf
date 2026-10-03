@@ -862,6 +862,15 @@ if(EXISTS "${GLYPHPDF_7ZIP_DIR}/7z.exe")
     endif()
     set(GLYPHPDF_7ZIP_STAGED TRUE)
     message(STATUS "Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)")
+    # r3-sec (security M, CWE-494): the same pins travel INTO the binary as
+    # compile definitions, so SafeSave::locateSevenZip re-verifies the staged
+    # pair at resolution (first use per session). The file(SHA256) gate above
+    # protects the build host only; the resolved 7z.exe receives the document
+    # bytes AND the package password, so the install-dir copy must be
+    # re-checked at runtime too.
+    target_compile_definitions(pdfws_engines PRIVATE
+        GLYPHPDF_7ZIP_EXE_SHA256="${GLYPHPDF_7ZIP_EXE_SHA256}"
+        GLYPHPDF_7ZIP_DLL_SHA256="${GLYPHPDF_7ZIP_DLL_SHA256}")
 else()
     if(WIN32)
         message(FATAL_ERROR

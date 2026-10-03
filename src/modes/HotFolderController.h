@@ -12,6 +12,11 @@
 // Characterization safety net: tests/TestHotFolder.cpp pinned the
 // pre-extraction behavior; those pins stay green untouched through this
 // extraction.
+//
+// R3-sec F-6 adds the watcher fan-out backstop: addPaths refusals (OS watch
+// budget exhausted) are counted, ENGAGE the polling fallback for the
+// unwatched subtrees, and are disclosed through the degraded-watch handler —
+// silent permanent ingest gaps are not a strategy.
 #ifndef GLYPHPDF_HOTFOLDERCONTROLLER_H
 #define GLYPHPDF_HOTFOLDERCONTROLLER_H
 
@@ -47,6 +52,15 @@ public:
     // something new (the historical contract: an empty pass stays silent).
     void setIngestHandler(std::function<void(const QStringList& files)> handler) {
         m_ingestHandler = std::move(handler);
+    }
+
+    // r3-sec F-6 disclosure channel: fired when subdirectories could not be
+    // placed under native watch (addPaths failures — the OS watch budget is
+    // finite and QFileSystemWatcher fails SILENTLY beyond it) and the polling
+    // fallback engaged for the unwatched subtrees. BatchMode wires this to
+    // its log; the controller also qWarnings.
+    void setWatchDegradedHandler(std::function<void(const QStringList& unwatched)> handler) {
+        m_watchDegradedHandler = std::move(handler);
     }
 
     // Watch-mode start: seeds the processed set with the folder's existing
@@ -89,14 +103,34 @@ public:
     // Wave-2b F-7 pin seam: the refresh must run once per debounce fire,
     // never once per fs-event.
     int watchWalkCountForTest() const { return m_watchWalks; }
+    // r3-sec F-6 seams. The hook, when set, REPLACES
+    // QFileSystemWatcher::addPaths and returns exactly the paths that "hit
+    // the OS watch budget" — a deterministic cap simulation (real addPaths
+    // fails only past an OS limit no test can size). The remaining getters
+    // expose the degradation accounting the backstop keeps.
+    void setWatchAddPathsHookForTest(
+        std::function<QStringList(const QStringList& paths)> hook) {
+        m_addPathsHookForTest = std::move(hook);
+    }
+    // Subtrees native watch could not cover (cumulative set).
+    QStringList unwatchedSubtreesForTest() const { return m_unwatched.values(); }
+    // Cumulative count of refused addPaths entries (every refresh re-learns
+    // the same losses; the disclosure fires once per subtree, not per pass).
+    int watchFailureCountForTest() const { return m_watchFailures; }
 
 private slots:
     void onDirectoryChanged();
 
 private:
     void ensureDebounce();
+    void ensurePollTimer();
     void seedProcessed();
     void watchSubdirectories();  // keep root + every subdirectory under watch
+    // R3-sec F-6: the single choke point into the native watch (returns the
+    // refused paths — what addPaths used to drop silently) and the backstop
+    // that engages the polling fallback + disclosure on any refusal.
+    QStringList addWatchPaths(const QStringList& paths);
+    void engagePollingBackstop(const QStringList& failed);
     QList<QFileInfo> recursivePdfEntries() const;  // the whole tree, *.pdf/*.PDF
 
     // Subtree-unique identity: path relative to the watched root + mtime +
@@ -118,6 +152,12 @@ private:
     QTimer* m_debounce = nullptr;       // single-shot kDebounceMs
     QTimer* m_pollTimer = nullptr;      // polling fallback (network shares)
     std::function<void(const QStringList&)> m_ingestHandler;
+    // r3-sec F-6: degradation accounting for the watcher fan-out backstop.
+    std::function<QStringList(const QStringList&)> m_addPathsHookForTest;
+    std::function<void(const QStringList&)> m_watchDegradedHandler;
+    QSet<QString> m_unwatched;          // subtrees native watch could not cover
+    QSet<QString> m_degradedDisclosed;  // disclosure fires once per subtree
+    int m_watchFailures = 0;
     int m_debouncePasses = 0;
     int m_watchWalks = 0;               // full-tree walk counter (F-7 seam)
 };

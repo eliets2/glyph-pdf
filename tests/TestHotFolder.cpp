@@ -727,6 +727,122 @@ private slots:
         c.stop();
     }
 
+    // ── R3-sec F-6: watcher fan-out backstop ────────────────────────────────
+    // addPaths fails SILENTLY beyond the OS watch budget (inotify caps,
+    // ReadDirectoryChangesW handle budgets) — subtrees became permanently
+    // unwatched with no backstop in watcher mode, and a drop there raised no
+    // event, ever. After the fix the controller counts addPaths refusals,
+    // engages the existing polling fallback for the degraded (sub)tree, and
+    // discloses through the degraded-watch log channel. The cap is simulated
+    // with the addPaths hook seam — fully deterministic.
+
+    // The real-exhaustion shape: root and early subtrees made it under the
+    // cap, later ones did not. A drop into the UNWATCHED subtree must still
+    // be delivered — by the engaged poll, not by fs-events.
+    void controllerWatchCapEngagesPollingForDegradedSubtree() {
+        HotFolderController c;
+        QStringList ingested;
+        QList<QStringList> disclosures;
+        c.setIngestHandler([&ingested](const QStringList& files) {
+            ingested << files;
+        });
+        c.setWatchDegradedHandler([&disclosures](const QStringList& unwatched) {
+            disclosures << unwatched;
+        });
+
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(c.start(hotDir()));  // start-time adds succeed (hook not armed)
+        QVERIFY(!c.isPolling());     // premise: healthy watch mode polls nothing
+
+        // From here on, every addPaths "hits the cap": all paths refused.
+        c.setWatchAddPathsHookForTest([](const QStringList& paths) { return paths; });
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));  // created after start
+        c.triggerDirectoryChangedForTest();  // what a parent-change event does
+        QTest::qWait(700);  // one full debounce window: the refresh fires there
+
+        QVERIFY2(!c.watchedDirectoriesForTest().contains(hotDir(QStringLiteral("late"))),
+                 "premise: the capped subtree is not under native watch");
+        QVERIFY2(c.isPolling(),
+                 "silent addPaths refusal must engage the polling fallback (F-6)");
+        QVERIFY2(!disclosures.isEmpty(),
+                 "unwatchable subtrees must be disclosed (F-6)");
+        bool named = false;
+        for (const QStringList& d : disclosures)
+            if (d.contains(hotDir(QStringLiteral("late")))) named = true;
+        QVERIFY2(named, "the disclosure must name the degraded subtree");
+        QVERIFY2(!c.unwatchedSubtreesForTest().isEmpty(),
+                 "the degradation accounting must record the refused subtree");
+        QVERIFY2(c.watchFailureCountForTest() >= 1, "refusal must be counted");
+
+        // The backstop closes the ingest gap: a drop into the un-watched
+        // subtree is delivered by the engaged poll (ceiling wait on the
+        // kPollIntervalMs cadence — same discipline as the polling pins).
+        QVERIFY(!createMinimalPdf(hotDir(QStringLiteral("late")),
+                                  QStringLiteral("capped.pdf")).isEmpty());
+        const int ceilingMs = 8000;
+        int waited = 0;
+        while (ingested.isEmpty() && waited < ceilingMs) {
+            QTest::qWait(100);
+            waited += 100;
+        }
+        QVERIFY2(!ingested.isEmpty(),
+                 "polling backstop missed a drop into the unwatched subtree (F-6)");
+        QVERIFY(ingested.first().contains(QStringLiteral("capped.pdf")));
+        c.stop();
+        QVERIFY(!c.isWatching());
+    }
+
+    // The debounce fire re-runs the watch refresh (F-7 wiring) and re-learns
+    // the same losses every pass; the disclosure fires ONCE per subtree — the
+    // log channel must not spam per refresh — while the failure counter keeps
+    // the true cumulative accounting.
+    void controllerWatchCapDisclosureFiresOncePerSubtree() {
+        HotFolderController c;
+        QList<QStringList> disclosures;
+        c.setWatchDegradedHandler([&disclosures](const QStringList& unwatched) {
+            disclosures << unwatched;
+        });
+
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(c.start(hotDir()));
+        c.setWatchAddPathsHookForTest([](const QStringList& paths) { return paths; });
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(700);   // refresh pass 1: "late" refused → disclosed
+        QCOMPARE(disclosures.size(), 1);
+        const int failuresAfterPass1 = c.watchFailureCountForTest();
+        QVERIFY2(failuresAfterPass1 >= 1, "pass-1 refusal must be counted");
+
+        c.triggerDirectoryChangedForTest();
+        QTest::qWait(700);   // refresh pass 2: "late" refused AGAIN → silent
+        QCOMPARE(disclosures.size(), 1);  // still once
+        QVERIFY2(c.watchFailureCountForTest() > failuresAfterPass1,
+                 "the counter keeps cumulative accounting across passes");
+        c.stop();
+    }
+
+    // The degenerate fan-out: the ROOT itself cannot be watched (the whole
+    // tree is beyond the budget). That is the "or the whole root" leg —
+    // polling engages for everything, disclosed.
+    void controllerRootWatchFailureDegradesToPolling() {
+        HotFolderController c;
+        QList<QStringList> disclosures;
+        c.setWatchDegradedHandler([&disclosures](const QStringList& unwatched) {
+            disclosures << unwatched;
+        });
+        QDir().mkpath(hotDir());
+        c.setWatchAddPathsHookForTest([](const QStringList& paths) { return paths; });
+
+        QVERIFY(c.start(hotDir()));
+        QVERIFY2(c.isPolling(),
+                 "a refused root must degrade the whole watch to polling (F-6)");
+        QVERIFY2(!disclosures.isEmpty(), "a refused root must be disclosed");
+        QVERIFY(c.watchedDirectoriesForTest().isEmpty());  // premise: nothing watched
+        c.stop();
+    }
+
     // BatchMode wiring: the polling-fallback checkbox exists, the getter
     // tracks it, and startHotFolderForTest (the post-picker half of the
     // toggle's ON branch) starts POLLING when it is checked — watch mode
@@ -752,6 +868,35 @@ private slots:
         QVERIFY2(bm.hotFolderForTest() && !bm.hotFolderForTest()->isPolling()
                      && bm.hotFolderForTest()->isWatching(),
                  "unchecked polling did not start fs-watch mode");
+        bm.hotFolderForTest()->stop();
+    }
+
+    // R3-sec F-6 end-to-end wiring: BatchMode owns the hot-folder LOG — the
+    // controller's degraded-watch disclosure must surface there (and the
+    // controller BatchMode holds must be the one that engaged polling).
+    void batchModeDisclosesWatchDegradationInLog() {
+        BatchMode bm;
+        QDir().mkpath(hotDir(QStringLiteral("nested")));
+        QVERIFY(bm.startHotFolderForTest(hotDir()));  // real watch, adds succeed
+        HotFolderController* hot = bm.hotFolderForTest();
+        QVERIFY2(hot, "startHotFolderForTest did not expose the controller");
+
+        // Cap everything added from now on (deterministic cap simulation).
+        hot->setWatchAddPathsHookForTest(
+            [](const QStringList& paths) { return paths; });
+
+        QDir().mkpath(hotDir(QStringLiteral("late")));
+        hot->triggerDirectoryChangedForTest();
+        QTest::qWait(700);  // one full debounce window: refresh + disclosure
+
+        QVERIFY2(hot->isPolling(),
+                 "BatchMode's controller did not engage the polling backstop");
+        QTextEdit* log = logView(bm);
+        QVERIFY2(log, "BatchMode log not found");
+        QVERIFY2(log->toPlainText().contains(QStringLiteral("polling fallback")),
+                 qPrintable(QStringLiteral("degradation not disclosed in the "
+                                           "BatchMode log:\n%1")
+                                .arg(log->toPlainText().right(400))));
         bm.hotFolderForTest()->stop();
     }
 };
