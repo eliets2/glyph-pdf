@@ -542,8 +542,8 @@ void HomeController::createEncryptedPackage(const QString& filePath) {
     // the candidate it owns; the destination is never an argument. M-1
     // (CWE-214): the password is NOT on the command line — the bare `-p`
     // makes the shipped 7-Zip prompt, and the reply is piped to the child's
-    // stdin (verified against 7-Zip 26.02; see the header note and
-    // docs/audit/evidence-m1-package-argv/).
+    // stdin (verified against 7-Zip 26.02, re-verified against 26.03; see
+    // the header note and docs/audit/evidence-m1-package-argv/).
     const QByteArray passwordStdin = password.toUtf8() + '\n';
     auto buildArgs = [filePath](const QString& candidate) {
         return encryptedPackageCreateArgs(candidate, filePath);

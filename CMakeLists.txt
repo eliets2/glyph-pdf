@@ -892,8 +892,8 @@ endif()
 # app-owned pair only, so non-Windows encrypted packaging honestly discloses
 # absence instead of falling back to a system 7z).
 set(GLYPHPDF_7ZIP_DIR "${CMAKE_CURRENT_SOURCE_DIR}/third_party/7zip/bin")
-set(GLYPHPDF_7ZIP_EXE_SHA256 "83967f1b02b43c4efeda302795722c809e0e81b8307de73558d10484d5676a7d")
-set(GLYPHPDF_7ZIP_DLL_SHA256 "69fd4df057985c40e510e2fac182881c7f85e90aa13ec703f763a8fdb2ce61f8")
+set(GLYPHPDF_7ZIP_EXE_SHA256 "6ee3c0ed0b27663c1b948ae85a7c0bb073aed1498983182f3f0df1f6a8c30b2f")
+set(GLYPHPDF_7ZIP_DLL_SHA256 "65e4c1f855f9ef6e8f0f5df8e3f27d9eb5f07311408639da0a1ca0b8f4871b0d")
 if(EXISTS "${GLYPHPDF_7ZIP_DIR}/7z.exe")
     file(SHA256 "${GLYPHPDF_7ZIP_DIR}/7z.exe" _7z_exe_actual)
     if(NOT _7z_exe_actual STREQUAL GLYPHPDF_7ZIP_EXE_SHA256)
@@ -911,7 +911,7 @@ if(EXISTS "${GLYPHPDF_7ZIP_DIR}/7z.exe")
             "the enforced pin is ${GLYPHPDF_7ZIP_DLL_SHA256}. See third_party/7zip/PROVENANCE.md.")
     endif()
     set(GLYPHPDF_7ZIP_STAGED TRUE)
-    message(STATUS "Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)")
+    message(STATUS "Vendored 7-Zip pin satisfied: 26.03 (enforced, SHA-256)")
     # r3-sec (security M, CWE-494): the same pins travel INTO the binary as
     # compile definitions, so SafeSave::locateSevenZip re-verifies the staged
     # pair at resolution (first use per session). The file(SHA256) gate above

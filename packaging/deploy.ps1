@@ -301,7 +301,7 @@ $sevenZipSrc = Join-Path $ProjectRoot 'third_party\7zip'
 $sevenZipExe = Join-Path $sevenZipSrc 'bin\7z.exe'
 $sevenZipDll = Join-Path $sevenZipSrc 'bin\7z.dll'
 if ((Test-Path $sevenZipExe) -and (Test-Path $sevenZipDll)) {
-    Write-Host 'Bundling vendored 7-Zip 26.02 (encrypted packages)...'
+    Write-Host 'Bundling vendored 7-Zip 26.03 (encrypted packages)...'
     Copy-Item $sevenZipExe $DeployDir -Force
     Copy-Item $sevenZipDll $DeployDir -Force
     $sevenZipLicense = Join-Path $sevenZipSrc 'License.txt'

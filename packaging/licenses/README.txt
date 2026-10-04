@@ -21,7 +21,7 @@ LICENSE-Lua.txt             Lua 5.4                 MIT
 LICENSE-Djot.txt            Djot parser (2022)      MIT
 LICENSE-veraPDF.txt         veraPDF 1.30.2          AGPL-3.0+ / MPL-2.0
 LICENSE-OpenJDK.txt         OpenJDK 21 (jlink)      GPL-2.0+CPE
-LICENSE-7-Zip.txt           7-Zip 26.02 (vendored)  LGPL-2.1+ (7z.dll: LGPL +
+LICENSE-7-Zip.txt           7-Zip 26.03 (vendored)  LGPL-2.1+ (7z.dll: LGPL +
                                                     unRAR restriction + BSD-3 +
                                                     BSD-2 portions)
 

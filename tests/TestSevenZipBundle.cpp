@@ -4,7 +4,7 @@
 // package feature used to depend on a system-installed 7z.exe (PATH, then the
 // conventional Program Files locations), contradicting the offline pitch — a
 // machine without 7-Zip lost AES-256 encrypted packages entirely. The fix
-// commits the official 7-Zip 26.02 x64 binaries into the repo
+// commits the official 7-Zip 26.03 x64 binaries into the repo
 // (third_party/7zip/bin/, pinned SHA-256, provenance + license recorded) and
 // resolves them FIRST via the application-owned directory.
 //
@@ -48,9 +48,9 @@ namespace SafeSave = gp::SafeSave;
 namespace {
 
 constexpr char kPinned7zExeSha256[] =
-    "83967f1b02b43c4efeda302795722c809e0e81b8307de73558d10484d5676a7d";
+    "6ee3c0ed0b27663c1b948ae85a7c0bb073aed1498983182f3f0df1f6a8c30b2f";
 constexpr char kPinned7zDllSha256[] =
-    "69fd4df057985c40e510e2fac182881c7f85e90aa13ec703f763a8fdb2ce61f8";
+    "65e4c1f855f9ef6e8f0f5df8e3f27d9eb5f07311408639da0a1ca0b8f4871b0d";
 
 QString sha256OfFile(const QString& path) {
     QFile f(path);
@@ -139,9 +139,9 @@ private slots:
         QFile prov(provenance);
         QVERIFY(prov.open(QIODevice::ReadOnly));
         const QString provText = QString::fromUtf8(prov.readAll());
-        QVERIFY2(provText.contains(QStringLiteral("26.02")),
+        QVERIFY2(provText.contains(QStringLiteral("26.03")),
                  "provenance must record the exact version");
-        QVERIFY2(provText.contains(QStringLiteral("7z2602-x64.exe")),
+        QVERIFY2(provText.contains(QStringLiteral("7z2603-x64.exe")),
                  "provenance must record the source artifact");
         QVERIFY2(provText.contains(QLatin1String(kPinned7zExeSha256)),
                  "provenance must record the 7z.exe hash");
@@ -328,14 +328,14 @@ private slots:
                  QDir::toNativeSeparators(
                      QDir(appDirPath).filePath(QStringLiteral("7z.exe"))));
 
-        // The bundled binary IS the pinned 26.02 version.
+        // The bundled binary IS the pinned 26.03 version.
         QProcess banner;
         banner.start(sevenZip, {});
         QVERIFY(banner.waitForStarted(10000));
         QVERIFY(banner.waitForFinished(30000));
         QCOMPARE(banner.exitCode(), 0);
         const QString bannerText = QString::fromUtf8(banner.readAllStandardOutput());
-        QVERIFY2(bannerText.contains(QStringLiteral("7-Zip 26.02")),
+        QVERIFY2(bannerText.contains(QStringLiteral("7-Zip 26.03")),
                  qPrintable(QStringLiteral("bundled binary reports: %1").arg(bannerText.left(80))));
 
         // Real payload through the M-1 contract.

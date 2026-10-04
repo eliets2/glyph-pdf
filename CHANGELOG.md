@@ -4,14 +4,24 @@ All notable changes to GlyphPDF are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Vendored 7-Zip bumped 26.02 → 26.03** (version hygiene; the CVE-2026-58052
+  fix — Mark-of-the-Web preservation on EXTRACTION — covers a surface GlyphPDF
+  never invokes, since the app only ever runs `7z a` create + `7z t` validate).
+  Release notes show no CLI changes on that surface; the M-1 password-stdin
+  contract was re-verified against the 26.03 binary, and the SHA-256 pins
+  (configure-time + runtime) were re-recorded in
+  `third_party/7zip/PROVENANCE.md`.
+
 ### Added
 
-- **Encrypted packages work offline:** GlyphPDF now ships its own 7-Zip 26.02
+- **Encrypted packages work offline:** GlyphPDF now ships its own 7-Zip 26.03
   (AES-256 encrypted package creation) — the app prefers the bundled copy
   beside the executable and no longer requires a system-installed 7z.exe.
   The vendored binaries are committed with pinned SHA-256 hashes (verified at
-  build time) and full provenance/license records; if no tool can be located
-  at all, the app says exactly what is missing.
+  build time and re-verified at runtime) and full provenance/license records;
+  if no tool can be located at all, the app says exactly what is missing.
 
 ## [1.5.0] — 2026-09-29
 

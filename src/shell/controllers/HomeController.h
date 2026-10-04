@@ -68,8 +68,9 @@ public:
     // M-1 (AUDIT-SECURITY-2026-09-25, CWE-214) test seams, same pure-function
     // status as planForExport/shareEmailUrl: the encrypted-package 7-Zip
     // argument vectors. The package password NEVER travels on the command
-    // line — verified against the shipped 7-Zip 26.02 console behavior
-    // (evidence-m1-package-argv): `7z a ... -p` with an EMPTY password value
+    // line — verified against the shipped 7-Zip console behavior (26.02,
+    // re-verified against 26.03; evidence-m1-package-argv and
+    // evidence-7z-2603): `7z a ... -p` with an EMPTY password value
     // prompts on stdin ("Enter password (will not be echoed)") and accepts a
     // piped reply, and `7z t <archive>` with NO -p switch prompts the same
     // way for an encrypted archive (a bare `-p` on `t` is parsed as an EMPTY

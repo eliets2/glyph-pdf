@@ -268,7 +268,8 @@ private slots:
     // The AES-256 ZIP package password used to travel as `-p<password>` on the
     // 7-Zip command line — readable by any same-user process (and
     // /proc/<pid>/cmdline on Linux) for the whole bounded run. The password
-    // now rides the stdin pipe: the shipped 7-Zip 26.02 prompts for it (bare
+    // now rides the stdin pipe: the shipped 7-Zip prompts for it (verified
+    // against 26.02, re-verified against 26.03 — bare
     // `-p` on create; NO -p switch on the read-back — a bare `-p` on `t`
     // parses as an EMPTY password there) and SafeSave::runBoundedProcess
     // delivers the reply and closes the channel.
