@@ -1,0 +1,6 @@
+[1/5] Automatic MOC and UIC for target pdfws_ui
+[2/4] Building CXX object CMakeFiles/pdfws_ui.dir/src/ui/ThumbnailSidebar.cpp.obj
+[3/4] Linking CXX static library libpdfws_ui.a
+[4/4] Linking CXX executable TestThumbnailOffGui.exe; Deploying qoffscreen platform plugin for TestThumbnailOffGui
+lto-wrapper.exe: warning: using serial compilation of 7 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information

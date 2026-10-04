@@ -1,0 +1,15 @@
+[1/5] Automatic MOC and UIC for target pdfws_ui
+[2/4] Building CXX object CMakeFiles/pdfws_ui.dir/src/shell/controllers/HomeController.cpp.obj
+[3/4] Linking CXX static library libpdfws_ui.a
+[4/4] Linking CXX executable TestPersistenceOutcomes.exe; Deploying qoffscreen platform plugin for TestPersistenceOutcomes
+lto-wrapper.exe: warning: using serial compilation of 118 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-litems/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-litems/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-litems/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-litems/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-litems/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^

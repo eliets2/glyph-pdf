@@ -1,0 +1,32 @@
+********* Start testing of TestPersistenceOutcomes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestPersistenceOutcomes::initTestCase()
+QWARN  : TestPersistenceOutcomes::inPlaceMutationSucceedsWhileViewerDisplaysFile() This plugin does not support propagateSizeHints()
+QWARN  : TestPersistenceOutcomes::inPlaceMutationSucceedsWhileViewerDisplaysFile() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestPersistenceOutcomes-qLvSfT" most likely due to the presence of read-only files.
+PASS   : TestPersistenceOutcomes::inPlaceMutationSucceedsWhileViewerDisplaysFile()
+QWARN  : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() This plugin does not support propagateSizeHints()
+QWARN  : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() This plugin does not support propagateSizeHints()
+QDEBUG : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() [HomeController] Pruned 5 missing recent file(s).
+QCRITICAL: TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() PoDoFoBackend::saveDocument: "cannot open destination for safe write: Existing file C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-ouQFdE/a.pdf is not writable" path: "C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-ouQFdE/a.pdf"
+QWARN  : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() Error embedding annotations: writeUpdate failed
+QWARN  : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() This plugin does not support propagateSizeHints()
+FAIL!  : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() 'failedTitle == QLatin1String("Save Failed")' returned FALSE. (the failed-save box title is "Error", expected "Save Failed" — the wording must name what failed)
+D:/pdf/pdf-litems/tests/TestPersistenceOutcomes.cpp(337) : failure location
+QWARN  : TestPersistenceOutcomes::closeAfterFailedSaveKeepsDocumentOpen() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestPersistenceOutcomes-ouQFdE" most likely due to the presence of read-only files.
+QWARN  : TestPersistenceOutcomes::annotationEditMarksSessionDirty() This plugin does not support propagateSizeHints()
+QWARN  : TestPersistenceOutcomes::annotationEditMarksSessionDirty() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestPersistenceOutcomes-DWmOiN" most likely due to the presence of read-only files.
+PASS   : TestPersistenceOutcomes::annotationEditMarksSessionDirty()
+QWARN  : TestPersistenceOutcomes::documentReloadDoesNotDirtyFreshSession() This plugin does not support propagateSizeHints()
+QWARN  : TestPersistenceOutcomes::documentReloadDoesNotDirtyFreshSession() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestPersistenceOutcomes-jotZiZ" most likely due to the presence of read-only files.
+PASS   : TestPersistenceOutcomes::documentReloadDoesNotDirtyFreshSession()
+QWARN  : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() This plugin does not support propagateSizeHints()
+QDEBUG : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() Added text field "Field1" on page 0
+QDEBUG : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-sdbQZl/a.pdf"
+QWARN  : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() This plugin does not support propagateSizeHints()
+QDEBUG : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() Importing form data from "C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-sdbQZl/data.csv" into "C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-sdbQZl/a.pdf" saving to "C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-sdbQZl/a.pdf.tmp"
+QDEBUG : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestPersistenceOutcomes-sdbQZl/a.pdf.tmp"
+QWARN  : TestPersistenceOutcomes::formImportSwapsDiskTruthfully() QTemporaryDir: Unable to remove "C:\\Users\\User\\AppData\\Local\\Temp\\TestPersistenceOutcomes-sdbQZl" most likely due to the presence of read-only files.
+PASS   : TestPersistenceOutcomes::formImportSwapsDiskTruthfully()
+PASS   : TestPersistenceOutcomes::cleanupTestCase()
+Totals: 6 passed, 1 failed, 0 skipped, 0 blacklisted, 1423ms
+********* Finished testing of TestPersistenceOutcomes *********

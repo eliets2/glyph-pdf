@@ -1,0 +1,16 @@
+********* Start testing of TestViewingModes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewingModes::initTestCase()
+PASS   : TestViewingModes::nightModeEffectInvertsPixels()
+PASS   : TestViewingModes::nightModeCoversBothPageSurfaces()
+PASS   : TestViewingModes::eyeCareSurvivesRepeatedToggling()
+PASS   : TestViewingModes::readingFiltersAreMutuallyExclusive()
+PASS   : TestViewingModes::nightModeChangesTheRenderedViewer()
+PASS   : TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
+PASS   : TestViewingModes::loadingADocumentAnnouncesItsFirstPage()
+PASS   : TestViewingModes::renderedPagesArePaperWhite()
+FAIL!  : TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet() 'paperFill.name() == QLatin1String("#e8e6df")' returned FALSE. (high-contrast: the thumbnail paper preview paints #000000, expected the paper token #e8e6df — the parity rule no longer wins and the preview vanishes against the black sidebar)
+D:/pdf/pdf-litems/tests/TestViewingModes.cpp(384) : failure location
+PASS   : TestViewingModes::cleanupTestCase()
+Totals: 10 passed, 1 failed, 0 skipped, 0 blacklisted, 463ms
+********* Finished testing of TestViewingModes *********
