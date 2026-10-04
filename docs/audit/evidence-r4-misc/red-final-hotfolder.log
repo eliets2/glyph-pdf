@@ -1,0 +1,49 @@
+********* Start testing of TestHotFolder *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestHotFolder::initTestCase()
+PASS   : TestHotFolder::unarmedIngestIsNoop()
+PASS   : TestHotFolder::seededFilesAreNotIngested()
+PASS   : TestHotFolder::newDropIngestedOnceThenDeduped()
+PASS   : TestHotFolder::multipleDropsIngestedInOnePass()
+PASS   : TestHotFolder::modifiedSameNameReingestsButModelDedupes()
+PASS   : TestHotFolder::uppercaseExtensionIngested()
+PASS   : TestHotFolder::nonPdfDropIgnored()
+PASS   : TestHotFolder::subdirectoryPdfIsIngestedRecursive()
+PASS   : TestHotFolder::missingWatchDirIsSilentNoop()
+PASS   : TestHotFolder::armForcesAutoRunOn()
+PASS   : TestHotFolder::controllerWatchWiringAndDebounce()
+PASS   : TestHotFolder::controllerDebounceCoalesces()
+PASS   : TestHotFolder::controllerFlatDropEndToEnd()
+PASS   : TestHotFolder::controllerStopClearsState()
+PASS   : TestHotFolder::controllerWatchesSubdirectories()
+PASS   : TestHotFolder::controllerDiscoversSubdirCreatedAfterStart()
+PASS   : TestHotFolder::recursiveWatchIngestsNestedDropEndToEnd()
+PASS   : TestHotFolder::pollingFallbackDiscoversNestedDrop()
+PASS   : TestHotFolder::pollingDedupsAndFlatDrops()
+PASS   : TestHotFolder::crossPathIngestSharesOneProcessedSet()
+PASS   : TestHotFolder::sameStemInDifferentSubdirsBothIngest()
+PASS   : TestHotFolder::pollingRewriteForgedMtimeDifferentSizeReingests()
+PASS   : TestHotFolder::controllerBulkFileEventsDoNotWalkPerEvent()
+QWARN  : TestHotFolder::controllerWatchCapEngagesPollingForDegradedSubtree() hot folder: 1 subdirector(ies) could not be placed under native watch (OS watch budget?) — polling fallback engaged for the unwatched subtrees: "C:/Users/User/AppData/Local/Temp/TestHotFolder-amRLeH/hf-controllerWatchCapEngagesPollingForDegradedSubtree/late"
+PASS   : TestHotFolder::controllerWatchCapEngagesPollingForDegradedSubtree()
+QWARN  : TestHotFolder::controllerWatchCapDisclosureFiresOncePerSubtree() hot folder: 1 subdirector(ies) could not be placed under native watch (OS watch budget?) — polling fallback engaged for the unwatched subtrees: "C:/Users/User/AppData/Local/Temp/TestHotFolder-amRLeH/hf-controllerWatchCapDisclosureFiresOncePerSubtree/late"
+PASS   : TestHotFolder::controllerWatchCapDisclosureFiresOncePerSubtree()
+QWARN  : TestHotFolder::controllerRootWatchFailureDegradesToPolling() hot folder: 1 subdirector(ies) could not be placed under native watch (OS watch budget?) — polling fallback engaged for the unwatched subtrees: "C:/Users/User/AppData/Local/Temp/TestHotFolder-amRLeH/hf-controllerRootWatchFailureDegradesToPolling"
+PASS   : TestHotFolder::controllerRootWatchFailureDegradesToPolling()
+PASS   : TestHotFolder::reentrantIngestDoesNotRescanTree()
+FAIL!  : TestHotFolder::processedSetEvictsEntriesPastTtlAndReingests() 'redelivered.size() == 1' returned FALSE. (an EVICTED identity must be re-ingestable (the set evicted it past the TTL â€” pre-fix the key lived forever and the identical re-drop stayed deduped))
+D:/pdf/pdf-r4-misc/tests/TestHotFolder.cpp(933) : failure location
+PASS   : TestHotFolder::presentFilesAreNotReingestedAcrossTtlWindows()
+FAIL!  : TestHotFolder::processedSetEntryCapBoundsMemoryWhileDeliveringAll() 'c.processedCountForTest() <= 3' returned FALSE. (processed set grew past the entry cap: 5 entries (unbounded memory, security-auditor finding 3))
+D:/pdf/pdf-r4-misc/tests/TestHotFolder.cpp(986) : failure location
+Junction created for C:\Users\User\AppData\Local\Temp\TestHotFolder-amRLeH\hf-directoryJunctionLoopScanTerminatesBounded\loop <<===>> C:\Users\User\AppData\Local\Temp\TestHotFolder-amRLeH\hf-directoryJunctionLoopScanTerminatesBounded
+FAIL!  : TestHotFolder::directoryJunctionLoopScanTerminatesBounded() Compared values are not the same
+   Actual   (delivered.size()): 64
+   Expected (1)               : 1
+D:/pdf/pdf-r4-misc/tests/TestHotFolder.cpp(1061) : failure location
+PASS   : TestHotFolder::batchModePollingOptionWiring()
+QWARN  : TestHotFolder::batchModeDisclosesWatchDegradationInLog() hot folder: 1 subdirector(ies) could not be placed under native watch (OS watch budget?) — polling fallback engaged for the unwatched subtrees: "C:/Users/User/AppData/Local/Temp/TestHotFolder-amRLeH/hf-batchModeDisclosesWatchDegradationInLog/late"
+PASS   : TestHotFolder::batchModeDisclosesWatchDegradationInLog()
+PASS   : TestHotFolder::cleanupTestCase()
+Totals: 32 passed, 3 failed, 0 skipped, 0 blacklisted, 16659ms
+********* Finished testing of TestHotFolder *********

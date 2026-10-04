@@ -1,0 +1,12 @@
+[1/11] Automatic MOC and UIC for target pdfws_ui
+[2/10] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/HotFolderController.cpp.obj
+[3/10] Linking CXX static library libpdfws_ui.a
+[4/10] Automatic MOC and UIC for target TestStampImageImport
+[5/9] Automatic MOC and UIC for target TestHotFolder
+[6/8] Building CXX object CMakeFiles/TestHotFolder.dir/tests/TestHotFolder.cpp.obj
+[7/8] Linking CXX executable TestStampImageImport.exe; Deploying qoffscreen platform plugin for TestStampImageImport
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[8/8] Linking CXX executable TestHotFolder.exe; Deploying qoffscreen platform plugin for TestHotFolder
+lto-wrapper.exe: warning: using serial compilation of 32 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information

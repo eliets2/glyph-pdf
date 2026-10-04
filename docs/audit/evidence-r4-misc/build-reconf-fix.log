@@ -1,0 +1,38 @@
+-- AR-11 D4: LTO enabled (GLYPHPDF_ENABLE_LTO=ON)
+-- AR-11 D4: strip found at C:/msys64/ucrt64/bin/strip.exe — Release EXE will be stripped
+-- Qt6 plugins dir: C:/msys64/ucrt64/share/qt6/plugins
+-- Using vendored podofo 1.1.0 from D:/pdf/pdf-r4-misc/third_party/podofo/install
+-- Found Brotli (via pkg-config): C:/msys64/ucrt64/include (found version "1.2.0")
+-- Found Libidn2 (via pkg-config): C:/msys64/ucrt64/include (found version "2.3.8")
+-- Found Libpsl (via pkg-config): C:/msys64/ucrt64/include (found version "0.21.5")
+-- Found Libssh2 (via pkg-config): C:/msys64/ucrt64/include (found version "1.11.1")
+-- Found NGHTTP2 (via pkg-config): C:/msys64/ucrt64/include (found version "1.69.0")
+-- Found NGHTTP3 (via pkg-config): C:/msys64/ucrt64/include (found version "1.15.0")
+-- Found NGTCP2 (via pkg-config): C:/msys64/ucrt64/include (found version "")
+-- Found Zstd (via pkg-config): C:/msys64/ucrt64/include (found version "1.5.7")
+-- libsecret not found/disabled — Secret Service storage off (labelled encrypted-file fallback remains)
+-- Found leptonica version: 1.87.0 in ``, ``
+-- jbig2enc: ENABLED (Apache-2.0) — JBIG2 lossless foreground encoding active
+-- OpenJPEG2 found (CMake config ) — MRC JPEG2000 encoding enabled
+-- onnxruntime not found — RapidOCR PP-OCRv5 disabled
+-- Staging OCR tessdata for tests from C:/msys64/ucrt64/share/tessdata
+-- quickjs-ng version pin satisfied: 0.15.1 (enforced, R18c)
+-- quickjs-ng runtime DLL sha256: cc92ba7e7ae642c8eee24434e125184fbafe9f975fda5bb3972dc5bc6d4583ce (ledger 0.15.1: cc92ba7e7ae642c8eee24434e125184fbafe9f975fda5bb3972dc5bc6d4583ce)
+-- quickjs-ng found — form-JS Calculate/Format execution enabled (D:/pdf/msys64/ucrt64/bin/libqjs-0.dll)
+-- 
+-- ===== GlyphPDF 1.5.0 — Feature Summary (AR-11 D5) =====
+--   HAS_PDFIUM    : TRUE   (rendering engine — PDF.js-speed rendering)
+--   HAS_TESSERACT : TRUE  (primary OCR engine — Tesseract 5)
+--   HAS_RAPIDOCR  : FALSE  (secondary OCR — PP-OCRv5 ROVER ensemble)
+--   HAS_QPDF      : TRUE   (PDF linearisation)
+--   HAS_QUICKJS   : TRUE  (form-JS Calculate/Format execution)
+--   LTO           : ON
+--   Release build : OFF
+-- ===================================================================
+-- 
+-- Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)
+-- DjVu importer: DISABLED (HAS_DJVU=OFF, default)
+-- Qt LinguistTools found — translation targets enabled (translations/glyphpdf_ar.ts;translations/glyphpdf_fr.ts;translations/glyphpdf_de.ts)
+-- Configuring done (2.4s)
+-- Generating done (2.6s)
+-- Build files have been written to: D:/pdf/pdf-r4-misc/build-rel

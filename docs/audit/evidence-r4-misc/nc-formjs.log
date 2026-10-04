@@ -1,0 +1,101 @@
+********* Start testing of TestFormJsCalc *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFormJsCalc::initTestCase()
+PASS   : TestFormJsCalc::goldenNumberFormat()
+PASS   : TestFormJsCalc::goldenPercentAndParse()
+PASS   : TestFormJsCalc::goldenDateFormat()
+PASS   : TestFormJsCalc::goldenSimpleCalculateOps()
+PASS   : TestFormJsCalc::sandboxHasNoHostIoCapabilities()
+PASS   : TestFormJsCalc::sandboxBlocksEgressVerbsAndRecordsThem()
+PASS   : TestFormJsCalc::sandboxInfiniteLoopHitsDeadline()
+PASS   : TestFormJsCalc::sandboxMemoryBombRefused()
+PASS   : TestFormJsCalc::sandboxSyntaxErrorClassified()
+PASS   : TestFormJsCalc::sandboxEndEventHelperLoopTerminates()
+PASS   : TestFormJsCalc::sandboxEventValueGetterLoopTerminates()
+PASS   : TestFormJsCalc::sandboxModifiedSetupHelperTerminates()
+PASS   : TestFormJsCalc::sandboxCoercionHookTerminates()
+PASS   : TestFormJsCalc::sandboxSerializationHookTerminates()
+PASS   : TestFormJsCalc::sandboxProxyTrapLoopTerminates()
+PASS   : TestFormJsCalc::sandboxExceptionGetterTerminates()
+PASS   : TestFormJsCalc::sandboxHostTransferCapRefusesGiantResult()
+PASS   : TestFormJsCalc::repeatedTimeoutsLeaveSandboxUsable()
+QDEBUG : TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-endhook-out.pdf"
+QWARN  : TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped() form-JS: calculate failed for field "blocker" ( "timeout" ): "execution was aborted after exceeding the 250 ms deadline while the event result collection was running"
+QWARN  : TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped() form-JS: calculate failed for field "total" ( "skipped" ): "the calculate cascade was aborted before this field; it was not recalculated and its stored value may be stale (see the preceding failure for the abort reason)"
+PASS   : TestFormJsCalc::endEventTimeoutKeepsValueAndDisclosesSkipped()
+QDEBUG : TestFormJsCalc::orderFormCascadePersistsThroughSave() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-filled.pdf"
+QDEBUG : TestFormJsCalc::orderFormCascadePersistsThroughSave() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::orderFormCascadePersistsThroughSave()
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-cascade-out.pdf"
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() form-JS: cascade recalculated 3 field(s)
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-cascade-out2.pdf"
+QDEBUG : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::cascadeRecomputesWhenLineItemChanges()
+QDEBUG : TestFormJsCalc::formatIsDisplayOnlyAndNeverWritesV() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-format-out.pdf"
+QDEBUG : TestFormJsCalc::formatIsDisplayOnlyAndNeverWritesV() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::formatIsDisplayOnlyAndNeverWritesV()
+QDEBUG : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-syntax-out.pdf"
+QWARN  : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate() form-JS: calculate failed for field "line1" ( "syntax" ): "SyntaxError: Unexpected end of input (at <Calculate:line1>:1:1)"
+QDEBUG : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate() form-JS: cascade recalculated 2 field(s)
+PASS   : TestFormJsCalc::syntaxErrorKeepsCommittedValueAndOthersCalculate()
+QDEBUG : TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-loop-out.pdf"
+QWARN  : TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds() form-JS: calculate failed for field "total" ( "timeout" ): "execution was aborted after exceeding the 250 ms deadline while the script was running"
+PASS   : TestFormJsCalc::infiniteLoopKeepsValueAndSaveProceeds()
+QDEBUG : TestFormJsCalc::cyclicCalculationOrderTerminates() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/cyclic-co-out.pdf"
+QDEBUG : TestFormJsCalc::cyclicCalculationOrderTerminates() form-JS: cascade recalculated 2 field(s)
+PASS   : TestFormJsCalc::cyclicCalculationOrderTerminates()
+QDEBUG : TestFormJsCalc::revertVerifyDisabledExecutionIsPreFixState() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-revert-out.pdf"
+PASS   : TestFormJsCalc::revertVerifyDisabledExecutionIsPreFixState()
+PASS   : TestFormJsCalc::capabilityRegistryDisclosesFormJavaScript()
+QDEBUG : TestFormJsCalc::tabOrderReordersWidgetsButNeverTouchesCalculationOrder() setTabOrder: wrote widget tab order for 3 field(s); /CO untouched
+QDEBUG : TestFormJsCalc::tabOrderReordersWidgetsButNeverTouchesCalculationOrder() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/order-tab-vs-co-out.pdf"
+QDEBUG : TestFormJsCalc::tabOrderReordersWidgetsButNeverTouchesCalculationOrder() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::tabOrderReordersWidgetsButNeverTouchesCalculationOrder()
+QDEBUG : TestFormJsCalc::tabOrderRespectsAuthorTabsDeclaration() setTabOrder: wrote widget tab order for 2 field(s); /CO untouched
+PASS   : TestFormJsCalc::tabOrderRespectsAuthorTabsDeclaration()
+QWARN  : TestFormJsCalc::tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes() setTabOrder error: "none of the requested fields exists in the document"
+PASS   : TestFormJsCalc::tabOrderWithNoMatchingFieldIsRefusedAndKeepsBytes()
+QDEBUG : TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/chain-exception-out.pdf"
+QWARN  : TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState() form-JS: calculate failed for field "b" ( "exception" ): "Error: boom (at <eval> (<Calculate:b>:1:10))"
+QDEBUG : TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState() form-JS: cascade recalculated 2 field(s)
+PASS   : TestFormJsCalc::dependentChainMidCascadeFailureIsFieldAttributedAndDownstreamComputesFromCommittedState()
+QDEBUG : TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/chain-timeout-out.pdf"
+QWARN  : TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale() form-JS: calculate failed for field "b" ( "timeout" ): "execution was aborted after exceeding the 250 ms deadline while the script was running"
+QWARN  : TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale() form-JS: calculate failed for field "total" ( "skipped" ): "the calculate cascade was aborted before this field; it was not recalculated and its stored value may be stale (see the preceding failure for the abort reason)"
+QDEBUG : TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale() form-JS: cascade recalculated 1 field(s)
+PASS   : TestFormJsCalc::dependentChainTimeoutAbortsMidCascadeAndDisclosesDownstreamStale()
+QDEBUG : TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/chain-precascade-out.pdf"
+QWARN  : TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale() form-JS: calculate failed for field "" ( "engine" ): "the form value snapshot could not be installed; no field was calculated: the field-value snapshot (5242902 bytes) exceeds the 4194304-byte host transfer cap"
+QWARN  : TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale() form-JS: calculate failed for field "total" ( "skipped" ): "the calculate cascade could not start; this field was not recalculated and its stored value may be stale (see the preceding failure for the reason)"
+PASS   : TestFormJsCalc::preCascadeEngineFailureNamesEveryCalculatedFieldStale()
+QDEBUG : TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/validate-reject-out.pdf"
+QWARN  : TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses() fillForm: validate blocked "qty" ( "rejected" ): "the field's Validate script set event.rc = false; the value was not committed"
+PASS   : TestFormJsCalc::validateRejectsBlockedValueKeepsPreviousAndDiscloses()
+QDEBUG : TestFormJsCalc::validateTransformsTheValueAcrobatSemantics() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/validate-transform-out.pdf"
+PASS   : TestFormJsCalc::validateTransformsTheValueAcrobatSemantics()
+QDEBUG : TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/validate-timeout-out.pdf"
+QWARN  : TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills() fillForm: validate blocked "qty" ( "timeout" ): "execution was aborted after exceeding the 250 ms deadline while the script was running"
+QDEBUG : TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills() form-JS: cascade recalculated 1 field(s)
+PASS   : TestFormJsCalc::validateTimeoutBlocksCommitAndTheRestStillFills()
+QDEBUG : TestFormJsCalc::fillWithoutValidateScriptNeverBlocks() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/validate-none-out.pdf"
+PASS   : TestFormJsCalc::fillWithoutValidateScriptNeverBlocks()
+PASS   : TestFormJsCalc::afMergeChangeMergesChangeIntoValueAtTheSelectionRange()
+PASS   : TestFormJsCalc::keystrokeRcFalseRejectsTheChange()
+PASS   : TestFormJsCalc::keystrokeScriptTransformsTheProposal()
+PASS   : TestFormJsCalc::keystrokeScriptLeftUntouchedLeavesTypingAlone()
+PASS   : TestFormJsCalc::keystrokeEventCarriesWillCommitFalseChangeAndSelection()
+PASS   : TestFormJsCalc::keystrokeTimeoutFailsClosed()
+PASS   : TestFormJsCalc::keystrokeWithoutScriptNeverRunsAndTypingStands()
+PASS   : TestFormJsCalc::keystrokeKeystrokeFamilyIsPresentAndWillCommitGated()
+PASS   : TestFormJsCalc::keystrokeEgressVerbsAreRecordedNeverExecuted()
+QDEBUG : TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/closure-hostile-out.pdf"
+QWARN  : TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun() form-JS: calculate failed for field "blocker" ( "timeout" ): "execution was aborted after exceeding the 250 ms deadline while the event result collection was running"
+QDEBUG : TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun() Filling form data at: "C:/Users/User/AppData/Local/Temp/TestFormJsCalc-rEJeQu/closure-clean-out.pdf"
+QDEBUG : TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun() form-JS: cascade recalculated 3 field(s)
+PASS   : TestFormJsCalc::abortedCascadeDiscardsRuntimeNoStateBleedsIntoNextRun()
+FAIL!  : TestFormJsCalc::sandboxRefusesLinkedRuntimeVersionMismatch() '!sandbox.isValid()' returned FALSE. (a libqjs whose RUNTIME version diverges from the build's enforced pin must refuse to construct (the configure-time check only proves the headers))
+D:/pdf/pdf-r4-misc/tests/TestFormJsCalc.cpp(1902) : failure location
+PASS   : TestFormJsCalc::sandboxConstructsWhenRuntimeVersionMatchesPin()
+PASS   : TestFormJsCalc::cleanupTestCase()
+Totals: 50 passed, 1 failed, 0 skipped, 0 blacklisted, 6142ms
+********* Finished testing of TestFormJsCalc *********

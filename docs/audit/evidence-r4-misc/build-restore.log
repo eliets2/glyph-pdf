@@ -1,0 +1,28 @@
+[1/12] Automatic MOC and UIC for target pdfws_engines
+[2/11] Building CXX object CMakeFiles/pdfws_engines.dir/src/engines/formjs/FormJsSandbox.cpp.obj
+D:/pdf/pdf-r4-misc/src/engines/formjs/FormJsSandbox.cpp: In member function 'gp::formjs::JsEvalResult gp::formjs::FormJsSandbox::runScriptedEvent(const QString&, const QString&, const QString&, const QJsonObject&, int)':
+D:/pdf/pdf-r4-misc/src/engines/formjs/FormJsSandbox.cpp:522:40: warning: comparison of integer expressions of different signedness: 'int64_t' {aka 'long long int'} and 'size_t' {aka 'long long unsigned int'} [-Wsign-compare]
+  522 |                     if (mu.malloc_size >= size_t(m_limits.memoryLimitBytes * 0.9)) {
+      |                         ~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+[3/11] Building CXX object CMakeFiles/pdfws_engines.dir/src/core/StampLibrary.cpp.obj
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp: In static member function 'static QList<StampTemplate> StampLibrary::builtIns()':
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+   26 |     };
+      |     ^
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+D:/pdf/pdf-r4-misc/src/core/StampLibrary.cpp:26:5: warning: missing initializer for member 'StampTemplate::imagePath' [-Wmissing-field-initializers]
+[4/11] Linking CXX static library libpdfws_engines.a
+[5/11] Automatic MOC and UIC for target pdfws_ui
+[6/10] Building CXX object CMakeFiles/pdfws_ui.dir/src/modes/HotFolderController.cpp.obj
+[7/10] Linking CXX static library libpdfws_ui.a
+[8/10] Linking CXX executable TestFormJsCalc.exe; Deploying qoffscreen platform plugin and podofo 1.1.0 DLL for TestFormJsCalc; Deploying podofo 1.1.0 DLL for TestFormJsCalc; Deploying quickjs-ng runtime DLL for TestFormJsCalc
+lto-wrapper.exe: warning: using serial compilation of 11 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[9/10] Linking CXX executable TestStampImageImport.exe; Deploying qoffscreen platform plugin for TestStampImageImport
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[10/10] Linking CXX executable TestHotFolder.exe; Deploying qoffscreen platform plugin for TestHotFolder
+lto-wrapper.exe: warning: using serial compilation of 32 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information

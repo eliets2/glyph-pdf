@@ -1,0 +1,18 @@
+********* Start testing of TestStampImageImport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestStampImageImport::initTestCase()
+PASS   : TestStampImageImport::dialogOffersImageImport()
+PASS   : TestStampImageImport::imageCatalogEntrySurvivesReload()
+PASS   : TestStampImageImport::tamperedImagePathEntriesRefused()
+PASS   : TestStampImageImport::builtInCatalogSemanticsUnchanged()
+libpng error: Read Error
+PASS   : TestStampImageImport::importRefusesUnusableImagesWithTypedError()
+QWARN  : TestStampImageImport::dimensionBombRefusedWithHonestSizeDisclosure() qt.gui.imageio: QImageIOHandler: Rejecting image as it exceeds the current allocation limit of 1 megabytes
+FAIL!  : TestStampImageImport::dimensionBombRefusedWithHonestSizeDisclosure() 'error.contains(QStringLiteral("20000"))' returned FALSE. (the refusal must name the declared dimension, not claim corruption: Could not read dimension-bomb.png as an image (unsupported or corrupt file).)
+D:/pdf/pdf-r4-misc/tests/TestStampImageImport.cpp(270) : failure location
+PASS   : TestStampImageImport::importLandsInCatalogAndPlacesAndDeletes()
+PASS   : TestStampImageImport::armSeamRoutesImageStampsThroughSignatureUpload()
+PASS   : TestStampImageImport::placedImageStampRidesTheExistingStampWriter()
+PASS   : TestStampImageImport::cleanupTestCase()
+Totals: 10 passed, 1 failed, 0 skipped, 0 blacklisted, 132ms
+********* Finished testing of TestStampImageImport *********
