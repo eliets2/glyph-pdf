@@ -1,0 +1,51 @@
+UpdateCTestConfiguration  from :D:/pdf/pdf-7z26/build-rel/DartConfiguration.tcl
+Parse Config file:D:/pdf/pdf-7z26/build-rel/DartConfiguration.tcl
+Test project D:/pdf/pdf-7z26/build-rel
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 42
+    Start 42: TestSevenZipBundle
+
+42: Test command: D:\pdf\pdf-7z26\build-rel\TestSevenZipBundle.exe
+42: Working Directory: D:/pdf/pdf-7z26/build-rel
+42: Environment variables: 
+42:  TMP=D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle
+42:  TEMP=D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle
+42:  TMPDIR=D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle
+42: Test timeout computed to be: 300
+42: ********* Start testing of TestSevenZipBundle *********
+42: Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+42: PASS   : TestSevenZipBundle::initTestCase()
+42: PASS   : TestSevenZipBundle::vendoredBinariesAreCommittedAndHashPinned()
+42: PASS   : TestSevenZipBundle::resolverPrefersAppOwnedBinary()
+42: PASS   : TestSevenZipBundle::resolverDisclosesAbsenceHonestly()
+42: QWARN  : TestSevenZipBundle::tamperedBundledPairIsRefusedWithIntegrityDisclosure() SevenZipLocator: refusing to launch the bundled 7-Zip — it failed its integrity check (7z.exe/7z.dll beside "D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle/TestSevenZipBundle-HxjFme" )
+42: QWARN  : TestSevenZipBundle::tamperedBundledPairIsRefusedWithIntegrityDisclosure() SevenZipLocator: refusing to launch the bundled 7-Zip — it failed its integrity check (7z.exe/7z.dll beside "D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle/TestSevenZipBundle-tJjxNn" )
+42: QWARN  : TestSevenZipBundle::tamperedBundledPairIsRefusedWithIntegrityDisclosure() SevenZipLocator: refusing to launch the bundled 7-Zip — it failed its integrity check (7z.exe/7z.dll beside "D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle/TestSevenZipBundle-GpIXpF" )
+42: PASS   : TestSevenZipBundle::tamperedBundledPairIsRefusedWithIntegrityDisclosure()
+42: PASS   : TestSevenZipBundle::goodBundledPairPassesRuntimeVerification()
+42: QWARN  : TestSevenZipBundle::integrityCheckRunsOncePerSession() SevenZipLocator: refusing to launch the bundled 7-Zip — it failed its integrity check (7z.exe/7z.dll beside "D:/pdf/pdf-7z26/build-rel/test-tmp/TestSevenZipBundle/TestSevenZipBundle-WETUdK" )
+42: PASS   : TestSevenZipBundle::integrityCheckRunsOncePerSession()
+42: PASS   : TestSevenZipBundle::bundledBinaryEndToEndStdinPassword()
+42: PASS   : TestSevenZipBundle::cleanupTestCase()
+42: Totals: 9 passed, 0 failed, 0 skipped, 0 blacklisted, 418ms
+42: ********* Finished testing of TestSevenZipBundle *********
+1/1 Test #42: TestSevenZipBundle ...............   Passed    0.45 sec
+
+The following tests passed:
+	TestSevenZipBundle
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+controllers    =   0.45 sec*proc (1 test)
+headless       =   0.45 sec*proc (1 test)
+qt             =   0.45 sec*proc (1 test)
+security       =   0.45 sec*proc (1 test)
+unit           =   0.45 sec*proc (1 test)
+
+Total Test time (real) =   0.46 sec

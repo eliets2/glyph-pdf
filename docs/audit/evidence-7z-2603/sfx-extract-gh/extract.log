@@ -1,0 +1,22 @@
+
+7-Zip 26.02 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-06-25
+
+Scanning the drive for archives:
+1 file, 1661239 bytes (1623 KiB)
+
+Extracting archive: ..\dl\7z2603-x64.exe.github.exe
+--
+Path = ..\dl\7z2603-x64.exe.github.exe
+Type = 7z
+Offset = 45568
+Physical Size = 1615671
+Headers Size = 1407
+Method = LZMA:5m BCJ2
+Solid = +
+Blocks = 2
+
+Everything is Ok
+
+Files: 4
+Size:       2653696
+Compressed: 1661239

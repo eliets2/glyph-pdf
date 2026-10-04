@@ -1,0 +1,51 @@
+UpdateCTestConfiguration  from :D:/pdf/pdf-7z26/build-rel/DartConfiguration.tcl
+Parse Config file:D:/pdf/pdf-7z26/build-rel/DartConfiguration.tcl
+Test project D:/pdf/pdf-7z26/build-rel
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 131
+    Start 131: TestEncryptedPackageSafeWrite
+
+131: Test command: D:\pdf\pdf-7z26\build-rel\TestEncryptedPackageSafeWrite.exe
+131: Working Directory: D:/pdf/pdf-7z26/build-rel
+131: Environment variables: 
+131:  QT_QPA_PLATFORM=offscreen
+131:  TMP=D:/pdf/pdf-7z26/build-rel/test-tmp/TestEncryptedPackageSafeWrite
+131:  TEMP=D:/pdf/pdf-7z26/build-rel/test-tmp/TestEncryptedPackageSafeWrite
+131:  TMPDIR=D:/pdf/pdf-7z26/build-rel/test-tmp/TestEncryptedPackageSafeWrite
+131: Test timeout computed to be: 300
+131: ********* Start testing of TestEncryptedPackageSafeWrite *********
+131: Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+131: PASS   : TestEncryptedPackageSafeWrite::initTestCase()
+131: PASS   : TestEncryptedPackageSafeWrite::candidateStagingIsOwnerOnly()
+131: PASS   : TestEncryptedPackageSafeWrite::launchFailurePreservesExistingPackage()
+131: PASS   : TestEncryptedPackageSafeWrite::toolFailurePreservesExistingPackage()
+131: PASS   : TestEncryptedPackageSafeWrite::partialOutputIsNotCommitted()
+131: PASS   : TestEncryptedPackageSafeWrite::validatorRefusalPreservesExistingPackage()
+131: PASS   : TestEncryptedPackageSafeWrite::injectedCommitFaultPreservesExistingPackage()
+131: PASS   : TestEncryptedPackageSafeWrite::successReplacesDestinationWithCandidateBytes()
+131: PASS   : TestEncryptedPackageSafeWrite::cancelKillsWriterAndPreservesExistingPackage()
+131: PASS   : TestEncryptedPackageSafeWrite::hungWriterIsBoundedByDeadline()
+131: PASS   : TestEncryptedPackageSafeWrite::realSevenZipEndToEnd()
+131: PASS   : TestEncryptedPackageSafeWrite::cleanupTestCase()
+131: Totals: 12 passed, 0 failed, 0 skipped, 0 blacklisted, 2443ms
+131: ********* Finished testing of TestEncryptedPackageSafeWrite *********
+1/1 Test #131: TestEncryptedPackageSafeWrite ....   Passed    2.46 sec
+
+The following tests passed:
+	TestEncryptedPackageSafeWrite
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+export      =   2.46 sec*proc (1 test)
+headless    =   2.46 sec*proc (1 test)
+safesave    =   2.46 sec*proc (1 test)
+shell       =   2.46 sec*proc (1 test)
+unit        =   2.46 sec*proc (1 test)
+
+Total Test time (real) =   2.47 sec

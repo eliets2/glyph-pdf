@@ -1,0 +1,18 @@
+
+7-Zip 26.03 (x64) : Copyright (c) 1999-2026 Igor Pavlov : 2026-09-03
+
+Scanning the drive for archives:
+1 file, 225 bytes (1 KiB)
+
+Testing archive: pkg.zip
+--
+Path = pkg.zip
+Type = zip
+Physical Size = 225
+
+
+Enter password (will not be echoed):
+Everything is Ok
+
+Size:       27
+Compressed: 225

@@ -1,0 +1,22 @@
+Test project D:/pdf/pdf-7z26/build-rel
+    Start  41: TestControllers
+1/3 Test  #41: TestControllers ..................   Passed   15.98 sec
+    Start  42: TestSevenZipBundle
+2/3 Test  #42: TestSevenZipBundle ...............   Passed    0.60 sec
+    Start 131: TestEncryptedPackageSafeWrite
+3/3 Test #131: TestEncryptedPackageSafeWrite ....   Passed    2.49 sec
+
+100% tests passed, 0 tests failed out of 3
+
+Label Time Summary:
+controllers    =  16.58 sec*proc (2 tests)
+export         =   2.49 sec*proc (1 test)
+headless       =  19.06 sec*proc (3 tests)
+qt             =  16.58 sec*proc (2 tests)
+safesave       =   2.49 sec*proc (1 test)
+security       =   0.60 sec*proc (1 test)
+shell          =   2.49 sec*proc (1 test)
+ui             =  15.98 sec*proc (1 test)
+unit           =  19.06 sec*proc (3 tests)
+
+Total Test time (real) =  19.12 sec

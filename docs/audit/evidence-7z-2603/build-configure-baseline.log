@@ -1,0 +1,76 @@
+-- The CXX compiler identification is GNU 16.1.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/msys64/ucrt64/bin/c++.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- AR-11 D4: LTO enabled (GLYPHPDF_ENABLE_LTO=ON)
+-- AR-11 D4: strip found at C:/msys64/ucrt64/bin/strip.exe — Release EXE will be stripped
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Performing Test HAVE_STDATOMIC
+-- Performing Test HAVE_STDATOMIC - Success
+-- Found WrapAtomic: TRUE
+-- Found WrapVulkanHeaders: C:/msys64/ucrt64/include
+-- Qt6 plugins dir: C:/msys64/ucrt64/share/qt6/plugins
+-- Using vendored podofo 1.1.0 from D:/pdf/pdf-7z26/third_party/podofo/install
+-- Found OpenSSL: C:/msys64/ucrt64/lib/libcrypto.dll.a (found version "3.6.2")
+-- Checking for modules 'libbrotlidec;libbrotlicommon'
+--   Found libbrotlidec, version 1.2.0
+--   Found libbrotlicommon, version 1.2.0
+-- Found Brotli (via pkg-config): C:/msys64/ucrt64/include (found version "1.2.0")
+-- Checking for module 'libidn2'
+--   Found libidn2, version 2.3.8
+-- Found Libidn2 (via pkg-config): C:/msys64/ucrt64/include (found version "2.3.8")
+-- Checking for module 'libpsl'
+--   Found libpsl, version 0.21.5
+-- Found Libpsl (via pkg-config): C:/msys64/ucrt64/include (found version "0.21.5")
+-- Checking for module 'libssh2'
+--   Found libssh2, version 1.11.1
+-- Found Libssh2 (via pkg-config): C:/msys64/ucrt64/include (found version "1.11.1")
+-- Checking for module 'libnghttp2'
+--   Found libnghttp2, version 1.69.0
+-- Found NGHTTP2 (via pkg-config): C:/msys64/ucrt64/include (found version "1.69.0")
+-- Checking for module 'libnghttp3'
+--   Found libnghttp3, version 1.15.0
+-- Found NGHTTP3 (via pkg-config): C:/msys64/ucrt64/include (found version "1.15.0")
+-- Checking for module 'libngtcp2'
+--   Found libngtcp2, version 1.22.1
+-- Found NGTCP2 (via pkg-config): C:/msys64/ucrt64/include (found version "")
+-- Checking for module 'libzstd'
+--   Found libzstd, version 1.5.7
+-- Found Zstd (via pkg-config): C:/msys64/ucrt64/include (found version "1.5.7")
+-- Found PkgConfig: C:/msys64/ucrt64/bin/pkg-config.exe (found version "2.5.1")
+-- The C compiler identification is GNU 16.1.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: C:/msys64/ucrt64/bin/cc.exe - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- libsecret not found/disabled — Secret Service storage off (labelled encrypted-file fallback remains)
+-- Found leptonica version: 1.87.0 in ``, ``
+-- jbig2enc: ENABLED (Apache-2.0) — JBIG2 lossless foreground encoding active
+-- OpenJPEG2 found (CMake config ) — MRC JPEG2000 encoding enabled
+-- onnxruntime not found — RapidOCR PP-OCRv5 disabled
+-- Staging OCR tessdata for tests from C:/msys64/ucrt64/share/tessdata
+-- quickjs-ng version pin satisfied: 0.15.1 (enforced, R18c)
+-- quickjs-ng found — form-JS Calculate/Format execution enabled (D:/pdf/msys64/ucrt64/bin/libqjs-0.dll)
+-- 
+-- ===== GlyphPDF 1.5.0 — Feature Summary (AR-11 D5) =====
+--   HAS_PDFIUM    : TRUE   (rendering engine — PDF.js-speed rendering)
+--   HAS_TESSERACT : TRUE  (primary OCR engine — Tesseract 5)
+--   HAS_RAPIDOCR  : FALSE  (secondary OCR — PP-OCRv5 ROVER ensemble)
+--   HAS_QPDF      : TRUE   (PDF linearisation)
+--   HAS_QUICKJS   : TRUE  (form-JS Calculate/Format execution)
+--   LTO           : ON
+--   Release build : OFF
+-- ===================================================================
+-- 
+-- Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)
+-- DjVu importer: DISABLED (HAS_DJVU=OFF, default)
+-- Found ZLIB: C:/msys64/ucrt64/lib/libz.dll.a (found version "1.3.2")
+-- Qt LinguistTools found — translation targets enabled (translations/glyphpdf_ar.ts;translations/glyphpdf_fr.ts;translations/glyphpdf_de.ts)
+-- Configuring done (11.5s)
+-- Generating done (4.6s)
+-- Build files have been written to: D:/pdf/pdf-7z26/build-rel
