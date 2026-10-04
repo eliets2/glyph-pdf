@@ -434,6 +434,7 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/PdfStringEscape.h src/engines/podofo/PdfStringEscape.cpp
     src/engines/podofo/GlyphAdvanceCalculator.h src/engines/podofo/GlyphAdvanceCalculator.cpp
     src/engines/podofo/PoDoFoBackend.h src/engines/podofo/PoDoFoBackend.cpp
+    src/engines/podofo/FontSubsetter.h src/engines/podofo/FontSubsetter.cpp
     src/engines/podofo/ContentSpans.h src/engines/podofo/ContentSpans.cpp
     src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
     src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
@@ -2100,6 +2101,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestCompressJpegReencode.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 300
         LABELS "unit;compression;jpeg;regression;qt;headless"
+    )
+endif()
+
+# Font-subsetting plan §5.2 (route A keep-CID TrueType subsetter): sfnt surgery
+# pins, CIDFontType2/simple-TrueType round-trip + render-diff over a real host
+# TTF, CFF/Type1/corrupt/signed scope-disclosure pins, estimator honesty.
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestFontSubset.cpp")
+    add_executable(TestFontSubset tests/TestFontSubset.cpp)
+    target_include_directories(TestFontSubset PRIVATE src tests)
+    target_compile_definitions(TestFontSubset PRIVATE
+        SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    target_link_libraries(TestFontSubset PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo
+    )
+    if(WIN32)
+        if(EXISTS "${PODOFO_VENDOR_DLL}")
+            add_custom_command(TARGET TestFontSubset POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    "${PODOFO_VENDOR_DLL}"
+                    "$<TARGET_FILE_DIR:TestFontSubset>/libpodofo.dll"
+                COMMENT "Deploying podofo 1.1.0 DLL for TestFontSubset"
+            )
+        endif()
+    endif()
+    add_test(NAME TestFontSubset COMMAND TestFontSubset)
+    set_tests_properties(TestFontSubset PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 300
+        LABELS "unit;compression;fontsubset;regression;qt;headless"
     )
 endif()
 

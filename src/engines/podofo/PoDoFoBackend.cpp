@@ -9,6 +9,7 @@
 #include "PdfStringEscape.h"
 #include "GlyphAdvanceCalculator.h"
 #include "ContentSpans.h"
+#include "FontSubsetter.h"
 #include "pdfws_djot/DjotToRichTextXhtml.h"
 #include <QDebug>
 #include <QTemporaryFile>
@@ -6731,14 +6732,27 @@ OptimizeEstimate PoDoFoBackend::estimateOptimization(const OptimizeOptions &opti
             savings += est.duplicateImages * avgImageSize;
         }
 
-        if (options.subsetFonts && est.fontCount > 0) {
-            // §9.13 P0: font subsetting does NOT run in the write path
-            // (optimizeDocument) yet — only downsample, dedup and metadata
-            // stripping are implemented. Claiming savings here would overstate
-            // the estimate on every real PDF, so it is zeroed out until the
-            // pass actually runs. // upgrade path: re-enable when subsetFonts
-            // lands in optimizeDocument.
-            // savings += est.fontCount * 15000;
+        if (options.subsetFonts) {
+            // Route A subsetter is REAL now (font-subsetting-plan-2026-10-01):
+            // the estimate claims exactly what estimateSubsetSavings computes
+            // for the FontFile2 programs the pass will actually rewrite (same
+            // eligibility walk as subsetDocumentFonts), conservatively haircut
+            // for flate re-compression and capped at what the streams occupy.
+            // Signed documents claim nothing: the incremental-update write
+            // path cannot shrink (same conservatism as the sweep below).
+            const bool signedDoc = [&doc]() {
+                try {
+                    for (auto field : doc.GetFieldsIterator()) {
+                        if (field != nullptr &&
+                            field->GetType() == PoDoFo::PdfFieldType::Signature)
+                            return true;
+                    }
+                } catch (const PoDoFo::PdfError&) {
+                    return true; // Cannot determine — claim nothing (conservative).
+                }
+                return false;
+            }();
+            savings += gp::fontsubset::estimateSubsetSavings(doc, signedDoc);
         }
 
         if (options.removeUnusedObjects && est.originalBytes > 0) {
@@ -7219,6 +7233,27 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
             sanitizeDocumentContents(doc);
         }
 
+        // One signature inspection shared by the two phases below: the
+        // signed-doc write path (writeUpdate / commitMutation) appends an
+        // incremental revision that can never shrink, so neither the font
+        // subset nor the unused-object sweep may claim work on it.
+        const bool signedDoc = documentHasSignatureFields(doc);
+
+        // Phase 3.5 (font-subsetting-plan-2026-10-01, route A): keep-CID
+        // "blank-glyph" TrueType subsetting. Rewrites ONLY /FontFile2 stream
+        // bytes — unused glyph IDs lose their outlines while GID/CID
+        // numbering is preserved, so content streams, /ToUnicode, /W and
+        // /CIDToGIDMap stay byte-identical and the blast radius is confined
+        // to the font program itself (verifiable by render-diff, see
+        // TestFontSubset). CFF (/FontFile3), Type1 (/FontFile), Type3, fonts
+        // with unprovable glyph usage and signed documents are skipped with
+        // per-font disclosure (FontSubsetter::subsetDocumentFonts never
+        // aborts the run — one hostile font degrades to a counted skip).
+        if (options.subsetFonts) {
+            const auto stats = gp::fontsubset::subsetDocumentFonts(doc, signedDoc);
+            Q_UNUSED(stats);
+        }
+
         // Phase 4 (§9.13 P1): unused-object removal — a REAL trailer-rooted
         // mark-and-sweep. PoDoFo 1.1's PdfIndirectObjectList::CollectGarbage()
         // computes the transitive closure of references from the trailer (page
@@ -7232,7 +7267,7 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
         // the original bytes; deleting objects from a signed document's working
         // set must not happen (the unsigned path's full save is unaffected).
         if (options.removeUnusedObjects) {
-            if (documentHasSignatureFields(doc)) {
+            if (signedDoc) {
                 qDebug() << "optimizeDocument: signed document — unused-object sweep skipped";
             } else {
                 // §9.13 P1 (crash safety): PdfMemDocument caches a PdfInfo
