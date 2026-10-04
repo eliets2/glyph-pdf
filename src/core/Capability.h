@@ -41,8 +41,8 @@ enum class CapId {
     OcrRapidModels,           // PP-OCRv5 ONNX models present (runtime probe)
     OcrEnsemble,              // Tesseract+RapidOCR ensemble — needs OcrRapidModels
     OcrLanguageData,          // per-language traineddata (param = UI code, "EN")
-    CompressSubsetFonts,      // UnavailableBuild (R12) — no font subsetter
-    CompressRemoveUnused,     // UnavailableBuild (R12) — no object GC
+    CompressSubsetFonts,      // Available — keep-CID TrueType blank-glyph subsetter
+    CompressRemoveUnused,     // Available — trailer-rooted reachability sweep (21a387c)
     MrcCompression,           // Degraded — needs OCR-pipeline page images first
     DigitalSignature,         // certificate-backed X.509/P12 signing (OpenSSL)
     VisibleSignatureGraphic,  // SignaturePicker Draw/Type/Upload graphic stamp
@@ -61,7 +61,7 @@ struct Capability {
     QString detail;        // technical appendix: paths, the writer that will run, versions
 };
 
-QString r12UnsupportedPassExplanation(); // canonical R12 wording (CompressDialog delegates)
+QString subsetFontsScopeDisclosure(); // canonical subset-scope wording (probe + dialog)
 QString officeImportWhyNot();            // canonical LibreOffice import wording
 QString officeImportAlternative();
 QString mrcWhyNot();                     // canonical MRC fallback wording

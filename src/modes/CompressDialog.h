@@ -20,12 +20,21 @@ class CompressDialog : public QDialog {
 public:
     explicit CompressDialog(const AppContext* ctx, QWidget* parent = nullptr);
 
-    // R12 honesty seam: single source of truth for the availability text
-    // explaining that the "Subset fonts" / "Remove unused objects" passes are
-    // not implemented by the compression engine in this build (no font
-    // subsetter, no object garbage collector), so their checkboxes are
-    // disabled and unchecked instead of promising work that never runs.
+    // R12 honesty seam, re-scoped when the last unimplemented compress pass
+    // shipped (font-subsetting-plan-2026-10-01): with BOTH the subset pass
+    // (route A) and the unused-object sweep (21a387c) implemented, the only
+    // compress capability that still cannot run in this dialog is MRC — the
+    // seam now explains THAT (the Degraded MRC wording from the registry),
+    // instead of the retired "font subsetting not implemented" label.
     static QString unsupportedPassExplanation();
+
+    // Subset-scope seam: single source of truth for what the "Subset fonts"
+    // pass does and which fonts it leaves untouched (CFF/Type1/OpenType,
+    // unprovable usage, signed documents). Delegates to the canonical
+    // CapabilityRegistry wording; used as the checkbox tooltip when no
+    // registry is present (tests) — the enabled-with-scope-disclosure state
+    // pinned by TestCompressDialogHonesty.
+    static QString subsetScopeExplanation();
 
     // §9.13 measured-completion seam: builds the post-completion message from
     // the two MEASURED on-disk sizes (untouched original vs committed output,

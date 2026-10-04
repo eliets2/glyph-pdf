@@ -26,15 +26,25 @@
 
 namespace gp {
 
-// ── R12 honesty seam ─────────────────────────────────────────────────────────
+// ── R12 honesty seam (re-scoped: MRC-only) ───────────────────────────────────
 
 QString CompressDialog::unsupportedPassExplanation()
 {
-    // U08: the canonical wording lives in the CapabilityRegistry (the
-    // CompressSubsetFonts probe carries it; since §9.13 the RemoveUnused
-    // probe is Available); this static remains the UI anchor
-    // TestCompressDialogHonesty pins.
-    return r12UnsupportedPassExplanation();
+    // With the subset pass (route A) and the unused-object sweep (21a387c)
+    // both implemented, the only compress capability that still cannot run
+    // in this dialog is MRC — the seam delegates to the canonical MRC
+    // wording instead of the retired "font subsetting not implemented" label.
+    return mrcWhyNot();
+}
+
+// ── Subset-scope seam ────────────────────────────────────────────────────────
+
+QString CompressDialog::subsetScopeExplanation()
+{
+    // Canonical scope wording from the CapabilityRegistry (the same string
+    // the CompressSubsetFonts probe carries); TestCompressDialogHonesty pins
+    // the enabled-with-scope-disclosure checkbox state against this.
+    return subsetFontsScopeDisclosure();
 }
 
 // ── Preset card helper ────────────────────────────────────────────────────────
@@ -159,29 +169,38 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _chkDedup->setChecked(true);
     af->addWidget(_chkDedup, 1, 0);
 
-    // R12/U08: the backend does not implement font subsetting (no subsetter in
-    // this build). The checkbox stays visible but disabled and unchecked, with
-    // the availability explanation as tooltip/status tip, so the UI never
-    // promises a pass that would not run. The wording now comes from the
-    // CapabilityRegistry probe (the same string the registry hands to any
-    // other consumer); the exact whyNot is pinned by TestCompressDialogHonesty,
-    // so the disable stays local instead of going through applyToWidget's
-    // combined whyNot+alternative tooltip.
+    // Font-subsetting plan §5.1 (route A landed): the subset pass is
+    // implemented for TrueType /FontFile2 programs, so the checkbox is
+    // ENABLED for real — default UNCHECKED (it mutates font programs; the
+    // user opts in) with the SCOPE disclosure as tooltip/status tip instead
+    // of the retired R12 unavailability label. The wording comes from the
+    // CapabilityRegistry probe when one is present (an Available capability
+    // discloses its scope through /detail), and from the shared static seam
+    // otherwise (tests); both are the same canonical string.
     const gp::CapabilityRegistry* caps = _ctx ? _ctx->capabilities.get() : nullptr;
-    const QString subsetWhyNot = caps
-        ? caps->query(gp::CapId::CompressSubsetFonts).whyNot
-        : unsupportedPassExplanation();
+    QString subsetScope;
+    if (caps) {
+        const gp::Capability subsetCap = caps->query(gp::CapId::CompressSubsetFonts);
+        subsetScope = (!subsetCap.detail.isEmpty()
+                       && subsetCap.status == gp::Availability::Available)
+            ? subsetCap.detail
+            : gp::CapabilityRegistry::combineWhyNot(subsetCap);
+    } else {
+        subsetScope = subsetScopeExplanation();
+    }
     _chkSubsetFonts = new QCheckBox(tr("Subset fonts"));
     _chkSubsetFonts->setChecked(false);
-    _chkSubsetFonts->setEnabled(false);
-    _chkSubsetFonts->setToolTip(subsetWhyNot);
-    _chkSubsetFonts->setStatusTip(subsetWhyNot);
+    _chkSubsetFonts->setEnabled(true);
+    _chkSubsetFonts->setToolTip(subsetScope);
+    _chkSubsetFonts->setStatusTip(subsetScope);
     af->addWidget(_chkSubsetFonts, 1, 1);
 
     _chkRemoveUnused = new QCheckBox(tr("Remove unused objects"));
-    // §9.13: the unused-object sweep is now implemented (21a387c) — the
-    // R12-era disabled placeholder pin is retired. Subset fonts remains the
-    // only unimplemented pass and keeps its own R12 pin below.
+    // §9.13: the unused-object sweep is implemented (21a387c) — the
+    // R12-era disabled placeholder pin is retired. With the route-A subsetter
+    // (font-subsetting-plan-2026-10-01) no compress pass is a disabled
+    // placeholder any more; MRC stays the only Degraded capability, disclosed
+    // through its own probe below.
     _chkRemoveUnused->setChecked(true);
     af->addWidget(_chkRemoveUnused, 2, 0);
 
@@ -379,7 +398,6 @@ void CompressDialog::onPresetChanged(int id) {
     _qualitySpin->blockSignals(true);
     _chkDownsample->blockSignals(true);
     _chkDedup->blockSignals(true);
-    _chkSubsetFonts->blockSignals(true);
     _chkRemoveUnused->blockSignals(true);
     _chkStripMetadata->blockSignals(true);
 
@@ -389,7 +407,6 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(50);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
         _chkStripMetadata->setChecked(true);
         break;
     case 1: // Ebook
@@ -397,7 +414,6 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(75);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 2: // Printer
@@ -405,7 +421,6 @@ void CompressDialog::onPresetChanged(int id) {
         _qualitySpin->setValue(85);
         _chkDownsample->setChecked(true);
         _chkDedup->setChecked(true);
-        _chkSubsetFonts->setChecked(false);   // R12: pass not implemented
         _chkStripMetadata->setChecked(false);
         break;
     case 3: // Custom — leave controls as-is
@@ -416,15 +431,13 @@ void CompressDialog::onPresetChanged(int id) {
     _qualitySpin->blockSignals(false);
     _chkDownsample->blockSignals(false);
     _chkDedup->blockSignals(false);
-    _chkSubsetFonts->blockSignals(false);
     _chkRemoveUnused->blockSignals(false);
     _chkStripMetadata->blockSignals(false);
 
-    // R12/§9.13: no preset may re-enable or re-check SUBSET FONTS (still
-    // unimplemented). Remove-unused objects is implemented and follows the
-    // user's checkbox choice, so presets never touch it.
-    _chkSubsetFonts->setEnabled(false);
-    _chkSubsetFonts->setChecked(false);
+    // R12/§9.13 → font-subsetting plan §5.1: no preset may silently CHECK
+    // "Subset fonts" (it mutates font programs — user opt-in only), and now
+    // that the pass is implemented no preset may DISABLE it either. Like the
+    // remove-unused checkbox, presets never touch the user's choice.
 
     // Enable/disable advanced controls for non-custom presets
     bool custom = (id == 3);
@@ -486,11 +499,10 @@ void CompressDialog::refreshEstimate() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    // §9.13: unused-object removal is implemented (21a387c) — the checkbox
-    // state is honored. Subset fonts remains unimplemented and pinned false
-    // so the estimate can never claim savings from a pass the engine will
-    // not run.
-    opts.subsetFonts        = false;
+    // §9.13 → route A: both passes are implemented — the checkboxes are
+    // honored. The estimator mirrors the write path per option (subset
+    // savings come from the same eligibility walk the pass runs).
+    opts.subsetFonts        = _chkSubsetFonts->isChecked();
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     OptimizeEstimate est = _ctx->pdfEditor->estimateOptimization(opts);
@@ -591,9 +603,9 @@ void CompressDialog::onCompress() {
     opts.targetDpi          = _dpiSpin->value();
     opts.jpegQuality        = _qualitySpin->value();
     opts.deduplicateImages  = _chkDedup->isChecked();
-    // §9.13: mirror refreshEstimate — subset fonts stays pinned (still
-    // unimplemented); unused-object removal follows the checkbox.
-    opts.subsetFonts        = false;
+    // §9.13 → route A: mirror refreshEstimate — the options honor the
+    // checkboxes for every implemented pass (subset fonts included).
+    opts.subsetFonts        = _chkSubsetFonts->isChecked();
     opts.stripMetadata      = _chkStripMetadata->isChecked();
 
     success = _ctx->pdfEditor->optimizeDocument(outPath, opts);

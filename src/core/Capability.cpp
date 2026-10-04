@@ -20,17 +20,23 @@ namespace gp {
 
 // ── Canonical user-facing wording ────────────────────────────────────────────
 // Moved here so the registry is the single source of truth; the original call
-// sites (CompressDialog::unsupportedPassExplanation, HomeController's import
-// dialog, CompressDialog's MRC fallback) delegate to / match these strings so
-// the existing test anchors keep their exact user-visible wording.
+// sites (CompressDialog's seams, HomeController's import dialog, CompressDialog's
+// MRC fallback) delegate to / match these strings so the existing test anchors
+// keep their exact user-visible wording.
 
-// R12 — byte-identical to the wording TestCompressDialogHonesty pins via
-// CompressDialog::unsupportedPassExplanation() (which now delegates here).
-QString r12UnsupportedPassExplanation()
+// Font-subsetting plan §5.1 (route A landed): the canonical scope disclosure —
+// what the subset pass does and exactly which fonts it leaves untouched. The
+// former R12 string ("does not implement font subsetting or unused-object
+// removal") was retired: BOTH halves are implemented now (sweep 21a387c,
+// subsetter feat/font-subset-tt).
+QString subsetFontsScopeDisclosure()
 {
-    return QObject::tr("Not available in this build: the compression engine does not "
-                       "implement font subsetting or unused-object removal, so these "
-                       "passes would not run.");
+    return QObject::tr("Subsets embedded TrueType font programs (/FontFile2): "
+                       "unused glyphs are blanked while glyph numbering is "
+                       "preserved, so text and layout never change. Fonts in "
+                       "CFF, Type1 and OpenType programs, fonts whose glyph "
+                       "usage cannot be proven, and signed documents are left "
+                       "untouched.");
 }
 
 // LibreOffice import — verbatim from the HomeController dialog
@@ -554,18 +560,18 @@ Capability probeOcrLanguageData(const QVariant& param)
 #endif
 }
 
-// R12: the compression backend implements neither font subsetting nor
-// unused-object removal. Compile-time truth → UnavailableBuild. Formerly:
-// CompressDialog::unsupportedPassExplanation's static label (now delegates to
-// the canonical string).
+// Font-subsetting plan §5.1: the subsetter is implemented (route A, keep-CID
+// TrueType blank-glyph core) → Available with the scope disclosure. Formerly:
+// an UnavailableBuild R12 probe carrying the retired
+// "does not implement font subsetting" wording.
 Capability probeCompressSubsetFonts(const QVariant&)
 {
     Capability c;
-    c.status = Availability::UnavailableBuild;
-    c.whyNot = r12UnsupportedPassExplanation();
-    c.alternative = QObject::tr("Use image downsampling and deduplication instead — "
-                                "those passes run in this build.");
-    c.detail = QObject::tr("R12: no font subsetter is implemented in the compression backend.");
+    c.status = Availability::Available;
+    c.detail = subsetFontsScopeDisclosure();
+    c.alternative = QObject::tr("Fonts in Type1 or other unsupported programs are "
+                                "left untouched — use image downsampling and "
+                                "deduplication alongside this pass.");
     return c;
 }
 
