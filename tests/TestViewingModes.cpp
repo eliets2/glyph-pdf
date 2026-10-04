@@ -17,6 +17,7 @@
 #include <QtTest/QtTest>
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -28,9 +29,13 @@
 #include <QPdfView>
 #include <QPdfWriter>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QScrollArea>
 #include <QSpinBox>
+#include <QStyle>
+#include <QStyleOptionButton>
 #include <QTemporaryDir>
+#include <QToolButton>
 #include "ui/NightModeEffect.h"
 #include "ui/PdfViewerWidget.h"
 #include "util/GpTheme.h"
@@ -188,13 +193,17 @@ int TestViewingModes::paperPixels(const QImage &image)
 // Grabbing the inner QPdfView alone bypasses the overlays stacked above it —
 // why nightModeChangesTheRenderedViewer stayed green — so this pin grabs the
 // COMPOSITED viewer.
+// r4-ux: the probe runs against EACH REAL SHIPPED sheet (Dark / Light /
+// High-Contrast, loaded through the same resolve helper the disabled-controls
+// pin uses) — the earlier hand-written one-liner (`QWidget { background-
+// color: #1e1f22; }`) never exercised a shipped sheet, so a theme with a
+// broader/different base rule could hide pages and this pin stayed green.
 void TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
 {
     struct SheetGuard {
         QString previous = qApp->styleSheet();
         ~SheetGuard() { qApp->setStyleSheet(previous); }
     } guard;
-    qApp->setStyleSheet(QStringLiteral("QWidget { background-color: #1e1f22; }"));
 
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -206,14 +215,25 @@ void TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
         painter.drawText(QPointF(600, 600), QStringLiteral("GlyphPDF"));
     }
 
-    PdfViewerWidget viewer;
-    viewer.resize(640, 480);
-    viewer.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&viewer));
-    QVERIFY(viewer.loadDocument(pdf));
+    const gp::Theme::Mode modes[] = {
+        gp::Theme::Dark, gp::Theme::Light, gp::Theme::HighContrast
+    };
+    for (gp::Theme::Mode mode : modes) {
+        QString sheet;
+        QVERIFY2(loadThemeSheet(mode, &sheet),
+                 qPrintable(QStringLiteral("cannot load sheet for mode %1").arg(int(mode))));
+        qApp->setStyleSheet(sheet);
 
-    // Pages render asynchronously: poll the whole viewer until paper shows.
-    QTRY_VERIFY_WITH_TIMEOUT(paperPixels(viewer.grab().toImage()) > 5000, 5000);
+        PdfViewerWidget viewer;
+        viewer.resize(640, 480);
+        viewer.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&viewer));
+        QVERIFY(viewer.loadDocument(pdf));
+
+        // Pages render asynchronously: poll the whole composited viewer
+        // (overlay surfaces included) until paper shows under this sheet.
+        QTRY_VERIFY_WITH_TIMEOUT(paperPixels(viewer.grab().toImage()) > 5000, 5000);
+    }
 }
 
 QString TestViewingModes::writeOnePagePdf(const QTemporaryDir &dir, const QString &name)
@@ -297,8 +317,19 @@ bool TestViewingModes::loadThemeSheet(gp::Theme::Mode mode, QString *out)
 // sheet styled disabled controls, so a disabled input/button/checkbox
 // inherited the enabled foreground (probe: #dfe1e5 dark / #1a1b1e light /
 // #ffffff high-contrast) and contextually unavailable actions invited clicks
-// that do nothing. Every shipped sheet must now dim all three recurring
-// control families, per-theme, while leaving enabled colours untouched.
+// that do nothing. Every shipped sheet must now dim every recurring control
+// family, per-theme, while leaving enabled colours untouched.
+// r4-ux hardening (DeepSeek UX audit findings 2/4/8):
+//   * each family is probed on the role it actually PAINTS with — Text for
+//     QLineEdit/QSpinBox/QComboBox, ButtonText for the button family. The
+//     earlier blanket QPalette::WindowText read was a palette proxy that is
+//     the painted role of none of these families;
+//   * the matrix covers the common families: QComboBox, QToolButton and
+//     QRadioButton join the original four;
+//   * the QCheckBox INDICATOR is pinned at the pixel level — a checked
+//     indicator must lose its accent fill when disabled (accent → dim
+//     token), not just its label text;
+//   * enabled colours are asserted untouched (never the dim token).
 void TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet()
 {
     struct SheetGuard {
@@ -308,12 +339,15 @@ void TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet()
 
     struct Expectation {
         gp::Theme::Mode mode;
-        const char *disabledText;
+        const char *enabledText;              // base QWidget color token
+        const char *disabledText;             // the sheet's fg3 dim token
+        const char *checkedIndicator;         // accent fill, enabled + checked
+        const char *disabledCheckedIndicator; // dim fill, disabled + checked
     };
     const Expectation expectations[] = {
-        { gp::Theme::Dark,         "#52555a" },
-        { gp::Theme::Light,        "#9c9a90" },
-        { gp::Theme::HighContrast, "#999999" },
+        { gp::Theme::Dark,         "#dfe1e5", "#52555a", "#ff8c42", "#52555a" },
+        { gp::Theme::Light,        "#1a1b1e", "#9c9a90", "#c25a18", "#9c9a90" },
+        { gp::Theme::HighContrast, "#ffffff", "#999999", "#ffff00", "#666666" },
     };
 
     for (const Expectation &e : expectations) {
@@ -336,29 +370,91 @@ void TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet()
         qApp->setStyleSheet(sheet);
 
         QLineEdit edit;
-        QPushButton button;
-        QCheckBox check;
         QSpinBox spin;
-        QWidget *controls[] = { &edit, &button, &check, &spin };
-        for (QWidget *w : controls) {
+        QComboBox combo;
+        QPushButton button;
+        QToolButton toolButton;
+        QCheckBox check;
+        QRadioButton radio;
+
+        struct Family {
+            QWidget *widget;
+            QPalette::ColorRole paintedRole;   // the role this family paints with
+        };
+        const Family families[] = {
+            { &edit,       QPalette::Text },
+            { &spin,       QPalette::Text },
+            { &combo,      QPalette::Text },
+            { &button,     QPalette::ButtonText },
+            { &toolButton, QPalette::ButtonText },
+            { &check,      QPalette::ButtonText },
+            { &radio,      QPalette::ButtonText },
+        };
+
+        const QString sheetName = gp::Theme::sheetForMode(e.mode);
+        for (const Family &f : families) {
+            QWidget *w = f.widget;
             w->ensurePolished();
-            const QColor enabledText =
-                w->palette().color(QPalette::WindowText);
+            const QColor enabledText = w->palette().color(f.paintedRole);
+            QVERIFY2(enabledText.name() == QLatin1String(e.enabledText),
+                     qPrintable(QStringLiteral("%1: enabled %2 text is %3, expected "
+                                              "the untouched base token %4")
+                                    .arg(sheetName, w->metaObject()->className(),
+                                         enabledText.name(),
+                                         QLatin1String(e.enabledText))));
             w->setEnabled(false);
             w->ensurePolished();
             const QColor disabledText =
-                w->palette().color(QPalette::Disabled, QPalette::WindowText);
+                w->palette().color(QPalette::Disabled, f.paintedRole);
             QVERIFY2(disabledText != enabledText,
                      qPrintable(QStringLiteral("%1: disabled %2 still paints in the "
                                               "enabled foreground")
-                                    .arg(gp::Theme::sheetForMode(e.mode), w->metaObject()->className())));
+                                    .arg(sheetName, w->metaObject()->className())));
             QVERIFY2(disabledText.name() == QLatin1String(e.disabledText),
                      qPrintable(QStringLiteral("%1: disabled %2 text is %3, expected %4")
-                                    .arg(gp::Theme::sheetForMode(e.mode),
+                                    .arg(sheetName,
                                          w->metaObject()->className(),
                                          disabledText.name(),
                                          QLatin1String(e.disabledText))));
         }
+
+        // The INDICATOR, not just the label: a checked checkbox's indicator
+        // fill must drop from the accent to the dim token when disabled
+        // (pixel-level — the indicator is painted by the sheet rules, so a
+        // palette read cannot see it).
+        check.setText(QStringLiteral("X"));
+        check.setChecked(true);
+        check.resize(120, 24);
+        check.setEnabled(true);
+        check.ensurePolished();
+        QStyleOptionButton opt;
+        opt.initFrom(&check);
+        opt.state |= QStyle::State_On;
+        const QRect ind = check.style()->subElementRect(
+            QStyle::SE_CheckBoxIndicator, &opt, &check);
+        QVERIFY2(ind.isValid() && !ind.isNull(),
+                 "the style must resolve the checkbox indicator rect");
+        const QImage enabledShot =
+            check.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        const QColor enabledFill = enabledShot.pixelColor(ind.center());
+        QVERIFY2(enabledFill.name() == QLatin1String(e.checkedIndicator),
+                 qPrintable(QStringLiteral("%1: checked indicator fill is %2 at %3x%4, "
+                                          "expected the accent %5")
+                                .arg(sheetName, enabledFill.name())
+                                .arg(ind.center().x()).arg(ind.center().y())
+                                .arg(QLatin1String(e.checkedIndicator))));
+        check.setEnabled(false);
+        check.ensurePolished();
+        const QImage disabledShot =
+            check.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+        const QColor disabledFill = disabledShot.pixelColor(ind.center());
+        QVERIFY2(disabledFill != enabledFill,
+                 "a disabled checked indicator must not keep the accent fill");
+        QVERIFY2(disabledFill.name() == QLatin1String(e.disabledCheckedIndicator),
+                 qPrintable(QStringLiteral("%1: disabled checked indicator fill is %2, "
+                                          "expected the dim token %3")
+                                .arg(sheetName, disabledFill.name(),
+                                     QLatin1String(e.disabledCheckedIndicator))));
     }
 }
 

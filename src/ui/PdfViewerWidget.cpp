@@ -665,6 +665,16 @@ void PdfViewerWidget::updateRotatedPageView()
         m_rotatedPageView = new QLabel(m_pdfView->parentWidget());
         m_rotatedPageView->setObjectName(QStringLiteral("rotatedPageView"));
         m_rotatedPageView->setAlignment(Qt::AlignCenter);
+        // r4-ux: the fallback is a pixmap-only surface, so a screen-reader
+        // user previously got an UNLABELED image exactly while scrolling is
+        // paused. Name the surface and disclose the limitation the Rotate
+        // View status message tells sighted users (ViewController) — the
+        // same honest-disclosure contract, delivered accessibly.
+        m_rotatedPageView->setAccessibleName(tr("Rotated page view"));
+        m_rotatedPageView->setAccessibleDescription(tr(
+            "Rotated view — free scrolling pauses while the view is "
+            "rotated; page navigation still works. Session-only: the view "
+            "returns upright when the document closes."));
         // A reading filter installed before this surface existed must cover it
         // too — re-apply so Night/Eye Care stays truthful on every page surface.
         if (m_nightMode || m_eyeCareMode) applyReadingFilter();

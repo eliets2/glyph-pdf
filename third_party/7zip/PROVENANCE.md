@@ -81,12 +81,14 @@ the binary in installs (`packaging/deploy.ps1` stages `third_party/7zip/` incl.
   fallback leg.
 - `packaging/deploy.ps1` stages the same files (plus `License.txt`) into the
   deploy layout for MSI/portable artifacts.
-- Runtime resolution order (`SafeSave::locateSevenZip` / `SevenZipLocator`):
-  application-owned directory first (the bundled copy), then `PATH`, then the
-  conventional `C:/Program Files/7-Zip/` install locations; empty result is
-  disclosed honestly by the encrypted-package dialog.
-- Tests: `TestSevenZipBundle` (bundle pins + runtime integrity + real M-1
-  round trip through the BUNDLED binary), `TestEncryptedPackageSafeWrite`
-  (safe-replacement transaction with a real-7z end-to-end leg),
-  `TestControllers::testEncryptedPackageArgsCarryNoPassword` (the M-1 argv
-  shape + live stdin-password pin).
+- Runtime resolution (`gp::SevenZipLocator::locateVerified`; extracted from
+  SafeSave by r3-api): the APPLICATION-OWNED copy beside the executable is
+  the ONLY resolution. The earlier "then `PATH`, then `C:/Program
+  Files/7-Zip/`" legs were deliberately REMOVED (wave-2b security audit
+  F-02, CWE-427 — a planted `7z.exe` on those legs would receive the
+  document bytes AND the package password) and must NOT be reintroduced.
+  An empty result means "the vendored bundle is absent" and is disclosed
+  honestly by the encrypted-package dialog. Since r3-sec (CWE-494) the
+  locator also re-verifies the staged `7z.exe`/`7z.dll` SHA-256 against the
+  pins compiled into this binary at first use (per-session verdict cache):
+  a tampered or stale staged copy is refused, never launched.

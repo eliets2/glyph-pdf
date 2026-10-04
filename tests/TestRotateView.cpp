@@ -16,6 +16,9 @@
 //      disclosed fit-to-view fallback (objectName "rotatedPageView") showing
 //      the swapped aspect; at 0 the native view returns. This is the honest,
 //      disclosed limitation: free pixel-scrolling pauses while rotated.
+//      The fallback SURFACE ITSELF carries that disclosure (r4-ux): an
+//      accessibleName + accessibleDescription so a screen-reader user never
+//      gets an unlabeled image exactly while scrolling is paused.
 //   5. The session-only state resets on reload (the close/reload reset path
 //      is loadDocument(), which every open crosses).
 #include <QtTest/QtTest>
@@ -189,6 +192,27 @@ void TestRotateView::fallbackSwapsSurfacesAndReverts()
     QVERIFY2(!pm.isNull(), "the fallback must carry the rotated page bitmap");
     QVERIFY2(pm.width() > pm.height(),
              "the fallback bitmap must show the swapped (landscape) aspect");
+
+    // r4-ux: the fallback must disclose itself. A pixmap-only QLabel is an
+    // unlabeled image to a screen-reader user exactly while free scrolling
+    // is paused — the accessible name names the surface, the accessible
+    // description discloses the paused scrolling AND the surviving page
+    // navigation (the same contract the Rotate View status message tells
+    // sighted users).
+    const QString accName = fallback->accessibleName();
+    QVERIFY2(accName.contains(QStringLiteral("Rotated"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("fallback accessibleName must name the "
+                                      "rotated surface, got \"%1\"").arg(accName)));
+    const QString accDesc = fallback->accessibleDescription();
+    QVERIFY2(accDesc.contains(QStringLiteral("scrolling"), Qt::CaseInsensitive)
+             && accDesc.contains(QStringLiteral("paus"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("fallback accessibleDescription must "
+                                      "disclose the paused scrolling, got \"%1\"")
+                            .arg(accDesc)));
+    QVERIFY2(accDesc.contains(QStringLiteral("page navigation"), Qt::CaseInsensitive),
+             qPrintable(QStringLiteral("fallback accessibleDescription must point "
+                                      "at the surviving page navigation, got \"%1\"")
+                            .arg(accDesc)));
 
     // Back to 0: the native view returns for full scrolling fidelity.
     viewer.rotateViewCounterClockwise();

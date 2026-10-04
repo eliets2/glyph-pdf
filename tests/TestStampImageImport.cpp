@@ -182,6 +182,10 @@ private slots:
     }
 
     // ── import honesty: unusable images refuse with a TYPED reason ───────
+    // r4-ux: the WORDING is pinned, not merely non-emptiness — the audit
+    // point was that a refusal message of literally "error" passed. The
+    // exact strings are the user-facing honesty contract (cause + next
+    // action); a wording regression must fail this pin.
 
     void importRefusesUnusableImagesWithTypedError() {
         const QString json = m_tmpDir.filePath(QStringLiteral("import-refuse.json"));
@@ -205,20 +209,22 @@ private slots:
         QVERIFY2(!StampLibrary::addImageStampTo(json, QStringLiteral("Bad"),
                                                 garbage, &error).has_value(),
                  "garbage bytes must not import");
-        QVERIFY2(!error.isEmpty(), "the refusal must carry a TYPED reason");
+        QCOMPARE(error, QStringLiteral("Could not read garbage.png as an image "
+                                       "(unsupported or corrupt file)."));
         QVERIFY2(!StampLibrary::addImageStampTo(json, QStringLiteral("Bad"),
                                                 truncated, &error).has_value(),
                  "a truncated image must not import");
-        QVERIFY2(!error.isEmpty(), "the truncation refusal must carry a reason");
+        QCOMPARE(error, QStringLiteral("Could not read truncated.png as an image "
+                                       "(unsupported or corrupt file)."));
         QVERIFY2(!StampLibrary::addImageStampTo(json, QStringLiteral("Bad"),
                                                 QStringLiteral("Z:/no/such/file.png"),
                                                 &error).has_value(),
                  "a missing file must not import");
-        QVERIFY2(!error.isEmpty(), "the missing-file refusal must carry a reason");
+        QCOMPARE(error, QStringLiteral("Choose an image file first."));
         QVERIFY2(!StampLibrary::addImageStampTo(json, QStringLiteral("   "),
                                                 validPngPath(), &error).has_value(),
                  "an empty name must refuse");
-        QVERIFY2(!error.isEmpty(), "the empty-name refusal must carry a reason");
+        QCOMPARE(error, QStringLiteral("Enter a name for the stamp."));
 
         // No silent accept anywhere: the catalog must be untouched.
         QVERIFY2(StampLibrary::loadCustomFrom(json).isEmpty(),
