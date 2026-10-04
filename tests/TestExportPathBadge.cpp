@@ -814,19 +814,22 @@ void TestExportPathBadge::registryImageFileFilterMatchesPreviousHandBuiltFilter(
              QStringLiteral("PNG Images (*.png);;JPEG Images (*.jpg);;TIFF Images (*.tif)"));
 }
 
-// The disabled-checkbox wording in CompressDialog (pinned by
-// TestCompressDialogHonesty) must stay byte-identical to the registry's R12
-// probe whyNot — one source of truth, no drift. Since §9.13 (21a387c) the
-// unused-object sweep is real: that probe is Available (no whyNot) and the
-// dialog enables its checkbox; only font subsetting keeps the R12 wording.
+// The subset-scope wording in CompressDialog (pinned by
+// TestCompressDialogHonesty) must stay byte-identical to the registry's
+// CompressSubsetFonts probe detail — one source of truth, no drift. Since
+// font-subsetting-plan-2026-10-01 (route A) that probe is Available with the
+// scope disclosure; the former R12 whyNot round-trip is retired. The MRC
+// unavailability seam keeps its own canonical wording (mrcWhyNot).
 void TestExportPathBadge::compressDialogWordingRoundTripsThroughRegistry() {
     gp::CapabilityRegistry reg;
     reg.registerEngineProbes();
 
+    QCOMPARE(gp::CompressDialog::subsetScopeExplanation(),
+             gp::subsetFontsScopeDisclosure());
+    QCOMPARE(reg.query(gp::CapId::CompressSubsetFonts).detail,
+             gp::CompressDialog::subsetScopeExplanation());
     QCOMPARE(gp::CompressDialog::unsupportedPassExplanation(),
-             gp::r12UnsupportedPassExplanation());
-    QCOMPARE(reg.query(gp::CapId::CompressSubsetFonts).whyNot,
-             gp::CompressDialog::unsupportedPassExplanation());
+             gp::mrcWhyNot());
 
     const gp::Capability removeUnused = reg.query(gp::CapId::CompressRemoveUnused);
     QCOMPARE(removeUnused.status, gp::Availability::Available);

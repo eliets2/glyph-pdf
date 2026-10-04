@@ -424,17 +424,27 @@ private slots:
         }
     }
 
-    void engineProbesR12PassesAreBuildUnavailableWithCanonicalWording() {
+    void engineProbesCompressPassesAreAvailableWithScopeDisclosure() {
         CapabilityRegistry reg;
         reg.registerEngineProbes();
 
-        // §9.13 (21a387c): the unused-object sweep is implemented, so font
-        // subsetting is the only remaining unimplemented R12 pass.
+        // font-subsetting-plan-2026-10-01 §5.1: the route-A keep-CID TrueType
+        // subsetter is implemented, so BOTH compress passes are Available now
+        // (formerly: the R12 UnavailableBuild probe with the retired
+        // "does not implement font subsetting" wording). The disclosure must
+        // state the SCOPE — what is covered and which fonts are left untouched.
         const Capability subset = reg.query(CapId::CompressSubsetFonts);
-        QCOMPARE(subset.status, Availability::UnavailableBuild);
-        QCOMPARE(subset.whyNot, gp::r12UnsupportedPassExplanation());
-        QVERIFY2(!subset.alternative.trimmed().isEmpty(),
-                 "the R12 pass must point at the passes that DO run");
+        QCOMPARE(subset.status, Availability::Available);
+        QVERIFY2(subset.whyNot.trimmed().isEmpty(),
+                 "an available pass must not carry a whyNot");
+        QVERIFY2(subset.detail.contains(QStringLiteral("TrueType"), Qt::CaseInsensitive),
+                 "the scope disclosure must name the covered programs");
+        QVERIFY2(subset.detail.contains(QStringLiteral("left untouched")),
+                 "the scope disclosure must name which fonts are skipped");
+        QCOMPARE(subset.detail, gp::subsetFontsScopeDisclosure());
+        QVERIFY2(subset.alternative.contains(QStringLiteral("Type1")),
+                 "the alternative must name the unsupported programs "
+                 "(plan §5.1 wording)");
 
         const Capability removeUnused = reg.query(CapId::CompressRemoveUnused);
         QCOMPARE(removeUnused.status, Availability::Available);

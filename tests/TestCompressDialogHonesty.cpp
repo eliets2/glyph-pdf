@@ -1,21 +1,24 @@
 // SPDX-License-Identifier: Apache-2.0
-// §9.13 honesty regression test.
+// §9.13 honesty regression test — re-scoped by font-subsetting-plan-2026-10-01 §5.1.
 //
-// "Subset fonts" remains UNIMPLEMENTED in the backend: the R12 contract
-// (checkbox DISABLED, UNCHECKED, carrying the availability explanation,
-// options pinned false) still applies to it alone.
+// BOTH compress passes are now implemented in the backend:
+//   * "Remove unused objects" — trailer-rooted reachability sweep (21a387c);
+//   * "Subset fonts" — keep-CID blank-glyph TrueType subsetter (route A,
+//     feat/font-subset-tt): unused glyphs blanked, glyph numbering preserved.
+// MRC remains the only Degraded compress capability (needs OCR-pipeline page
+// images).
 //
-// "Remove unused objects" IS now implemented (trailer-rooted reachability
-// sweep, 21a387c) — its checkbox is ENABLED, default-checked, and the
-// OptimizeOptions the dialog hands to the engine honor the user's choice.
-//
-// This test pins both contracts side by side:
-//   1. the availability explanation (unsupportedPassExplanation) is honest,
-//   2. subset fonts: disabled, unchecked, explained, options pinned false,
+// The pinned contracts therefore become:
+//   1. the unsupported-pass seam explains MRC-only unavailability (the retired
+//      R12 "font subsetting not implemented" wording is gone),
+//   2. subset fonts: ENABLED, default UNCHECKED (user opt-in — it mutates font
+//      programs), carrying the SCOPE disclosure (TrueType covered; CFF/Type1/
+//      OpenType, unprovable usage and signed documents left untouched),
 //   3. remove unused: enabled, checked, options follow the checkbox,
-//   4. no preset re-enables subset fonts.
-//      either unsupported pass,
-//   5. the size row stays explicitly labeled as an estimate.
+//   4. no preset checks or disables subset fonts (and never overrides the
+//      user's choice),
+//   5. the options reaching the engine honor the checkbox state exactly,
+//   6. the size row stays explicitly labeled as an estimate.
 #include <QtTest/QtTest>
 #include <QCheckBox>
 #include <QDebug>
@@ -58,21 +61,30 @@ QStringList stateViolations(const gp::CompressDialog &dlg)
     auto *subset = findBox(dlg, QStringLiteral("Subset fonts"));
     auto *remove = findBox(dlg, QStringLiteral("Remove unused objects"));
     if (!subset)
-        v << QStringLiteral("the 'Subset fonts' checkbox is missing (R12 removes the promise, not the control)");
+        v << QStringLiteral("the 'Subset fonts' checkbox is missing (the route-A "
+                            "subsetter ships it as a real, opt-in pass)");
     if (!remove)
         v << QStringLiteral("the 'Remove unused objects' checkbox is missing");
     if (subset) {
-        if (subset->isEnabled())
-            v << QStringLiteral("'Subset fonts' is ENABLED but the pass is not implemented in this build");
+        // The pass is implemented — a disabled checkbox would be the R12
+        // placeholder lying in the other direction now.
+        if (!subset->isEnabled())
+            v << QStringLiteral("'Subset fonts' is DISABLED but the pass is "
+                                "implemented in this build");
+        // It mutates font programs: user opt-in only, never default-checked.
         if (subset->isChecked())
-            v << QStringLiteral("'Subset fonts' is CHECKED but the engine never subsets fonts");
-        if (subset->toolTip() != gp::CompressDialog::unsupportedPassExplanation())
-            v << QStringLiteral("'Subset fonts' tooltip does not carry the availability explanation");
-        if (subset->statusTip() != gp::CompressDialog::unsupportedPassExplanation())
-            v << QStringLiteral("'Subset fonts' status tip does not carry the availability explanation");
+            v << QStringLiteral("'Subset fonts' defaults CHECKED — the pass must "
+                                "only run on explicit user choice");
+        const QString scope = gp::CompressDialog::subsetScopeExplanation();
+        if (subset->toolTip() != scope)
+            v << QStringLiteral("'Subset fonts' tooltip does not carry the canonical "
+                                "scope disclosure");
+        if (subset->statusTip() != scope)
+            v << QStringLiteral("'Subset fonts' status tip does not carry the "
+                                "canonical scope disclosure");
     }
-    // "Remove unused objects" is now implemented — no honesty pin applies
-    // to it here; the sweep contract is pinned in TestCompressJpegReencode.
+    // "Remove unused objects" is implemented — its sweep contract is pinned in
+    // TestCompressJpegReencode; its enabled state is asserted explicitly below.
     return v;
 }
 
@@ -87,44 +99,64 @@ private slots:
         QCoreApplication::setApplicationName(QStringLiteral("TestCompressDialogHonesty"));
     }
 
-    // The seam is the single source of truth for the availability text the
-    // disabled checkboxes surface; it must actually say the passes are not
-    // implemented/available rather than hinting at a tuning problem.
+    // The seam now explains the only compress capability that still cannot run
+    // in this dialog: MRC (Degraded — needs OCR-pipeline page images). The
+    // retired R12 wording ("font subsetting ... not implemented") must be gone:
+    // both passes it named are implemented.
     void unsupportedPassExplanationIsHonest() {
         const QString text = gp::CompressDialog::unsupportedPassExplanation();
         QVERIFY2(!text.trimmed().isEmpty(),
                  "unsupportedPassExplanation() must not be empty");
-        QVERIFY2(text.contains(QStringLiteral("not implemented"), Qt::CaseInsensitive)
-                 || text.contains(QStringLiteral("not available"), Qt::CaseInsensitive),
+        QVERIFY2(text.contains(QStringLiteral("MRC"), Qt::CaseInsensitive),
                  qPrintable(QStringLiteral(
-                     "the explanation must state the passes are not implemented/available "
-                     "in this build; got: %1").arg(text)));
+                     "the seam must explain the MRC-only unavailability — the "
+                     "compress passes are implemented; got: %1").arg(text)));
+        QVERIFY2(text.contains(QStringLiteral("not available"), Qt::CaseInsensitive)
+                 || text.contains(QStringLiteral("requires"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral(
+                     "the seam must state why MRC cannot run here; got: %1").arg(text)));
+        QVERIFY2(!text.contains(QStringLiteral("font subsetting"), Qt::CaseInsensitive),
+                 qPrintable(QStringLiteral(
+                     "the retired R12 wording must not survive — font subsetting "
+                     "is implemented; got: %1").arg(text)));
     }
 
-    void subsetFontsStaysDisabledUncheckedWithExplanation() {
+    // Route A shipped: the checkbox is enabled for real, defaults unchecked
+    // (the pass mutates font programs — explicit opt-in), and carries the
+    // scope disclosure instead of an availability excuse.
+    void subsetFontsFollowsUserChoiceWithScopeDisclosure() {
         gp::CompressDialog dlg(nullptr);
         const QStringList v = stateViolations(dlg);
         QVERIFY2(v.isEmpty(), qPrintable(v.join(QStringLiteral("; "))));
-        // The remove-unused pass is IMPLEMENTED — assert the enabled state
-        // explicitly so a regression to the R12 placeholder cannot hide.
-        auto *remove = dlg.findChild<QCheckBox*>(QStringLiteral("Remove unused objects"));
-        if (!remove) {
-            const auto boxes = dlg.findChildren<QCheckBox*>();
-            for (auto *b : boxes)
-                if (b->text() == QStringLiteral("Remove unused objects"))
-                    remove = b;
-        }
+        auto *subset = findBox(dlg, QStringLiteral("Subset fonts"));
+        QVERIFY2(subset, "the 'Subset fonts' checkbox is missing");
+        const QString scope = gp::CompressDialog::subsetScopeExplanation();
+        QVERIFY2(subset->toolTip().contains(QStringLiteral("TrueType")),
+                 "the scope disclosure must name the covered programs (TrueType)");
+        QVERIFY2(subset->toolTip().contains(QStringLiteral("left untouched")),
+                 "the scope disclosure must name which fonts are left untouched");
+        QVERIFY2(!subset->toolTip().contains(QStringLiteral("not available"),
+                                             Qt::CaseInsensitive),
+                 "an implemented pass must not be explained with an "
+                 "availability excuse");
+        // The remove-unused pass stays enabled+checked (21a387c contract).
+        auto *remove = findBox(dlg, QStringLiteral("Remove unused objects"));
         QVERIFY2(remove, "the 'Remove unused objects' checkbox is missing");
         QVERIFY2(remove->isEnabled(),
-                 "'Remove unused objects' must be ENABLED — the sweep is implemented (21a387c)");
+                 "'Remove unused objects' must be ENABLED — the sweep is implemented");
         QVERIFY2(remove->isChecked(),
-                 "'Remove unused objects' must default CHECKED — the sweep honors the user's choice");
+                 "'Remove unused objects' must default CHECKED — the sweep "
+                 "honors the user's choice");
     }
 
-    // Switching presets (Screen/Ebook/Printer/Custom) used to re-check both
-    // unsupported passes; no preset may re-enable or re-check them.
-    void presetsNeverReEnableOrReCheckUnsupportedPasses() {
+    // Switching presets (Screen/Ebook/Printer/Custom) must never silently
+    // check "Subset fonts" (font-program mutation is opt-in) — and since the
+    // pass is implemented, never disable or uncheck it either. The user's
+    // choice survives preset clicks exactly like the remove-unused choice.
+    void presetsNeverTouchTheSubsetChoice() {
         gp::CompressDialog dlg(nullptr);
+        auto *subset = findBox(dlg, QStringLiteral("Subset fonts"));
+        QVERIFY2(subset, "the 'Subset fonts' checkbox is missing");
 
         int presetCards = 0;
         const auto buttons = dlg.findChildren<QToolButton*>();
@@ -132,21 +164,36 @@ private slots:
             if (!b->isCheckable())
                 continue;
             ++presetCards;
+            // User opted in before touching presets.
+            subset->setChecked(true);
             b->click();
-            const QStringList v = stateViolations(dlg);
+            QStringList v;
+            if (!subset->isEnabled())
+                v << QStringLiteral("'Subset fonts' was DISABLED by a preset");
+            if (!subset->isChecked())
+                v << QStringLiteral("a preset silently unchecked the user's "
+                                    "opt-in 'Subset fonts' choice");
             QVERIFY2(v.isEmpty(),
                      qPrintable(QStringLiteral("after clicking preset '%1': %2")
                                     .arg(b->text().section(QLatin1Char('\n'), 0, 0),
                                          v.join(QStringLiteral("; ")))));
+            // And with the user opted out, no preset may check it for them.
+            subset->setChecked(false);
+            b->click();
+            QVERIFY2(!subset->isChecked(),
+                     qPrintable(QStringLiteral(
+                         "preset '%1' silently checked 'Subset fonts'")
+                             .arg(b->text().section(QLatin1Char('\n'), 0, 0))));
         }
         QVERIFY2(presetCards >= 4,
                  "expected the four preset cards (Screen/Ebook/Printer/Custom) to be clickable");
     }
 
-    // Whatever the widgets show, the options reaching the engine must not
-    // request the unimplemented passes (OptimizeOptions defaults both to true,
-    // so the dialog has to pin them off explicitly).
-    void estimateOptionsNeverRequestUnsupportedPasses() {
+    // Whatever the widgets show, the options reaching the engine must HONOR
+    // them: subsetFonts reaches the estimator exactly as checked (the pass is
+    // implemented; its estimator claims savings only through the same
+    // eligibility walk the write path runs).
+    void estimateOptionsHonorCheckbox() {
         auto engine = std::make_shared<RecordingEditorEngine>();
         AppContext ctx;
         ctx.pdfEditor = engine;
@@ -154,18 +201,24 @@ private slots:
         gp::CompressDialog dlg(&ctx);  // constructor applies the Ebook preset → estimate runs
         QVERIFY2(engine->sawEstimate, "construction must trigger the live estimate");
 
-        const auto buttons = dlg.findChildren<QToolButton*>();
-        for (auto *b : buttons) {
-            if (b->isCheckable())
-                b->click();
-        }
+        auto *subset = findBox(dlg, QStringLiteral("Subset fonts"));
+        QVERIFY2(subset, "the 'Subset fonts' checkbox is missing");
 
+        // Opted-out: the estimate must not claim subset savings.
+        subset->setChecked(true);
+        subset->setChecked(false);
         QVERIFY2(!engine->lastEstimateOpts.subsetFonts,
-                 "the dialog asked the engine to subset fonts — a pass the "
-                 "backend does not implement");
+                 "the dialog asked the engine to subset fonts while the "
+                 "checkbox was unchecked");
+
+        // Opted-in: the engine must be told to run the pass.
+        subset->setChecked(true);
+        QVERIFY2(engine->lastEstimateOpts.subsetFonts,
+                 "the dialog did not honor the checked 'Subset fonts' — the "
+                 "pass is implemented and the user opted in");
         QVERIFY2(engine->lastEstimateOpts.removeUnusedObjects,
-                 "the dialog must honor the checked 'Remove unused objects' — the "
-                 "sweep is implemented and the checkbox defaults checked");
+                 "the dialog must honor the checked 'Remove unused objects' — "
+                 "the sweep is implemented and the checkbox defaults checked");
     }
 
     // The size figures shown live are predictions, not measurements; the row
