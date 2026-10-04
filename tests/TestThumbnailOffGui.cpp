@@ -45,6 +45,7 @@
 #include <QPageSize>
 #include <QThread>
 #include <QSemaphore>
+#include <QSet>
 #include <QFuture>
 #include <QScopeGuard>
 #include <QtConcurrent>
@@ -177,6 +178,7 @@ class TestThumbnailOffGui : public QObject {
 private slots:
     void sidebarFirstPaintIsPlaceholderEvenWithAllWorkersParked();
     void thumbnailsArriveAsynchronouslyAfterRelease();
+    void placeholderThumbnailsExposeAccessiblePageNames();
     void renderPageAsyncRunsOffThreadAndDelivers();
     void renderPageAsyncCacheHitServedSynchronously();
     void clearCancelsInFlightRenderJoinsAndDeliversNothing();
@@ -288,6 +290,52 @@ void TestThumbnailOffGui::thumbnailsArriveAsynchronouslyAfterRelease()
     // property is pinned deterministically by the parked-pool pin above.)
     QVERIFY2(waitUntil([&] { return labelsWithPixmap(sb) == created; }),
              "thumbnails did not arrive asynchronously within the timeout");
+}
+
+// Pin 1c — r5-litems (DeepSeek UX audit finding 10): every thumbnail widget
+// exposes an accessibleName carrying ITS page number, so a screen reader
+// identifies the page instead of walking an unnamed interactive widget, and
+// the interaction contract (click to navigate, drag to reorder) ships as the
+// accessibleDescription of the surface that receives it. Pre-fix neither was
+// set on the thumbnail surface (RED: accessibleName was empty for all slots).
+void TestThumbnailOffGui::placeholderThumbnailsExposeAccessiblePageNames()
+{
+    QVERIFY(m_dir.isValid());
+    const QString pdf = createNPagePdf(m_dir, "thumba11y.pdf", 3);
+
+    PdfViewerWidget viewer;
+    QVERIFY(viewer.loadDocument(pdf));
+
+    ThumbnailSidebar sb;
+    sb.setViewer(&viewer);
+    sb.resize(280, 900);
+    sb.show();
+
+    QVERIFY(waitUntil([&] { return !thumbImageLabels(sb).isEmpty(); }));
+
+    // 260 px per slot: a 3-page document is fully visible at this size, so
+    // virtualization cannot quietly shrink the asserted set.
+    const auto items = sb.findChildren<QWidget *>(QString::fromLatin1("thumbItem"));
+    QVERIFY2(items.size() == 3,
+             "every page of a fully-visible document must have a thumbnail widget");
+    QSet<int> pages;
+    for (QWidget *w : items) {
+        const int page = w->property("pageIndex").toInt();
+        QVERIFY2(!pages.contains(page),
+                 qPrintable(QStringLiteral("duplicate thumbnail widget for page %1").arg(page + 1)));
+        pages.insert(page);
+        // The name must carry THIS slot's page number — a constant name reused
+        // across slots fails here exactly as an empty one does.
+        QVERIFY2(w->accessibleName() == QStringLiteral("Page %1").arg(page + 1),
+                 qPrintable(QStringLiteral("thumbnail page slot %1 exposes accessibleName "
+                                          "\"%2\", expected \"Page %3\"")
+                                .arg(page + 1)
+                                .arg(w->accessibleName())
+                                .arg(page + 1)));
+        QVERIFY2(w->accessibleDescription().contains(QLatin1String("Click to navigate")),
+                 "the thumbnail must disclose the interaction contract to screen readers");
+    }
+    QCOMPARE(pages.size(), 3);
 }
 
 // Pin 2 — RenderCache::renderPageAsync schedules off-thread and delivers.

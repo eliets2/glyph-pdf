@@ -129,20 +129,29 @@ void closeNextModalSoon(int turnsLeft)
     });
 }
 
-// Closes the next modal (the driven flow's own failure box) whenever it shows
-// up; the retry budget only bounds how long it waits, so a flow that answers
-// later than expected degrades into a qWarning rather than a stale closer.
-void dismissNextModal(int turnsLeft = 100)
+// Captures the TEXT of the next QMessageBox modal, then closes it. Same
+// budgeted-retry idiom as the drivers above: the box registers as
+// QApplication::activeModalWidget only after a nested-loop turn (and the
+// exact turn depends on the platform plugin), so the capture RETRIES until
+// the box is OBSERVED, with a bounded turn budget — a regression degrades
+// into a qWarning and an empty capture, not a hang. The captured strings are
+// the honesty evidence: what the user was actually told at the moment the
+// save did not persist.
+void captureNextModalText(QString *title, QString *text, QString *informativeText,
+                          int turnsLeft = 100)
 {
-    QTimer::singleShot(0, [turnsLeft] {
-        if (QWidget *w = QApplication::activeModalWidget()) {
-            w->close();
+    QTimer::singleShot(0, [title, text, informativeText, turnsLeft] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget())) {
+            if (title) *title = box->windowTitle();
+            if (text) *text = box->text();
+            if (informativeText) *informativeText = box->informativeText();
+            box->close();
             return;
         }
         if (turnsLeft > 0)
-            dismissNextModal(turnsLeft - 1);
+            captureNextModalText(title, text, informativeText, turnsLeft - 1);
         else
-            qWarning() << "dismissNextModal: no modal appeared within the turn budget";
+            qWarning() << "captureNextModalText: no message box appeared within the turn budget";
     });
 }
 
@@ -304,13 +313,37 @@ private slots:
         m_maybeReadOnly = a;
 
         clickPromptButton(QStringLiteral("Save"));   // close prompt → Save
-        dismissNextModal();                          // the failed-save error box
+        // r5-litems (DeepSeek UX audit finding 7): the failed-save box was
+        // dismissed generically and its text never captured — a regression
+        // to a generic "An error occurred" sailed through. Capture what the
+        // user is actually told at the moment the save does not persist.
+        QString failedTitle, failedText;
+        captureNextModalText(&failedTitle, &failedText, nullptr);
         const bool closed = m_win->close();
 
         QVERIFY2(!closed && m_win->isVisible(),
                  "ARC03: a failed save must keep the window and document open");
         QVERIFY2(ctx->document->isDirty(), "ARC03: the unsaved work must stay dirty-truthful");
         QVERIFY2(ctx->undoStack->canUndo(), "ARC03: history must remain available for retry");
+
+        // The failure box must be truthful about what failed: the title names
+        // the event (a save that did NOT persist, not a generic "error"), and
+        // the body names the exact document, states the non-persistence
+        // plainly, and points at the cause that really applies in this
+        // scenario (the destination is write-protected — the pinned wording
+        // is verified against the observed read-only refusal). The retry path
+        // is the ARC03 contract itself, pinned by the assertions above (window
+        // open, work dirty, history intact) and the retry below.
+        QVERIFY2(failedTitle == QLatin1String("Save Failed"),
+                 qPrintable(QStringLiteral("the failed-save box title is \"%1\", expected "
+                                          "\"Save Failed\" — the wording must name what failed")
+                                .arg(failedTitle)));
+        QVERIFY2(failedText == QStringLiteral("Could not save '%1'. Check that the disk "
+                                              "is not full and the file is not "
+                                              "write-protected.").arg(a),
+                 qPrintable(QStringLiteral("the failed-save box text is \"%1\" — expected the "
+                                          "typed wording naming the document and the "
+                                          "write-protected cause").arg(failedText)));
 
         // Retry with a writable destination: the save now really persists and
         // only then does the close proceed.

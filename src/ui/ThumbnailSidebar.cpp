@@ -297,6 +297,16 @@ QWidget* ThumbnailSidebar::createThumbWidget(int pageIndex)
     thumbWidget->setProperty("pageIndex", pageIndex);
     thumbWidget->setProperty("current", isCurrent);
     thumbWidget->installEventFilter(this);
+    // r5-litems (DeepSeek UX audit finding 10): the interactive thumbnail
+    // surface was an unnamed QWidget — a screen reader walked an anonymous
+    // client area and could identify a thumbnail only incidentally, through
+    // the visible child label. Name it for the page it shows, and carry the
+    // same interaction contract the sidebar-level description discloses
+    // (click to navigate, drag to reorder) on the surface that actually
+    // receives the interaction.
+    thumbWidget->setAccessibleName(tr("Page %1").arg(pageIndex + 1));
+    thumbWidget->setAccessibleDescription(
+        tr("Thumbnail preview. Click to navigate, drag to reorder."));
 
     auto* thumbLayout = new QVBoxLayout(thumbWidget);
     thumbLayout->setContentsMargins(4, 4, 4, 4);

@@ -354,20 +354,50 @@ void TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet()
         QString sheet;
         QVERIFY2(loadThemeSheet(e.mode, &sheet),
                  qPrintable(QStringLiteral("cannot load sheet for mode %1").arg(int(e.mode))));
-        // High-contrast parity with the other sheets: the thumbnail paper
-        // preview (semantic paper colours) and the mono input font must be
-        // styled here too — they were missing and the preview vanished
-        // against the black sidebar.
-        if (e.mode == gp::Theme::HighContrast) {
-            QVERIFY2(sheet.contains(QStringLiteral("QWidget#thumbPaper")),
-                     "high-contrast sheet must style the thumbnail paper preview");
-            QVERIFY2(sheet.contains(QStringLiteral("QLineEdit[mono=\"true\"]")),
-                     "high-contrast sheet must style mono inputs");
-        }
         QVERIFY2(sheet.contains(QStringLiteral(":disabled")),
                  "every shipped sheet must carry disabled-state rules");
 
         qApp->setStyleSheet(sheet);
+
+        // High-contrast parity with the other sheets: the thumbnail paper
+        // preview (semantic paper colours) and the mono input font must be
+        // styled here too — they were missing and the preview vanished
+        // against the black sidebar.
+        // r5-litems (DeepSeek UX audit finding 9): the earlier parity pins
+        // were raw `sheet.contains(selector)` string checks — the presence
+        // of a selector string does not prove the rule WINS; a later rule
+        // could override either selector and the string check would stay
+        // green. Both parity rules are now asserted on the RESOLVED state,
+        // the same computed-style approach the disabled-controls matrix
+        // uses: the paper preview at the pixel level (its background is
+        // painted by the sheet rule on a plain QWidget — a palette read
+        // cannot see it), and the mono input's resolved font read back
+        // after polish.
+        if (e.mode == gp::Theme::HighContrast) {
+            QWidget paperPreview;
+            paperPreview.setObjectName(QStringLiteral("thumbPaper"));
+            paperPreview.resize(48, 48);
+            paperPreview.ensurePolished();
+            const QImage paperShot =
+                paperPreview.grab().toImage().convertToFormat(QImage::Format_ARGB32);
+            const QColor paperFill = paperShot.pixelColor(paperPreview.rect().center());
+            QVERIFY2(paperFill.name() == QLatin1String("#e8e6df"),
+                     qPrintable(QStringLiteral("high-contrast: the thumbnail paper preview "
+                                              "paints %1, expected the paper token #e8e6df — "
+                                              "the parity rule no longer wins and the preview "
+                                              "vanishes against the black sidebar")
+                                    .arg(paperFill.name())));
+
+            QLineEdit monoEdit;
+            monoEdit.setProperty("mono", true);
+            monoEdit.ensurePolished();
+            QVERIFY2(monoEdit.font().family() == QLatin1String("JetBrains Mono"),
+                     qPrintable(QStringLiteral("high-contrast: a mono input resolves to the "
+                                              "font family \"%1\", expected the sheet's "
+                                              "\"JetBrains Mono\" — the mono rule no longer "
+                                              "wins")
+                                    .arg(monoEdit.font().family())));
+        }
 
         QLineEdit edit;
         QSpinBox spin;
