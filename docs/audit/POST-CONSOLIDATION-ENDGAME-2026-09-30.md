@@ -267,3 +267,34 @@ WAVE-CLOSING STATE: full serial 202/202 at 8aa2aa1b (evidence
 evidence-wave2-closing/waveend-serial-2026-10-03.txt). Owner decisions
 open: font subsetting A/B/C (f3c7cb88), CMYK-via-lcms2, 7z 26.03 bump,
 L03 manifest.
+
+## Round 4 + program close-out (2026-10-04, main @ 8e5438bb)
+
+Folds: font-subset-tt (Option A TrueType core SHIPPED — keep-CID blank-glyph
+subsetter, measured 1,045,720→355,560 bytes at render/extraction identity,
+Compress checkbox enabled for real w/ honest estimator, 14 pins; CFF/Type1
+disclosed-counted deferrals; fold fix: a literal NUL byte in the lane's test
+broke AUTOMOC silently — replaced with the escape), r4-misc (processed-set
+TTL+cap, quickjs RUNTIME version gate, deploy.ps1 System32 fallback removed,
+junction-loop defect found by the dynamic probe: one file delivered 64x —
+junction=leaf+canonical visited set; decode-bomb typed refusal), 7z-2603
+(vendored bump: dual-source-verified installer, pins updated, M-1 re-proven
+on 26.03; CVE-2026-58052 extraction-side, unused by our surface), r4-ux
+(6/6 UX findings: truthful 7-Zip provenance, painted-role disabled pins,
+per-sheet visibility, indicator matrix, RotateView accessible disclosure,
+stamp-refusal wording).
+FINAL GATE: BUILD_RC=0, full serial **203/203, 0 failed**
+(evidence-wave2-closing/final-serial-2026-10-04.txt).
+Forwarded owner items (from r4-ux, verified valid, deliberately not fixed):
+modal-text-capture helper for TestPersistenceOutcomes box pin, HC parity
+raw-contains upgrade, thumbnails accessibleName pins.
+DEEPSEEK CROSS-MODEL AUDIT FINAL STATE: 8/10 roles delivered substantive
+reports (security, adversary, gsd-verifier, archaeologist, testing,
+performance, api-designer, ux); devops-engineer + documentation-writer
+remain blocked on OpenRouter credit (driver + saved-parts resume ready at
+D:/pdf/verification/crossmodel/run_audit.py). Every delivered role:
+PASS-WITH-FINDINGS, 0 Critical; all M/H findings fixed through rounds 1-4;
+residual Ls dispositioned or forwarded above.
+PROGRAM STATE: all dispatched work landed and gated; owner decisions open:
+CMYK-via-lcms2 (row 13). Font subsetting A SHIPPED (this round); 7z 26.03
+SHIPPED (this round); L03 SHIPPED (native Linux 197/202 in-container).
