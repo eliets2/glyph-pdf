@@ -1,0 +1,16 @@
+********* Start testing of TestViewingModes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewingModes::initTestCase()
+PASS   : TestViewingModes::nightModeEffectInvertsPixels()
+PASS   : TestViewingModes::nightModeCoversBothPageSurfaces()
+PASS   : TestViewingModes::eyeCareSurvivesRepeatedToggling()
+PASS   : TestViewingModes::readingFiltersAreMutuallyExclusive()
+PASS   : TestViewingModes::nightModeChangesTheRenderedViewer()
+PASS   : TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet()
+PASS   : TestViewingModes::loadingADocumentAnnouncesItsFirstPage()
+PASS   : TestViewingModes::renderedPagesArePaperWhite()
+FAIL!  : TestViewingModes::disabledControlsReadAsDisabledUnderEveryShippedSheet() 'disabledText != enabledText' returned FALSE. (:/resources/theme_dark.qss: disabled QComboBox still paints in the enabled foreground)
+D:/pdf/pdf-r4-ux/tests/TestViewingModes.cpp(409) : failure location
+PASS   : TestViewingModes::cleanupTestCase()
+Totals: 10 passed, 1 failed, 0 skipped, 0 blacklisted, 481ms
+********* Finished testing of TestViewingModes *********

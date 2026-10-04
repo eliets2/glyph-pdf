@@ -1,0 +1,8 @@
+********* Start testing of TestViewingModes *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestViewingModes::initTestCase()
+FAIL!  : TestViewingModes::loadedPageIsVisibleUnderTheShippedStylesheet() 'paperPixels(viewer.grab().toImage()) > 5000' returned FALSE. ()
+D:/pdf/pdf-r4-ux/tests/TestViewingModes.cpp(235) : failure location
+PASS   : TestViewingModes::cleanupTestCase()
+Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 18429ms
+********* Finished testing of TestViewingModes *********
