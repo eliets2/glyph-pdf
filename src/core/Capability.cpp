@@ -39,6 +39,21 @@ QString subsetFontsScopeDisclosure()
                        "untouched.");
 }
 
+// feat/cmyk-decode (2026-10-04): canonical downsample-scope disclosure — the
+// CMYK half of parity row 13. States exactly which image classes the
+// downsample pass recolors (CMYK with an embedded ICC profile, via Qt's
+// color-managed decode) and which it leaves untouched (profile-less CMYK:
+// PDF 2.0 Annex B defines no default CMYK→RGB, so guessing is not honest).
+QString downsampleScopeDisclosure()
+{
+    return QObject::tr("Downsamples JPEG and raw images and re-encodes them "
+                       "as JPEG. CMYK images that carry an embedded ICC color "
+                       "profile are converted colorimetrically before "
+                       "downsampling; CMYK images without a profile are left "
+                       "untouched, because PDF defines no default CMYK to RGB "
+                       "conversion and guessing colors would shift them.");
+}
+
 // LibreOffice import — verbatim from the HomeController dialog
 // (HomeController::onImportOffice), now owned by the registry.
 QString officeImportWhyNot()

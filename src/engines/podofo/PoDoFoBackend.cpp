@@ -36,6 +36,9 @@
 #include <QStandardPaths>
 #include <QBuffer>
 #include <QImageWriter>
+#include <QColorSpace>
+#include <QColorTransform>
+#include <QtGlobal> // Q_BYTE_ORDER / QT_VERSION gates for the CMYK decode path
 #include <cstdlib>
 #include <unordered_map>
 
@@ -6853,6 +6856,62 @@ static bool documentHasSignatureFields(PoDoFo::PdfMemDocument &doc)
     return false;
 }
 
+// ── PARITY row 13 second half: color-managed CMYK decode ────────────────────
+// The pinned Qt 6.8+ engine (QImage::Format_CMYK8888 + QColorSpace::
+// fromIccProfile parsing CMYK ICC A2B profiles + CLUT-based colorTransformed)
+// provides the color-managed CMYK→sRGB decode the former "no ICC transform
+// engine in this tree" guard demanded; runtime-verified colorimetric against
+// the lcms2 reference (docs/research/cmyk-lcms2-plan-2026-10-04.md §3.4).
+// The guard's core promise stands: the profile must come from the image
+// itself (embedded JPEG APP2 ICC or /ICCBased /N 4 stream) — profile-less
+// CMYK stays skipped because PDF 2.0 Annex B defines no default CMYK→RGB.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+// Resolve the profile bytes of an /ICCBased colorspace array — only a
+// 4-component (CMYK) profile qualifies. Returns an empty array when the
+// colorspace is not [/ICCBased <stream>] with /N 4, the stream cannot be
+// resolved, or it is implausibly large (> 4 MiB — no real ICC profile is).
+static QByteArray cmykIccBasedProfileBytes(const PoDoFo::PdfArray& csArr,
+                                           PoDoFo::PdfIndirectObjectList& objects)
+{
+    if (csArr.size() != 2 || !csArr[0].IsName()
+        || csArr[0].GetName().GetString() != "ICCBased")
+        return {};
+    if (!csArr[1].IsReference())
+        return {};
+    PoDoFo::PdfObject* stream = objects.GetObject(csArr[1].GetReference());
+    if (!stream || !stream->HasStream())
+        return {};
+    auto* nObj = stream->GetDictionary().FindKey("N");
+    if (!nObj || !nObj->IsNumberOrReal() || static_cast<int64_t>(nObj->GetReal()) != 4)
+        return {};
+    try {
+        if (stream->GetOrCreateStream().GetLength() > 4 * 1024 * 1024)
+            return {};
+        PoDoFo::charbuff pbuf;
+        stream->GetOrCreateStream().CopyTo(pbuf);
+        return QByteArray(pbuf.data(), static_cast<qsizetype>(pbuf.size()));
+    } catch (const PoDoFo::PdfError&) {
+        return {};
+    }
+}
+
+// Transform a Format_CMYK8888 image to sRGB (Format_RGB888) through its
+// attached ICC profile. Returns a null image when the colorspace is missing,
+// is not CMYK, or the transform cannot be built — the caller must skip those
+// (untransformed CMYK bytes must never be reinterpreted as RGB).
+static QImage cmyk8888ToSRgb(const QImage& cmykImg)
+{
+    const QColorSpace cs = cmykImg.colorSpace();
+    if (!cs.isValid() || cs.colorModel() != QColorSpace::ColorModel::Cmyk)
+        return {};
+    const QColorTransform tr = cs.transformationToColorSpace(QColorSpace::SRgb);
+    // An identity transform would leave CMYK bytes misread as RGB — refuse.
+    if (tr.isIdentity())
+        return {};
+    return cmykImg.colorTransformed(tr, QImage::Format_RGB888);
+}
+#endif // Qt >= 6.8
+
 bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOptions &options)
 {
     QMutexLocker locker(&d->mutex);
@@ -6869,16 +6928,25 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
         // re-encoded to real JPEG). Media-filter streams are read with
         // CopyTo(raw) — CopyTo() cannot expand DCTDecode and throws
         // UnsupportedFilter. Everything else (CCITT, JPX, 16bpc,
-        // CMYK, /ImageMask, images carrying /SMask or /Mask — rescaling would
+        // /ImageMask, images carrying /SMask or /Mask — rescaling would
         // desync the mask — or a /Decode array the re-encode would invalidate)
         // is skipped untouched.
         // PARITY row 13 (scorecard 2026-09-30): /Indexed 8bpc images with a
         // /DeviceRGB or /DeviceGray base no longer sit in the skip set — the
         // palette is expanded to pixels, downsampled and re-encoded as JPEG.
-        // CMYK (named or indexed base) stays skipped: lifting that guard
-        // needs a color-managed decode, and this tree has no ICC transform
-        // engine — a naive CMYK→RGB conversion is exactly the silent color
-        // shift the guard was written to prevent.
+        // PARITY row 13 second half (CMYK, feat/cmyk-decode 2026-10-04, per
+        // docs/research/cmyk-lcms2-plan-2026-10-04.md option A): CMYK images
+        // WITH a resolvable ICC profile are downsampled colorimetrically —
+        // the pinned Qt 6.8+ QColorSpace engine (Format_CMYK8888 +
+        // fromIccProfile + CLUT-based colorTransformed, probe-verified
+        // against the lcms2 reference within <=5/255) decodes and converts
+        // to sRGB before the shared downsample/re-encode. The profile must
+        // come from the image itself: a CMYK JPEG's embedded APP2 profile,
+        // or an /ICCBased /N 4 stream (raw or /Indexed base). Profile-LESS
+        // CMYK stays SKIPPED: PDF 2.0 Annex B defines no default CMYK→RGB
+        // conversion, so assuming a standard CMYK would be exactly the
+        // uncontrolled recolor this guard was written to prevent (naive
+        // conversion drifts up to ~97/255 per channel — plan §1.2).
         // upgrade path: downscale /SMask masks together with their base image
         // instead of skipping masked images.
         // §9.13 F9: a non-positive targetDpi inverts the ratio below and would
@@ -6942,26 +7010,75 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                                      && filterObj->GetArray().size() == 1
                                      && isName(&filterObj->GetArray()[0], "DCTDecode"));
                     if (isDct) {
-                        // A re-encoded JPEG must stay /DeviceRGB or /DeviceGray;
-                        // CMYK JPEGs would silently change colors.
+                        // A re-encoded JPEG must stay /DeviceRGB or
+                        // /DeviceGray; a CMYK image goes through the
+                        // color-managed lift below (ICC profile → sRGB)
+                        // before the shared re-encode.
                         auto* csObjDct = dict.FindKey("ColorSpace");
                         if (!isName(csObjDct, "DeviceRGB") && !isName(csObjDct, "DeviceGray")) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+                            // CMYK lift: Qt decodes 4-component JPEGs to
+                            // Format_CMYK8888, undoes the Adobe 0=100%-ink
+                            // inversion and attaches the embedded APP2 ICC
+                            // profile. Only a resolvable CMYK profile makes
+                            // the image decodable here; everything else
+                            // (profile-less CMYK JPEGs, RGB payloads behind
+                            // CMYK-labeled dictionaries, undecodable garbage)
+                            // is skipped untouched.
+                            obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
+                            src.loadFromData(reinterpret_cast<const uchar*>(buf.data()),
+                                             static_cast<int>(buf.size()), "JPG");
+                            if (src.isNull() || src.format() != QImage::Format_CMYK8888) {
+                                qDebug() << "optimizeDocument: DCT image with unsupported colorspace, left untouched";
+                                continue;
+                            }
+                            if (!src.colorSpace().isValid()) {
+                                // No profile inside the JPEG: accept the PDF
+                                // side /ICCBased /N 4 stream as the profile
+                                // source, otherwise stay skipped (PDF 2.0
+                                // Annex B defines no default CMYK→RGB).
+                                const QByteArray profBytes =
+                                    csObjDct && csObjDct->IsArray()
+                                        ? cmykIccBasedProfileBytes(csObjDct->GetArray(), objects)
+                                        : QByteArray();
+                                if (profBytes.isEmpty()) {
+                                    qDebug() << "optimizeDocument: profile-less CMYK JPEG, left untouched";
+                                    continue;
+                                }
+                                src.setColorSpace(QColorSpace::fromIccProfile(profBytes));
+                            }
+                            src = cmyk8888ToSRgb(src);
+                            if (src.isNull()) {
+                                qDebug() << "optimizeDocument: CMYK image without a usable ICC profile, left untouched";
+                                continue;
+                            }
+#else
                             qDebug() << "optimizeDocument: DCT image with unsupported colorspace, left untouched";
                             continue;
+#endif
+                        } else {
+                            obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
+                            src.loadFromData(reinterpret_cast<const uchar*>(buf.data()),
+                                             static_cast<int>(buf.size()), "JPG");
                         }
-                        obj->GetOrCreateStream().CopyTo(buf, /*raw=*/true);
-                        src.loadFromData(reinterpret_cast<const uchar*>(buf.data()),
-                                         static_cast<int>(buf.size()), "JPG");
                     } else {
                         // §9.13 P1: FlateDecode (or raw) coverage — decode via
                         // PoDoFo's own stream expansion and re-encode as real
                         // JPEG, same contract as the DCT path above.
                         // /DeviceRGB 8bpc (pre-existing), /DeviceGray 8bpc
                         // (new) and /Indexed 8bpc over a DeviceRGB/DeviceGray
-                        // base (PARITY row 13) qualify.
+                        // base (PARITY row 13) qualify. /ICCBased /N 4 (CMYK
+                        // with an embedded profile) qualifies through the
+                        // color-managed lift; plain /DeviceCMYK does NOT —
+                        // PDF 2.0 Annex B defines no default CMYK→RGB.
                         auto* csObj = dict.FindKey("ColorSpace");
                         bool isRgb = isName(csObj, "DeviceRGB");
                         bool isGray = isName(csObj, "DeviceGray");
+                        QByteArray cmykIccBytes;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+                        if (csObj && csObj->IsArray() && !isRgb && !isGray)
+                            cmykIccBytes = cmykIccBasedProfileBytes(csObj->GetArray(), objects);
+#endif
                         const PoDoFo::PdfArray* idxCs = nullptr;
                         if (csObj && csObj->IsArray()
                             && csObj->GetArray().size() == 4
@@ -6969,20 +7086,28 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                             idxCs = &csObj->GetArray();
                         auto* bpcObj = dict.FindKey("BitsPerComponent");
                         int bpc = static_cast<int>(asInt(bpcObj) == 0 ? 8 : asInt(bpcObj));
-                        if ((!isRgb && !isGray && !idxCs) || bpc != 8) continue;
+                        if ((!isRgb && !isGray && !idxCs && cmykIccBytes.isEmpty()) || bpc != 8) continue;
 
                         // PARITY row 13: parse the indexed palette up front so a
                         // malformed colorspace skips the image before any stream
-                        // decode. Bounded scope — the base must be /DeviceRGB or
-                        // /DeviceGray and the lookup must cover (hival+1) samples.
-                        // A /DeviceCMYK base stays blocked on the CMYK rationale
-                        // above (no color-managed decode in this tree).
+                        // decode. Bounded scope — the base must be /DeviceRGB,
+                        // /DeviceGray, or (CMYK lift) an /ICCBased /N 4 CMYK
+                        // profile, and the lookup must cover (hival+1) samples.
+                        // A plain /DeviceCMYK base stays skipped: it carries no
+                        // profile and PDF 2.0 Annex B defines no default
+                        // CMYK→RGB conversion (never naive-convert).
                         QVector<QRgb> palette;
                         bool idxBaseRgb = false;
+                        bool idxBaseGray = false;
+                        QByteArray idxCmykProfile;
                         if (idxCs) {
                             idxBaseRgb = isName(&(*idxCs)[1], "DeviceRGB");
-                            const bool idxBaseGray = isName(&(*idxCs)[1], "DeviceGray");
-                            if (!idxBaseRgb && !idxBaseGray) {
+                            idxBaseGray = isName(&(*idxCs)[1], "DeviceGray");
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+                            if (!idxBaseRgb && !idxBaseGray && (*idxCs)[1].IsArray())
+                                idxCmykProfile = cmykIccBasedProfileBytes((*idxCs)[1].GetArray(), objects);
+#endif
+                            if (!idxBaseRgb && !idxBaseGray && idxCmykProfile.isEmpty()) {
                                 qDebug() << "optimizeDocument: indexed image with unsupported base colorspace, left untouched";
                                 continue;
                             }
@@ -7012,22 +7137,57 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                                         static_cast<qsizetype>(lbuf.size()));
                                 }
                             }
-                            const int comps = idxBaseRgb ? 3 : 1;
+                            const int comps = idxBaseRgb ? 3 : (idxBaseGray ? 1 : 4);
                             if (lookupBytes.isEmpty()
                                 || static_cast<int64_t>(lookupBytes.size())
                                    < (hival + 1) * comps) {
                                 qDebug() << "optimizeDocument: indexed image with short palette, left untouched";
                                 continue;
                             }
-                            for (int64_t i = 0; i <= hival; ++i) {
-                                if (idxBaseRgb)
-                                    palette.append(qRgb(
-                                        static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 0))),
-                                        static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 1))),
-                                        static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 2)))));
-                                else {
-                                    const uchar g = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i)));
-                                    palette.append(qRgb(g, g, g));
+                            if (!idxCmykProfile.isEmpty()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+                                // CMYK ICC base: transform the ≤256-entry
+                                // palette ONCE through the profile (4-byte
+                                // CMYK quads), then reuse the shared
+                                // palette-expansion path below. A profile the
+                                // parser refuses skips the image untouched.
+                                QImage palImg(static_cast<int>(hival + 1), 1,
+                                              QImage::Format_CMYK8888);
+                                if (palImg.isNull()) continue;
+                                auto* palLine = reinterpret_cast<quint32*>(palImg.scanLine(0));
+                                for (int64_t i = 0; i <= hival; ++i) {
+                                    const uchar c = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * 4 + 0)));
+                                    const uchar m = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * 4 + 1)));
+                                    const uchar yy = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * 4 + 2)));
+                                    const uchar k = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * 4 + 3)));
+#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
+                                    palLine[i] = quint32(c) | (quint32(m) << 8)
+                                               | (quint32(yy) << 16) | (quint32(k) << 24);
+#else
+                                    palLine[i] = (quint32(c) << 24) | (quint32(m) << 16)
+                                               | (quint32(yy) << 8) | quint32(k);
+#endif
+                                }
+                                palImg.setColorSpace(QColorSpace::fromIccProfile(idxCmykProfile));
+                                const QImage palRgb = cmyk8888ToSRgb(palImg);
+                                if (palRgb.isNull()) {
+                                    qDebug() << "optimizeDocument: indexed CMYK base with unusable ICC profile, left untouched";
+                                    continue;
+                                }
+                                for (int64_t i = 0; i <= hival; ++i)
+                                    palette.append(palRgb.pixel(static_cast<int>(i), 0));
+#endif
+                            } else {
+                                for (int64_t i = 0; i <= hival; ++i) {
+                                    if (idxBaseRgb)
+                                        palette.append(qRgb(
+                                            static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 0))),
+                                            static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 1))),
+                                            static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i * comps + 2)))));
+                                    else {
+                                        const uchar g = static_cast<uchar>(lookupBytes.at(static_cast<qsizetype>(i)));
+                                        palette.append(qRgb(g, g, g));
+                                    }
                                 }
                             }
                             // A crafted stream can carry indices above /hival;
@@ -7088,10 +7248,36 @@ bool PoDoFoBackend::optimizeDocument(const QString &outputPath, const OptimizeOp
                                 memcpy(idxImg.scanLine(static_cast<int>(y)),
                                        buf.data() + y * w, static_cast<size_t>(w));
                             idxImg.setColorTable(palette);
-                            src = idxImg.convertToFormat(idxBaseRgb
-                                    ? QImage::Format_RGB888
-                                    : QImage::Format_Grayscale8);
-                            isGrayImage = !idxBaseRgb;
+                            // Gray base stays gray; RGB and CMYK-ICC bases
+                            // expand to RGB (a CMYK palette was transformed
+                            // colorimetrically above).
+                            src = idxImg.convertToFormat(idxBaseGray
+                                    ? QImage::Format_Grayscale8
+                                    : QImage::Format_RGB888);
+                            isGrayImage = idxBaseGray;
+                        } else if (!cmykIccBytes.isEmpty()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+                            // CMYK ICCBased (PARITY row 13 second half): the
+                            // expanded bytes are raw 8bpc CMYK quads in sample
+                            // order C,M,Y,K — identical to QCmyk32's
+                            // little-endian memory layout, so the buffer wraps
+                            // row-wise (stride 4·w, no Qt padding) into
+                            // Format_CMYK8888. The profile attached above is
+                            // the only source of truth; a profile the parser
+                            // refuses skips the image untouched (never naive).
+                            if (static_cast<qint64>(buf.size()) < w * h * 4) continue;
+                            QImage cmykImg(reinterpret_cast<const uchar*>(buf.data()),
+                                           static_cast<int>(w), static_cast<int>(h),
+                                           static_cast<int>(w * 4), QImage::Format_CMYK8888);
+                            if (cmykImg.isNull()) continue;
+                            cmykImg.setColorSpace(QColorSpace::fromIccProfile(cmykIccBytes));
+                            src = cmyk8888ToSRgb(cmykImg);
+                            if (src.isNull()) {
+                                qDebug() << "optimizeDocument: CMYK image with unusable ICC profile, left untouched";
+                                continue;
+                            }
+                            isGrayImage = false;
+#endif
                         } else {
                             const int64_t cpp = isGray ? 1 : 3; // channels per pixel
                             if (static_cast<qint64>(buf.size()) < w * h * cpp) continue;

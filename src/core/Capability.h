@@ -62,6 +62,7 @@ struct Capability {
 };
 
 QString subsetFontsScopeDisclosure(); // canonical subset-scope wording (probe + dialog)
+QString downsampleScopeDisclosure();  // canonical downsample-scope wording (CMYK half, feat/cmyk-decode)
 QString officeImportWhyNot();            // canonical LibreOffice import wording
 QString officeImportAlternative();
 QString mrcWhyNot();                     // canonical MRC fallback wording

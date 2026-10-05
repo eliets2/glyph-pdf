@@ -27,6 +27,7 @@
 
 #include "modes/CompressDialog.h"
 #include "core/AppContext.h"
+#include "core/Capability.h"
 #include "mocks/MockPdfEditorEngine.h"
 
 namespace {
@@ -81,6 +82,21 @@ QStringList stateViolations(const gp::CompressDialog &dlg)
                                 "scope disclosure");
         if (subset->statusTip() != scope)
             v << QStringLiteral("'Subset fonts' status tip does not carry the "
+                                "canonical scope disclosure");
+    }
+    // Downsample scope disclosure (feat/cmyk-decode): the checkbox must carry
+    // the canonical CMYK-scope wording — which classes are recolored and which
+    // stay untouched — the same honesty seam as "Subset fonts".
+    auto *downsample = findBox(dlg, QStringLiteral("Downsample images"));
+    if (!downsample)
+        v << QStringLiteral("the 'Downsample images' checkbox is missing");
+    else {
+        const QString scope = gp::downsampleScopeDisclosure();
+        if (downsample->toolTip() != scope)
+            v << QStringLiteral("'Downsample images' tooltip does not carry the canonical "
+                                "scope disclosure");
+        if (downsample->statusTip() != scope)
+            v << QStringLiteral("'Downsample images' status tip does not carry the "
                                 "canonical scope disclosure");
     }
     // "Remove unused objects" is implemented — its sweep contract is pinned in
@@ -147,6 +163,32 @@ private slots:
         QVERIFY2(remove->isChecked(),
                  "'Remove unused objects' must default CHECKED — the sweep "
                  "honors the user's choice");
+    }
+
+    // feat/cmyk-decode: the downsample checkbox carries the CMYK scope
+    // disclosure — it must state that profile-ful CMYK is converted
+    // colorimetrically and profile-less CMYK is left untouched (the honesty
+    // contract of parity row 13's second half).
+    void downsampleCarriesCmykScopeDisclosure() {
+        gp::CompressDialog dlg(nullptr);
+        const QStringList v = stateViolations(dlg);
+        QVERIFY2(v.isEmpty(), qPrintable(v.join(QStringLiteral("; "))));
+        auto *downsample = findBox(dlg, QStringLiteral("Downsample images"));
+        QVERIFY2(downsample, "the 'Downsample images' checkbox is missing");
+        QVERIFY2(downsample->isEnabled(), "'Downsample images' must be enabled");
+        QVERIFY2(downsample->isChecked(),
+                 "'Downsample images' must default CHECKED (lossless-flags pass "
+                 "honors the user's DPI choice)");
+        const QString scope = gp::downsampleScopeDisclosure();
+        QVERIFY2(scope.contains(QStringLiteral("ICC"), Qt::CaseInsensitive),
+                 "the disclosure must name the embedded ICC profile trigger");
+        QVERIFY2(scope.contains(QStringLiteral("colorimetric"), Qt::CaseInsensitive),
+                 "the disclosure must say the CMYK conversion is colorimetric");
+        QVERIFY2(scope.contains(QStringLiteral("left untouched")),
+                 "the disclosure must say profile-less CMYK stays untouched");
+        QVERIFY2(!scope.contains(QStringLiteral("not available"), Qt::CaseInsensitive),
+                 "an implemented pass must not be explained with an "
+                 "availability excuse");
     }
 
     // Switching presets (Screen/Ebook/Printer/Custom) must never silently

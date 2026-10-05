@@ -148,6 +148,12 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
 
     _chkDownsample = new QCheckBox(tr("Downsample images"));
     _chkDownsample->setChecked(true);
+    // Scope disclosure (same seam as "Subset fonts"): says which image classes
+    // are recolored (CMYK with an embedded ICC profile, colorimetrically) and
+    // which stay untouched (profile-less CMYK — no default CMYK→RGB in PDF).
+    const QString downsampleScope = gp::downsampleScopeDisclosure();
+    _chkDownsample->setToolTip(downsampleScope);
+    _chkDownsample->setStatusTip(downsampleScope);
     af->addWidget(_chkDownsample, 0, 0);
 
     auto* dpiRow = new QHBoxLayout;
