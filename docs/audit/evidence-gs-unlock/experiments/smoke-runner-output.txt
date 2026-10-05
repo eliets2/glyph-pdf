@@ -1,0 +1,25 @@
+[locator] 'C:\Program Files\gs\gs10.08.0\bin\gswin64c.exe'
+[disclosure] Unlock is unavailable: Ghostscript was not found on this computer.
+
+GlyphPDF looks for the Ghostscript console tool (gswin64c.exe) in the standard installation locations only — C:\Program Files\gs  or  C:\Program Files (x86)\gs — and does not run a copy from PATH. Ghostscript is not bundled with GlyphPDF (licensing: AGPL).
+
+Install the AGPL Ghostscript from https://ghostscript.com (any recent 10.x version into the default location) and try again.
+[owner-only] ok=1 usedPw=0 stage=0 err=''
+[userpw-nopw] ok=0 stage=3 err='the document requires its user password to be opened — Ghostscript reported:
+GPL Ghostscript 10.08.0 (2026-09-08)
+Copyright (C) 2026 Artifex Software, Inc.  All rights reserved.
+This software is supplied under the GNU AGPLv3 and comes with NO WARRANTY:
+see the file COPYING for details.
+GPL Ghostscript 10.08.0:
+**** This file requires a password for access.
+**** Error: Couldn't initialise file.
+Output may be incorrect.
+No pages will be processed (FirstPage > LastPage).'
+[userpw-nopw] output exists=0
+[userpw-pw] ok=1 usedPw=1 stage=0 err=''
+[corrupted] ok=0 stage=3 err='Ghostscript could not process any page of this document (it is damaged beyond re-distillation). Ghostscript reported:
+GPL Ghostscript 10.08.0 (2026-09-08)
+Copyright (C) 2026 Artifex Software, Inc.  Al'
+[corrupted] output exists=0
+[cleanup] leftover response files: 0
+[cleanup] leftover candidates: 0

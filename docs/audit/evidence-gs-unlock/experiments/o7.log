@@ -1,0 +1,23 @@
+GPL Ghostscript 10.08.0 (2026-09-08)
+Copyright (C) 2026 Artifex Software, Inc.  All rights reserved.
+This software is supplied under the GNU AGPLv3 and comes with NO WARRANTY:
+see the file COPYING for details.
+Processing pages 1 through 1.
+Page 1
+   **** Error: Page drawing error occurred.
+               Output may be incorrect.
+
+The following errors were encountered at least once while processing this file:
+	startxref offset invalid
+	xref table was repaired
+	error reading a stream
+
+The following warnings were encountered at least once while processing this file:
+	bad trailer dictionary
+	The file has a bad /Info dictionary
+
+   **** This file had errors that were repaired or ignored.
+   **** Please notify the author of the software that produced this
+   **** file that it does not conform to Adobe's published PDF
+   **** specification.
+

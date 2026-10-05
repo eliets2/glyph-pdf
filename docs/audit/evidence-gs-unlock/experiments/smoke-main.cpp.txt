@@ -1,0 +1,91 @@
+// Standalone smoke harness (lane-internal, not committed): exercises
+// GhostscriptLocator + GhostscriptRunner::unlockPdf against the REAL
+// installed Ghostscript with the qpdf-built fixtures from the experiments.
+#include "engines/GhostscriptRunner.h"
+#include "engines/SafeSave.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QIODevice>
+#include <iostream>
+
+static void plant(const QString& path, const QByteArray& bytes)
+{
+    QFile f(path);
+    f.open(QIODevice::WriteOnly);
+    f.write(bytes);
+}
+
+int main(int argc, char** argv)
+{
+    QCoreApplication app(argc, argv);
+
+    const QString gs = gp::GhostscriptLocator::locate();
+    std::cout << "[locator] '" << gs.toStdString() << "'\n";
+    std::cout << "[disclosure] " << gp::GhostscriptLocator::absenceDisclosure().toStdString() << "\n";
+
+    const QString dir = QStringLiteral("D:/pdf/gs-evidence/experiments");
+
+    // 1. owner-password-only unlock, wrong password supplied (must succeed on
+    //    pass 1 WITHOUT using it).
+    {
+        const QString out = dir + QStringLiteral("/smoke-owner-out.pdf");
+        QFile::remove(out);
+        const auto r = gp::GhostscriptRunner::unlockPdf(
+            gs, dir + QStringLiteral("/owner-only.pdf"), out,
+            QByteArrayLiteral("wrong-password"));
+        std::cout << "[owner-only] ok=" << r.ok << " usedPw=" << r.usedPassword
+                  << " stage=" << int(r.stage) << " err='"
+                  << r.error.toStdString() << "'\n";
+    }
+    // 2. user-password PDF without the password (must fail honestly, no
+    //    output file).
+    {
+        const QString out = dir + QStringLiteral("/smoke-userpw-out.pdf");
+        QFile::remove(out);
+        const auto r = gp::GhostscriptRunner::unlockPdf(
+            gs, dir + QStringLiteral("/userpw2.pdf"), out);
+        std::cout << "[userpw-nopw] ok=" << r.ok << " stage=" << int(r.stage)
+                  << " err='" << r.error.toStdString() << "'\n";
+        std::cout << "[userpw-nopw] output exists="
+                  << QFile::exists(out) << "\n";
+    }
+    // 3. user-password PDF WITH the password on the response file channel.
+    {
+        const QString out = dir + QStringLiteral("/smoke-userpw-pw.pdf");
+        QFile::remove(out);
+        const auto r = gp::GhostscriptRunner::unlockPdf(
+            gs, dir + QStringLiteral("/userpw2.pdf"), out,
+            QByteArrayLiteral("userpw"));
+        std::cout << "[userpw-pw] ok=" << r.ok << " usedPw=" << r.usedPassword
+                  << " stage=" << int(r.stage) << " err='"
+                  << r.error.toStdString() << "'\n";
+    }
+    // 4. corrupted protected file: must fail honestly or re-distill, never a
+    //    blank husk committed.
+    {
+        const QString out = dir + QStringLiteral("/smoke-corr-out.pdf");
+        QFile::remove(out);
+        QFile src(dir + QStringLiteral("/corrupted.pdf"));
+        src.open(QIODevice::ReadOnly);
+        const QByteArray all = src.readAll();
+        plant(dir + QStringLiteral("/smoke-corrupted.pdf"), all.left(all.size() / 2));
+        const auto r = gp::GhostscriptRunner::unlockPdf(
+            gs, dir + QStringLiteral("/smoke-corrupted.pdf"), out);
+        std::cout << "[corrupted] ok=" << r.ok << " stage=" << int(r.stage)
+                  << " err='" << r.error.left(200).toStdString() << "'\n";
+        std::cout << "[corrupted] output exists=" << QFile::exists(out) << "\n";
+    }
+    // 5. response file must be gone after every run.
+    {
+        QDir staged(QDir::tempPath() + QStringLiteral("/glyphpdf-candidates"));
+        const auto leftovers =
+            staged.entryList({QStringLiteral("*.gspwrsp")}, QDir::Files);
+        std::cout << "[cleanup] leftover response files: " << leftovers.size() << "\n";
+        const auto candidates =
+            staged.entryList({QStringLiteral("glyphpdf-*")}, QDir::Files);
+        std::cout << "[cleanup] leftover candidates: " << candidates.size() << "\n";
+    }
+    return 0;
+}
