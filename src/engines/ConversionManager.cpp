@@ -652,7 +652,10 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start(sofficePath, {
-        "--env:UserInstallation=" + profileUri,
+        // LibreOffice's option is single-dash `-env:`; the double-dash form
+        // is parsed as an unknown option and soffice hangs waiting (found on
+        // a machine where the slot no longer QSKIPs — LibreOffice present).
+        "-env:UserInstallation=" + profileUri,
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
         "--outdir", productDir,
