@@ -516,7 +516,7 @@ private slots:
         mode.setInsertAfterPage(ComposeSide::Target, 0);
         QString why;
         QVERIFY2(mode.applyTransfers(&why), qPrintable(why));
-        QCOMPARE(mode.pageCount(ComposeSide::Target), 4);
+        QCOMPARE(mode.pageCount(ComposeSide::Target), 3);   // 2 + 1 inserted
 
         // Undo: one checked step restores the page structure exactly.
         QVERIFY(mode.undoTransfers(ComposeSide::Target));
@@ -527,8 +527,8 @@ private slots:
 
         // Redo: re-applies the same transfer.
         QVERIFY(mode.redoTransfers(ComposeSide::Target));
-        QCOMPARE(mode.pageCount(ComposeSide::Target), 4);
-        const QStringList after = pageTexts(tgt, 4);
+        QCOMPARE(mode.pageCount(ComposeSide::Target), 3);
+        const QStringList after = pageTexts(tgt, 3);
         QVERIFY(after.at(1).contains(QStringLiteral("S2")));
 
         QVERIFY(mode.undoTransfers(ComposeSide::Target));

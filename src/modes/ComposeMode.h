@@ -271,6 +271,9 @@ public:
     int insertedPageCount() const { return m_inserts.size(); }
     int placedImageCount() const { return m_placements.size(); }
     const QString& destinationPath() const { return m_destination; }
+    // The last refusal reason (empty after a successful application). The
+    // mode folds this into its user-facing refusal wording.
+    const QString& lastError() const { return m_lastError; }
 
     // The full transaction against `destination`'s bytes. Returns false with
     // `err` set and the destination byte-identical on any refusal.

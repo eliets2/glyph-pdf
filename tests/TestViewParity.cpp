@@ -447,7 +447,7 @@ private slots:
                 break;
             }
         }
-        QCOMPARE(checked, 13);   // OCR Verify … Watermark; the old ScreenNav minus "Standard"
+        QCOMPARE(checked, 14);   // OCR Verify … Watermark, plus the §9.17/9.18 Compose workspace — the old ScreenNav minus "Standard"
     }
 
     // ── Entry commands that ARE routes (ribbon OCR, Compare, Compress, Watermark …) land on their task ──
