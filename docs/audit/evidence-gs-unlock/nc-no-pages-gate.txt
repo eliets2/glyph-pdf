@@ -1,0 +1,20 @@
+********* Start testing of TestGhostscriptUnlock *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestGhostscriptUnlock::initTestCase()
+PASS   : TestGhostscriptUnlock::absentRootYieldsEmptyAndHonestDisclosure()
+PASS   : TestGhostscriptUnlock::presentRootResolvesHighestVersionConsoleBinary()
+PASS   : TestGhostscriptUnlock::unversionedOrHalfPlantedDirsNeverResolve()
+PASS   : TestGhostscriptUnlock::builderPinsSaferAndLayout()
+FAIL!  : TestGhostscriptUnlock::realArgvNeverCarriesTheSecretAndAlwaysCarriesSafer() 'pwRun.usedPassword' returned FALSE. (the second pass must be recorded as the password attempt)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(282) : failure location
+PASS   : TestGhostscriptUnlock::endToEndOwnerPasswordOnlyUnlocks()
+FAIL!  : TestGhostscriptUnlock::endToEndUserPasswordFailsHonestlyWithoutIt() '!r.ok' returned FALSE. (a user-password document must NOT unlock without the password (never bypasses a document the user cannot open))
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(383) : failure location
+FAIL!  : TestGhostscriptUnlock::endToEndUserPasswordUnlocksWithIt() 'r.usedPassword' returned FALSE. (the success must be the password retry pass)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(417) : failure location
+PASS   : TestGhostscriptUnlock::endToEndCorruptedProtectedFailsWithoutCorruptingOutput()
+FAIL!  : TestGhostscriptUnlock::endToEndFailedInPlaceLeavesSourceByteIdentical() '!r.ok' returned FALSE. (without the password the in-place unlock must fail)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(481) : failure location
+PASS   : TestGhostscriptUnlock::cleanupTestCase()
+Totals: 8 passed, 4 failed, 0 skipped, 0 blacklisted, 1375ms
+********* Finished testing of TestGhostscriptUnlock *********

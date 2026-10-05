@@ -1,0 +1,26 @@
+********* Start testing of TestGhostscriptUnlock *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestGhostscriptUnlock::initTestCase()
+FAIL!  : TestGhostscriptUnlock::absentRootYieldsEmptyAndHonestDisclosure() 'disclosure.contains("gswin64c")' returned FALSE. (disclosure must name the console binary it looks for)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(173) : failure location
+FAIL!  : TestGhostscriptUnlock::presentRootResolvesHighestVersionConsoleBinary() '!exe.isEmpty()' returned FALSE. ()
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(182) : failure location
+FAIL!  : TestGhostscriptUnlock::unversionedOrHalfPlantedDirsNeverResolve() 'QFile::copy(QCoreApplication::applicationFilePath(), root.path() + QStringLiteral("/gs/bin/") + exe)' returned FALSE. ()
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(203) : failure location
+FAIL!  : TestGhostscriptUnlock::builderPinsSaferAndLayout() 'args.contains(QStringLiteral("-dSAFER"))' returned FALSE. (-dSAFER is MANDATORY on every unlock invocation)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(220) : failure location
+FAIL!  : TestGhostscriptUnlock::realArgvNeverCarriesTheSecretAndAlwaysCarriesSafer() 'QFile::copy(QCoreApplication::applicationFilePath(), fakeTool)' returned FALSE. ()
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(247) : failure location
+SKIP   : TestGhostscriptUnlock::endToEndOwnerPasswordOnlyUnlocks() Ghostscript is not installed in the standard locations — skipping the real-tool pin (install AGPL Ghostscript to run it)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(322) : failure location
+SKIP   : TestGhostscriptUnlock::endToEndUserPasswordFailsHonestlyWithoutIt() Ghostscript is not installed in the standard locations — skipping the real-tool pin (install AGPL Ghostscript to run it)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(354) : failure location
+SKIP   : TestGhostscriptUnlock::endToEndUserPasswordUnlocksWithIt() Ghostscript is not installed in the standard locations — skipping the real-tool pin (install AGPL Ghostscript to run it)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(403) : failure location
+SKIP   : TestGhostscriptUnlock::endToEndCorruptedProtectedFailsWithoutCorruptingOutput() Ghostscript is not installed in the standard locations — skipping the real-tool pin (install AGPL Ghostscript to run it)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(426) : failure location
+SKIP   : TestGhostscriptUnlock::endToEndFailedInPlaceLeavesSourceByteIdentical() Ghostscript is not installed in the standard locations — skipping the real-tool pin (install AGPL Ghostscript to run it)
+D:/pdf/pdf-gs-unlock/tests/TestGhostscriptUnlock.cpp(471) : failure location
+PASS   : TestGhostscriptUnlock::cleanupTestCase()
+Totals: 2 passed, 5 failed, 5 skipped, 0 blacklisted, 7ms
+********* Finished testing of TestGhostscriptUnlock *********

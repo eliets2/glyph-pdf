@@ -1,0 +1,16 @@
+Test project D:/pdf/pdf-gs-unlock/build-rel
+    Start 133: TestGhostscriptUnlock
+1/1 Test #133: TestGhostscriptUnlock ............   Passed    1.45 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+ghostscript    =   1.45 sec*proc (1 test)
+headless       =   1.45 sec*proc (1 test)
+qt             =   1.45 sec*proc (1 test)
+security       =   1.45 sec*proc (1 test)
+unit           =   1.45 sec*proc (1 test)
+unlock         =   1.45 sec*proc (1 test)
+
+Total Test time (real) =   1.45 sec
+RC=0
