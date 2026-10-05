@@ -652,9 +652,12 @@ bool ConversionManager::convertOfficeToPdf(const QString &officePath, const QStr
     QProcess process;
     process.setProcessChannelMode(QProcess::MergedChannels);
     process.start(sofficePath, {
-        // LibreOffice's option is single-dash `-env:`; the double-dash form
-        // is parsed as an unknown option and soffice hangs waiting (found on
-        // a machine where the slot no longer QSKIPs — LibreOffice present).
+        // LibreOffice bootstrap variables accept the SINGLE-dash form ONLY
+        // ("-env:UserInstallation=..."): the double-dash spelling hangs soffice
+        // (A/B-probed 2026-10-05, same fresh profile: "-env" converts in ~3 s,
+        // "--env" stalls >45 s; found when a machine with LibreOffice present
+        // stopped QSKIPping the office-import slot). The private profile IS the
+        // point — without it soffice uses the shared default profile.
         "-env:UserInstallation=" + profileUri,
         "--headless",
         "--convert-to", "pdf:writer_pdf_Export",
