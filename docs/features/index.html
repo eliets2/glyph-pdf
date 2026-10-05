@@ -121,7 +121,9 @@
         <li><strong>AI Chat panel</strong> — local Ollama only, with a loopback guard; no document content leaves the machine (README: UI; CHANGELOG hardening).</li>
         <li><strong>Auto-update</strong> — JSON manifest, SHA-256 verified downloads, consent at every stage; the updater refuses unsigned installers by design (README: Auto-Update).</li>
         <li><strong>Localization</strong> — English ships today; Arabic, French and German translation scaffolding (1394 strings each) is in place, packages pending (README: Localization).</li>
-      </ul>
+        <li><strong>PDF Unlock (Ghostscript-assisted)</strong> — remove owner-password restrictions and re-distill broken protected files.</li>
+  <li><strong>Side-by-side visual composition</strong> — open two PDFs, pick pages and images from either, compose them into one document.</li>
+ </ul>
 
       <h2>Honest limits</h2>
       <p>The scorecard's "still-open" list is public, on purpose. Named gaps include: QuadPoints text-anchored highlighting (highlights currently persist as drag rectangles), font subsetting (the checkbox is disabled with an explanation), OCR output-mode choice (searchable-MRC export only), selective sanitize with a pre-commit summary, recursive hot-folder watching, and Text/PowerPoint in the batch format list. See <a href="https://github.com/eliets2/glyph-pdf/blob/main/docs/audit/PARITY-SCORECARD-2026-09-30.md">the scorecard</a> for the full, evidence-linked list.</p>

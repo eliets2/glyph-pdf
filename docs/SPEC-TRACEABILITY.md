@@ -23,6 +23,8 @@ Legend: ✅ Done · 🟡 Partial · ⬜ Planned. Line numbers are indicative (cu
 | 9.14 | Accessibility — tagged-PDF reading order | 🟡 | `PdfAValidationPanel.cpp` `onCheckReadingOrder:463`, `/StructTreeRoot` walk `:413`. **Gap:** tag preservation/repair on export, screen-reader labels |
 | 9.15 | Search & navigation — full-text, thumbnails, bookmarks | 🟡 | `src/ui/FindBar.*`, `PdfViewerWidget::searchDocument`. **Gap:** regex + find-and-replace (`regex`/`findRep` in `RibbonModel.cpp:13` plannedTools) |
 | 9.16 | File import & export | ✅ | `ToolId.h` `ImportOffice:98`; `ConvertController.cpp`; `ConversionManager.cpp` |
+| 9.17 | Ghostscript-assisted unlock (owner-password restrictions, re-distill broken protected files) | ⬜ Planned (lane dispatched 2026-10-04) | `src/modes/UnlockController` + `src/engines/GhostscriptRunner.{h,cpp}` (external-process locator, disclose-if-absent); §9.11 unlock bullets |
+| 9.18 | Side-by-side visual composition (two PDFs, pick pages/images, compose into target, transactional save) | ⬜ Planned (lane dispatched 2026-10-04) | `src/modes/ComposeMode.{h,cpp}` + `src/engines/ImageExtractEngine.{h,cpp}` + `PdfPageOps` insert; §9.9/§9.10 reuse |
 
 ## How to re-verify
 

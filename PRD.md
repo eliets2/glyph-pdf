@@ -105,6 +105,8 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * E-signatures, Redaction, Document comparison, Page management
 * Batch automation, Security features
 * Accessibility support, Desktop primary + mobile/web companion
+* Ghostscript-assisted unlock of password-protected/restricted PDFs
+* Side-by-side visual document composition (pick pages/images across two PDFs)
 
 ### 7.2 Out of scope for v1
 
@@ -214,6 +216,7 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * Secure sharing links
 * Document expiration/access revocation
 * Metadata sanitization
+* Unlock: remove owner-password restrictions and re-distill structurally broken protected files (Ghostscript-assisted; disclosed when external tooling is absent; never bypasses a document the user cannot legally open)
 
 ### 9.12 Batch processing and automation
 * Batch: convert, OCR, compress, rename, watermark, redact, merge, export
@@ -241,6 +244,15 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * Import Word, Excel, PowerPoint, images, scans
 * Export to supported formats
 * Preserve metadata, bookmarks, hyperlinks, comments
+
+### 9.17 Side-by-side visual composition
+* Open two documents side by side in a dedicated composition view
+* Visually pick pages (thumbnails or canvas) from either document
+* Extract images from either document with a selection tool
+* Add chosen pages and images into the other document at a chosen position
+* Live preview of the composed result before saving
+* Transactional save (no partial writes), full undo
+* Works across differently-sized pages with honest scaling disclosure
 
 ## 10. UX requirements
 
@@ -324,6 +336,8 @@ Needs: Licensing controls, Security policies, SSO, Admin dashboards, Deployment 
 * Rotated/upside-down scans, corrupt fonts
 * Broken form fields, nonstandard page sizes
 * Multi-layer content, accessibility tags surviving edits
+* Unlock of files protected only by owner password vs user password behaves differently and is disclosed
+* Side-by-side composition across mismatched page sizes, image color spaces, and transparencies
 
 ## 21. Competitive differentiation
 
