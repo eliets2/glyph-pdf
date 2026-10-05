@@ -1,0 +1,15 @@
+Test project D:/pdf/pdf-com/build-rel
+    Start 66: TestComposeMode
+1/1 Test #66: TestComposeMode ..................   Passed    0.28 sec
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+compose     =   0.28 sec*proc (1 test)
+headless    =   0.28 sec*proc (1 test)
+modes       =   0.28 sec*proc (1 test)
+qt          =   0.28 sec*proc (1 test)
+ui          =   0.28 sec*proc (1 test)
+unit        =   0.28 sec*proc (1 test)
+
+Total Test time (real) =   0.29 sec

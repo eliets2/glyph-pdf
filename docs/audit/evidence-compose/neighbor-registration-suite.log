@@ -1,0 +1,53 @@
+Test project D:/pdf/pdf-com/build-rel
+      Start  42: TestControllers
+ 1/10 Test  #42: TestControllers ..................   Passed   15.82 sec
+      Start  44: TestRibbonIntegrity
+ 2/10 Test  #44: TestRibbonIntegrity ..............   Passed    0.04 sec
+      Start  45: TestMenuBarIntegrity
+ 3/10 Test  #45: TestMenuBarIntegrity .............   Passed    0.04 sec
+      Start  46: TestCommandBinding
+ 4/10 Test  #46: TestCommandBinding ...............   Passed    1.16 sec
+      Start  66: TestComposeMode
+ 5/10 Test  #66: TestComposeMode ..................   Passed    0.34 sec
+      Start  87: TestTaskNavRegistry
+ 6/10 Test  #87: TestTaskNavRegistry ..............   Passed    0.03 sec
+      Start  88: TestScreenStateSync
+ 7/10 Test  #88: TestScreenStateSync ..............   Passed    0.09 sec
+      Start  90: TestModeStripPins
+ 8/10 Test  #90: TestModeStripPins ................   Passed    0.04 sec
+      Start 154: TestViewParity
+ 9/10 Test #154: TestViewParity ...................   Passed    5.89 sec
+      Start 205: TestCommandRegistry
+10/10 Test #205: TestCommandRegistry ..............   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 10
+
+Label Time Summary:
+binding        =   1.16 sec*proc (1 test)
+commands       =   0.02 sec*proc (1 test)
+compose        =   0.34 sec*proc (1 test)
+controllers    =  15.82 sec*proc (1 test)
+headless       =  23.48 sec*proc (10 tests)
+integrity      =   0.09 sec*proc (2 tests)
+matrix-pins    =   0.04 sec*proc (1 test)
+menubar        =   1.21 sec*proc (2 tests)
+mode-strip     =   0.04 sec*proc (1 test)
+modes          =   0.34 sec*proc (1 test)
+navigation     =   0.12 sec*proc (2 tests)
+parity         =   5.89 sec*proc (1 test)
+qt             =  23.46 sec*proc (9 tests)
+r15            =   1.16 sec*proc (1 test)
+redesign       =   5.89 sec*proc (1 test)
+regression     =   5.89 sec*proc (1 test)
+ribbon         =   1.21 sec*proc (2 tests)
+shell          =   0.16 sec*proc (3 tests)
+sweep-w2       =   0.04 sec*proc (1 test)
+sync           =   0.09 sec*proc (1 test)
+tasknav        =   0.03 sec*proc (1 test)
+u02            =   0.12 sec*proc (2 tests)
+ui             =  23.30 sec*proc (6 tests)
+ui-redesign    =   0.02 sec*proc (1 test)
+unit           =  23.48 sec*proc (10 tests)
+viewing        =   5.89 sec*proc (1 test)
+
+Total Test time (real) =  23.49 sec

@@ -1,0 +1,44 @@
+Test project D:/pdf/pdf-com/build-rel
+    Start 66: TestComposeMode
+1/1 Test #66: TestComposeMode ..................***Failed    0.94 sec
+********* Start testing of TestComposeMode *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestComposeMode::initTestCase()
+PASS   : TestComposeMode::composeIsRegisteredEndToEnd()
+PASS   : TestComposeMode::twoDocumentOpen()
+FAIL!  : TestComposeMode::insertionIndexSeamAndPickOrder() Compared values are not the same
+   Actual   (ComposeMode::insertionIndexFor(-1, 0)): -1
+   Expected (0)                                    : 0
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(294) : failure location
+FAIL!  : TestComposeMode::pagePickInsertOrderAndPosition() 'mode.applyTransfers(&why)' returned FALSE. (Composition is not available yet — nothing was changed.)
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(347) : failure location
+FAIL!  : TestComposeMode::imageInventoryPickPlacementGeometryPin() 'mode.applyTransfers(&why)' returned FALSE. (Composition is not available yet — nothing was changed.)
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(423) : failure location
+FAIL!  : TestComposeMode::transactionalSaveRefusalIsByteExact() 'mode.applyTransfers(&why)' returned FALSE. (Composition is not available yet — nothing was changed.)
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(489) : failure location
+FAIL!  : TestComposeMode::undoRedoSemantics() 'mode.applyTransfers(&why)' returned FALSE. (Composition is not available yet — nothing was changed.)
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(518) : failure location
+FAIL!  : TestComposeMode::mismatchedSizeDisclosureIsHonest() 'd.contains(QStringLiteral("612"))' returned FALSE. ()
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(553) : failure location
+FAIL!  : TestComposeMode::a11yNamesCarryRoleAndPageNumbers() 'srcItemA11y.isValid()' returned FALSE. (each page thumbnail must carry AccessibleTextRole)
+D:/pdf/pdf-com/tests/TestComposeMode.cpp(618) : failure location
+PASS   : TestComposeMode::cleanupTestCase()
+Totals: 4 passed, 7 failed, 0 skipped, 0 blacklisted, 309ms
+********* Finished testing of TestComposeMode *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+compose     =   0.94 sec*proc (1 test)
+headless    =   0.94 sec*proc (1 test)
+modes       =   0.94 sec*proc (1 test)
+qt          =   0.94 sec*proc (1 test)
+ui          =   0.94 sec*proc (1 test)
+unit        =   0.94 sec*proc (1 test)
+
+Total Test time (real) =   1.15 sec
+
+The following tests FAILED:
+	 66 - TestComposeMode (Failed)                          compose headless modes qt ui unit
+Errors while running CTest
