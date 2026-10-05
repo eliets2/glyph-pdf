@@ -298,3 +298,25 @@ residual Ls dispositioned or forwarded above.
 PROGRAM STATE: all dispatched work landed and gated; owner decisions open:
 CMYK-via-lcms2 (row 13). Font subsetting A SHIPPED (this round); 7z 26.03
 SHIPPED (this round); L03 SHIPPED (native Linux 197/202 in-container).
+
+## fs-cff + program completion (2026-10-05, main @ d992aef1)
+
+font-subset CFF follow-up folded (769939c0..7e9c9bd6 as aaa35bc6..d992aef1):
+CFF subsetting complete — bare CID-keyed CFF (CIDFontType0C), bare Type1C,
+and OpenType-wrapped 'CFF ' tables; parseCffLayout enforces exact-coverage
+tiling (Expert tables, encoding supplements, non-contiguous Subrs,
+FontMatrix operators, seac endchar → counted refusals, never guesses);
+sub-FontMatrix skip added (mission-listed gap in the WIP). 11 CFF pins on
+hermetic TN-5176 fixtures (render-diff via pdfium, extraction identity,
+estimator both ways, 5 skip-disclosure pins). Final serial 203/203
+(final-serial2-2026-10-05.txt). Fold conflict: ConversionManager soffice
+comment — merged to keep both the A/B probe detail and the
+office-import-slot discovery context. Font subsetting is now COMPLETE
+across both font programs (TrueType + CFF); remaining disclosed deferrals:
+Type1, CIDSet residual note, estimator cost note.
+PROGRAM COMPLETE (all dispatched work landed): native Linux (197/202
+in-container honest floor), font subsetting TrueType+CFF, 7z 26.03, CMYK
+plan (Option A QColorSpace — implementation launchable on the owner's
+word), verification rounds 1-4, cross-model DeepSeek audit 8/10 roles.
+OPEN EXTERNALLY: DeepSeek devops+docw roles (OpenRouter credit); owner
+decisions: CMYK implementation launch (Option A), CFF already done.
