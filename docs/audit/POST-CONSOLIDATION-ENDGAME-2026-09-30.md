@@ -320,3 +320,24 @@ plan (Option A QColorSpace — implementation launchable on the owner's
 word), verification rounds 1-4, cross-model DeepSeek audit 8/10 roles.
 OPEN EXTERNALLY: DeepSeek devops+docw roles (OpenRouter credit); owner
 decisions: CMYK implementation launch (Option A), CFF already done.
+
+## PROGRAM CLOSE-OUT (2026-10-05, main @ a8a36b09 + docs @ 9f7787ee→)
+
+FINAL GATE: BUILD_RC=0, full serial **205/205 passed, 0 failed**
+(evidence-wave2-closing/program-final-serial-2026-10-05.txt; 2 R14 probes
+disabled by design). Every lane folded; every branch cleaned; worktrees:
+main + feat/linux-native (C:/Users/User/Projects/pdf-linux) +
+feat/ui-redesign-p0 + rescue/linux-sept2026.
+SESSION TOTAL (2026-10-01 → 10-05): wave 2b features (QuadPoints markup,
+OCR OutputMode, FDF/CSV hardening, compare progress, hot-folder
+recursion+TTL, page-labels, re-OCR regions, vendored 7-Zip, a11y export,
+thumbnails off-GUI, disclosure, batch formats, selective sanitize,
+compose-mode side-by-side, Ghostscript unlock), font subsetting complete
+(TrueType + CFF), CMYK color-managed decode (Qt QColorSpace, zero deps),
+7-Zip 26.03 bump, native Linux merged (197/202 in-container), verification
+rounds 1-4 (5 ZCode + 8/10 DeepSeek cross-model roles; all M/H fixed),
+soffice -env: fix, rollback forensics with no-loss proof.
+OPEN: DeepSeek devops+docw roles (OpenRouter credit top-up; driver +
+saved-parts resume staged); forwarded L-items from r4-ux all landed via
+litems. Owner decisions REMAINING: none — CMYK dissolved (Option A
+shipped 04f8f746), font subsetting complete (TrueType + CFF), 7z bumped.
