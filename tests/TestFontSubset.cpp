@@ -1,25 +1,40 @@
 // SPDX-License-Identifier: Apache-2.0
 // Font-subsetting plan (docs/research/font-subsetting-plan-2026-10-01.md §5.2)
-// regression suite for the route-A keep-CID blank-glyph TrueType subsetter.
+// regression suite for the route-A keep-CID blank-glyph subsetter — the
+// TrueType core (/FontFile2) plus the CFF lane (/FontFile3 bare CFF and
+// OpenType-wrapped 'CFF ' tables).
 //
 // Pin families:
 //   1. sfnt surgery (hermetic, synthetic program): blanking preserves GID
 //      numbering and kept-glyph bytes, rebuilds loca and head checksums,
 //      composite-glyph closure pulls component chains;
+//   1b. CFF surgery (hermetic, synthetic programs — no host CFF/OTTO font
+//      exists on any probed Windows image, so both the CID-keyed and the
+//      name-keyed fixtures are hand-built to the CFF spec, layout verified
+//      against fontTools' cffLib reference): layout parse, blanking preserves
+//      GID numbering and kept charstring bytes, charset/subrs/TopDICT
+//      regions consistent, blanked charstrings collapse to bare endchar;
 //   2. round-trip CIDFontType2 (hand-built Type0 fixture over a real system
 //      TTF, DontSubset-style full program): output smaller, /FontFile2 shrunk,
 //      content streams //ToUnicode /W /CIDToGIDMap identical, used glyphs
 //      intact, unused glyphs blank;
+//   2b. round-trip CFF: CIDFontType0C (Identity-H, CID→GID via the inverse
+//      charset), bare Type1C (built-in encoding path), OpenType-wrapped
+//      'CFF ' (sfnt cmap path, non-CFF tables byte-identical) — estimator
+//      honesty both ways, program shrink, render-diff, extraction identity;
 //   3. render-diff (pdfium): the page renders identically before/after — the
 //      "blanked a used glyph" bug class;
-//   4. scope disclosure: CFF (/FontFile3), Type1 (/FontFile) and corrupt
-//      programs are left untouched / skipped safely; signed documents claim
-//      no estimate savings;
+//   4. scope disclosure: unparseable CFF (/FontFile3), Type1 (/FontFile),
+//      non-CID-keyed CFF under a Type0 wrapper, named-/Encoding simple CFF,
+//      seac-using CFFs, sub-FontMatrix (non-default /FontMatrix) fonts and
+//      corrupt programs are left untouched / skipped safely; signed documents
+//      claim no estimate savings;
 //   5. estimator honesty: subset savings are claimed ONLY when the pass will
 //      actually rewrite a program, never more than the program occupies.
 //
 // Document fixtures embed a real host TTF (QSKIP when absent — the
-// TestFindReplace.cpp:109 precedent); the sfnt pins are fully hermetic.
+// TestFindReplace.cpp:109 precedent); the sfnt and CFF pins are fully
+// hermetic.
 #include <QtTest/QtTest>
 #include <QTemporaryDir>
 #include <QFile>
@@ -27,7 +42,9 @@
 #include <QImage>
 
 #include <cstring>
+#include <map>
 #include <utility>
+#include <vector>
 
 #include <podofo/podofo.h>
 
@@ -175,6 +192,392 @@ QByteArray makeSyntheticSfnt()
         wr32(rec + 8, offs4[i]);
         wr32(rec + 12, lens4[i]);
         std::memcpy(o + offs4[i], bodies4[i].constData(), bodies4[i].size());
+    }
+    return out;
+}
+
+// ── hermetic synthetic CFF programs (no host CFF/OTTO font exists) ────────────
+// Hand-built to the CFF spec (Adobe TN 5176); the layout/encoding rules were
+// cross-checked against fontTools' cffLib reference implementation:
+//   * INDEX: count(2B); count>0 → offSize(1B) + (count+1) big-endian offsets
+//     relative to the byte preceding the data (first offset == 1);
+//   * DICT ints: -107..107 → b0=v+139; 108..1131 → 247+…; -1131..-108 →
+//     251+…; 28 → 3-byte int16; 29 → 5-byte int32 (fixed width, patchable);
+//   * Top DICT ops: charset 15, Encoding 16, CharStrings 17, Private 18
+//     (size, offset), ROS 12 30, FDArray 12 36, FDSelect 12 37;
+//   * charset format 0: (numGlyphs-1) SIDs/CIDs; FDSelect format 0: 1 byte
+//     per glyph; Private op 19 Subrs: offset relative to the Private DICT.
+
+QByteArray t2num(int v) // Type 2 charstring integer
+{
+    QByteArray b;
+    const auto w8 = [&b](int x) { b.append(static_cast<char>(x & 0xFF)); };
+    if (v >= -107 && v <= 107) { w8(v + 139); }
+    else if (v >= 108 && v <= 1131) { v -= 108; w8(247 + v / 256); w8(v % 256); }
+    else if (v <= -108 && v >= -1131) { v = -v - 108; w8(251 + v / 256); w8(v % 256); }
+    else { w8(28); w8((v >> 8) & 0xFF); w8(v & 0xFF); }
+    return b;
+}
+
+QByteArray dictNum(int v) // DICT integer, minimal form
+{
+    QByteArray b;
+    const auto w8 = [&b](int x) { b.append(static_cast<char>(x & 0xFF)); };
+    if (v >= -107 && v <= 107) { w8(v + 139); return b; }
+    if (v >= 108 && v <= 1131) { v -= 108; w8(247 + v / 256); w8(v % 256); return b; }
+    if (v <= -108 && v >= -1131) { v = -v - 108; w8(251 + v / 256); w8(v % 256); return b; }
+    if (v >= -32768 && v <= 32767) { w8(28); w8((v >> 8) & 0xFF); w8(v & 0xFF); return b; }
+    w8(29);
+    for (int s = 24; s >= 0; s -= 8) w8((v >> s) & 0xFF);
+    return b;
+}
+
+QByteArray dictNum32(int v) // DICT integer, fixed 5-byte 29-form (patchable)
+{
+    QByteArray b;
+    b.append(static_cast<char>(29));
+    for (int s = 24; s >= 0; s -= 8) b.append(static_cast<char>((v >> s) & 0xFF));
+    return b;
+}
+
+QByteArray cffIndex(const QVector<QByteArray>& items, int offSize)
+{
+    QByteArray b;
+    const int count = items.size();
+    b.append(static_cast<char>((count >> 8) & 0xFF));
+    b.append(static_cast<char>(count & 0xFF));
+    if (count == 0) return b; // empty INDEX: count field only
+    b.append(static_cast<char>(offSize));
+    QVector<uint32_t> offs;
+    uint32_t acc = 1;
+    offs.append(acc);
+    for (const auto& it : items) { acc += static_cast<uint32_t>(it.size()); offs.append(acc); }
+    for (uint32_t o : offs)
+        for (int s = (offSize - 1) * 8; s >= 0; s -= 8)
+            b.append(static_cast<char>((o >> s) & 0xFF));
+    for (const auto& it : items) b.append(it);
+    return b;
+}
+
+// A filled-square Type 2 charstring (real ink, so render-diffs are meaningful).
+QByteArray squareCharstring(int x0, int y0, int w, int h, bool withWidth)
+{
+    QByteArray cs;
+    if (withWidth) cs += t2num(120);
+    cs += t2num(x0); cs += t2num(y0); cs.append(char(21)); // rmoveto
+    cs += t2num(w);  cs += t2num(0);  cs.append(char(5));  // rlineto
+    cs += t2num(0);  cs += t2num(h);  cs.append(char(5));  // rlineto
+    cs += t2num(-w); cs += t2num(0);  cs.append(char(5));  // rlineto
+    cs.append(char(14));                                   // endchar
+    return cs;
+}
+
+// CID-keyed CFF: 6 glyphs (g0 .notdef + 5 squares, g5 via a local subr),
+// charset maps GID1..5 → CIDs 7..11 (NON-identity — exercises the inverse
+// lookup), FDSelect format 0 (single FD), Private + local Subrs.
+// Used CIDs in the fixture below: 7 (g1), 9 (g3), 11 (g5) → blankable g2+g4.
+struct CidCffSpec {
+    bool seacGlyph = false; // make USED glyph g1 a seac charstring (skip gate)
+};
+QByteArray makeCidCff(const CidCffSpec& spec = {})
+{
+    // Top DICT: ROS(SIDs 391/392, supplement 0), charset, CharStrings,
+    // FDArray, FDSelect — every offset operand in fixed 5-byte 29-form, so
+    // the entry length is deterministic and offsets can be precomputed.
+    const int topDictEntryLen =
+        2 + 2 + 1 + 2   // ROS: 391(2B) 392(2B) 0(1B) + op(2B)
+        + 5 + 1 + 5 + 1 // charset, CharStrings
+        + 5 + 2 + 5 + 2;// FDArray, FDSelect
+    const auto topDictBuilder = [](int charsetOff, int csOff, int fdArrayOff,
+                                    int fdSelectOff) {
+        QByteArray td;
+        td += dictNum(391); td += dictNum(392); td += dictNum(0);
+        td.append(char(12)); td.append(char(30));                       // ROS
+        td += dictNum32(charsetOff); td.append(char(15));               // charset
+        td += dictNum32(csOff); td.append(char(17));                    // CharStrings
+        td += dictNum32(fdArrayOff); td.append(char(12)); td.append(char(36)); // FDArray
+        td += dictNum32(fdSelectOff); td.append(char(12)); td.append(char(37)); // FDSelect
+        return td;
+    };
+
+    QByteArray header;
+    header.append(char(1)); header.append(char(0)); // major 1, minor 0
+    header.append(char(4)); header.append(char(2)); // hdrSize 4, offSize 2
+    const QByteArray nameIndex = cffIndex({ "Fix" }, 1);
+    const QByteArray stringIndex = cffIndex({ "Adobe", "Identity" }, 1); // SIDs 391, 392
+    const QByteArray gsubrIndex = cffIndex({}, 1); // empty global subrs
+
+    QByteArray fdSelect;
+    fdSelect.append(char(0)); // format 0
+    for (int i = 0; i < 6; ++i) fdSelect.append(char(0));
+
+    QByteArray charset;
+    charset.append(char(0)); // format 0
+    const uint16_t cids[5] = { 7, 8, 9, 10, 11 };
+    for (uint16_t c : cids) {
+        charset.append(static_cast<char>((c >> 8) & 0xFF));
+        charset.append(static_cast<char>(c & 0xFF));
+    }
+
+    QByteArray subr;
+    subr += t2num(400); subr += t2num(0); subr.append(char(5)); // 400 0 rlineto
+    subr.append(char(11));                                      // return
+    const QByteArray subrs = cffIndex({ subr }, 1);
+    // Private DICT: defaultWidthX 0 (op 20), nominalWidthX 0 (op 21),
+    // Subrs <privateLen> (op 19) — the subrs follow the private dict directly.
+    QByteArray priv;
+    priv.append(char(139)); priv.append(char(20)); // defaultWidthX 0
+    priv.append(char(139)); priv.append(char(21)); // nominalWidthX 0
+    priv.append(char(139 + static_cast<int>(priv.size()) + 1 + 1)); // Subrs = 6 (1B form)
+    priv.append(char(19));
+    // FDArray: one Font DICT holding Private <size> <offset> (op 18).
+    QByteArray fontDict;
+    fontDict += dictNum32(static_cast<int>(priv.size()));
+    fontDict += dictNum32(0); // offset patched below (payload pos recorded)
+    fontDict.append(char(18));
+    const int privOffPayloadPos = static_cast<int>(fontDict.size()) - 5;
+    const QByteArray fdArray = cffIndex({ fontDict }, 1);
+
+    QByteArray g1;
+    if (spec.seacGlyph) {
+        // seac form: width asb adx ady bchar achar endchar (standard codes
+        // 65='A', 66='B' — both exist in this font's charset).
+        g1 += t2num(100);
+        g1 += t2num(0); g1 += t2num(0); g1 += t2num(0);
+        g1 += t2num(65); g1 += t2num(66);
+        g1.append(char(14));
+    } else {
+        g1 = squareCharstring(50, 50, 400, 400, false);
+    }
+    const QByteArray g0 = squareCharstring(30, 30, 300, 300, false); // .notdef
+    const QByteArray g2 = squareCharstring(0, 0, 700, 700, false);   // unused victim
+    const QByteArray g3 = squareCharstring(50, 50, 500, 500, true);  // width variant
+    const QByteArray g4 = squareCharstring(0, 0, 650, 650, false);   // unused victim
+    QByteArray g5;
+    g5 += t2num(50); g5 += t2num(50); g5.append(char(21)); // 50 50 rmoveto
+    g5.append(char(139)); g5.append(char(10));             // 0 callsubr (bias 0)
+    g5 += t2num(0);  g5 += t2num(500); g5.append(char(5));
+    g5 += t2num(-500); g5 += t2num(0); g5.append(char(5));
+    g5.append(char(14));
+    const QByteArray charStrings = cffIndex({ g0, g1, g2, g3, g4, g5 }, 1);
+
+    // Layout (original order, exactly tiled):
+    //   header | name | topdict | string | gsubr | fdSelect | charset
+    //   | fdArray | charStrings | private | subrs
+    uint32_t charsetOff = static_cast<uint32_t>(header.size() + nameIndex.size()
+        + 2 + 1 + 2 + topDictEntryLen + stringIndex.size() + gsubrIndex.size()
+        + fdSelect.size());
+    uint32_t csOff = charsetOff + static_cast<uint32_t>(charset.size())
+                   + static_cast<uint32_t>(fdArray.size());
+    uint32_t fdArrayOff = charsetOff + static_cast<uint32_t>(charset.size());
+    uint32_t fdSelectOff = static_cast<uint32_t>(header.size() + nameIndex.size()
+        + 2 + 1 + 2 + topDictEntryLen + stringIndex.size() + gsubrIndex.size());
+
+    QByteArray topDict = topDictBuilder(static_cast<int>(charsetOff),
+                                        static_cast<int>(csOff),
+                                        static_cast<int>(fdArrayOff),
+                                        static_cast<int>(fdSelectOff));
+    // The Top DICT travels inside its own INDEX (count + offSize + offsets);
+    // the offset arithmetic above already accounts for its 2+1+2 bytes.
+    const QByteArray topDictIndex = cffIndex({ topDict }, 1);
+    // Patch the FDArray Font DICT's Private offset (29-form payload).
+    const uint32_t privOff = csOff + static_cast<uint32_t>(charStrings.size());
+    const int patchPos = static_cast<int>(fdArray.size()) - static_cast<int>(fontDict.size())
+                       + privOffPayloadPos;
+    QByteArray fdArrayPatched = fdArray;
+    for (int s = 24; s >= 0; s -= 8)
+        fdArrayPatched[patchPos + (24 - s) / 8] =
+            static_cast<char>((privOff >> s) & 0xFF);
+
+    QByteArray out;
+    out += header; out += nameIndex; out += cffIndex({ topDict }, 1);
+    out += stringIndex;
+    out += gsubrIndex; out += fdSelect; out += charset; out += fdArrayPatched;
+    out += charStrings; out += priv; out += subrs;
+    return out;
+}
+
+// Name-keyed CFF (bare Type1C shape): 4 glyphs, charset format 0 with the
+// STANDARD-STRING SIDs for A(34) B(35) C(36) — no Encoding operator, so the
+// built-in Adobe Standard Encoding path resolves codes 'A'/'C' → g1/g3.
+// Top-level Private, no local subrs. `bulkUnused` pads the unused glyph with
+// redundant path work so blanking frees enough raw bytes for the Flate-encoded
+// stream to shrink even inside an OpenType wrapper (whose rebuilt directory
+// alignment absorbs a small delta).
+QByteArray makeNameCff(bool seacGlyph = false, bool bulkUnused = false,
+                       bool topFontMatrix = false)
+{
+    QByteArray header;
+    header.append(char(1)); header.append(char(0));
+    header.append(char(4)); header.append(char(2));
+    const QByteArray nameIndex = cffIndex({ "Fix" }, 1);
+    const QByteArray stringIndex = cffIndex({}, 1); // empty String INDEX
+    const QByteArray gsubrIndex = cffIndex({}, 1);  // empty global subrs
+
+    QByteArray charset;
+    charset.append(char(0)); // format 0
+    const uint16_t sids[3] = { 34, 35, 36 }; // A, B, C
+    for (uint16_t s : sids) {
+        charset.append(static_cast<char>((s >> 8) & 0xFF));
+        charset.append(static_cast<char>(s & 0xFF));
+    }
+
+    QByteArray g1;
+    if (seacGlyph) {
+        g1 += t2num(100);
+        g1 += t2num(0); g1 += t2num(0); g1 += t2num(0);
+        g1 += t2num(65); g1 += t2num(66);
+        g1.append(char(14));
+    } else {
+        g1 = squareCharstring(50, 50, 400, 400, false);
+    }
+    const QByteArray g0 = squareCharstring(30, 30, 300, 300, false); // .notdef
+    QByteArray g2 = squareCharstring(0, 0, 700, 700, false);         // unused victim
+    if (bulkUnused) {
+        // 60 × (100 0 rlineto): +180 raw bytes that vanish when g2 is blanked,
+        // so the Flate-encoded rewrite shrinks even inside the OTTO wrapper.
+        for (int i = 0; i < 60; ++i) {
+            g2 += t2num(100); g2 += t2num(0); g2.append(char(5));
+        }
+    }
+    const QByteArray g3 = squareCharstring(50, 50, 500, 500, true);
+    const QByteArray charStrings = cffIndex({ g0, g1, g2, g3 }, 1);
+
+    QByteArray priv;
+    priv.append(char(139)); priv.append(char(20)); // defaultWidthX 0
+    priv.append(char(139)); priv.append(char(21)); // nominalWidthX 0
+
+    // Top DICT: charset [off] op15, CharStrings [off] op17, Private <size off> op18.
+    // op 18 is a single byte (only 12-escape ops take a second byte).
+    // `topFontMatrix` adds a FontMatrix operator (12 7) whose operand is the
+    // BCD real 0.001 (nibbles 0 '.' 0 0 1 end → 30 0A 00 1F) — the layout
+    // arithmetic must account for the 4 operand bytes + 2 operator bytes.
+    const int fontMatrixLen = topFontMatrix ? 4 + 2 : 0;
+    const int topDictEntryLen = 5 + 1 + 5 + 1 + 5 + 5 + 1 + fontMatrixLen;
+    // Layout: header | name | topdict | string | gsubr | charset | charstrings | private
+    const uint32_t charsetOff = static_cast<uint32_t>(
+        header.size() + nameIndex.size() + 2 + 1 + 2 + topDictEntryLen
+        + stringIndex.size() + gsubrIndex.size());
+    const uint32_t csOff = charsetOff + static_cast<uint32_t>(charset.size());
+    const uint32_t privOff = csOff + static_cast<uint32_t>(charStrings.size());
+
+    QByteArray topDict;
+    if (topFontMatrix) {
+        topDict.append(char(30)); topDict.append(char(0x0A));
+        topDict.append(char(0x00)); topDict.append(char(0x1F)); // real 0.001
+        topDict.append(char(12)); topDict.append(char(7));      // FontMatrix
+    }
+    topDict += dictNum32(static_cast<int>(charsetOff)); topDict.append(char(15));
+    topDict += dictNum32(static_cast<int>(csOff)); topDict.append(char(17));
+    topDict += dictNum32(static_cast<int>(priv.size()));
+    topDict += dictNum32(static_cast<int>(privOff)); topDict.append(char(18));
+
+    QByteArray out;
+    out += header; out += nameIndex; out += cffIndex({ topDict }, 1);
+    out += stringIndex;
+    out += gsubrIndex; out += charset; out += charStrings; out += priv;
+    return out;
+}
+
+// Minimal OpenType (OTTO) wrapper around a CFF program: cmap (3,10) format 12
+// mapping 'A'→GID1 and 'C'→GID3, head/hhea/hmtx/maxp(0.5) — enough for
+// FreeType/pdfium to load and render the CFF glyphs.
+QByteArray makeOttWrapper(const QByteArray& cff)
+{
+    const uint32_t kCffTag = 0x43464620u; // 'CFF '
+    const uint32_t kCmapTag = 0x636d6170u;
+    const uint32_t kHeadTag = 0x68656164u;
+    const uint32_t kHheaTag = 0x68686561u;
+    const uint32_t kHmtxTag = 0x686d7478u;
+    const uint32_t kMaxpTag = 0x6d617870u;
+
+    QByteArray headB(54, '\0');
+    {
+        unsigned char* h = reinterpret_cast<unsigned char*>(headB.data());
+        wr32(h + 0, 0x00010000u);
+        wr32(h + 4, 0x00010000u);       // fontRevision
+        wr32(h + 8, 0);                 // checkSumAdjustment
+        wr32(h + 12, 0x5F0F3CF5u);      // magic
+        wr16(h + 16, 0x0003u);          // flags
+        wr16(h + 18, 1000);             // unitsPerEm
+        wr16(h + 36, 0); wr16(h + 38, 0);   // xMin yMin
+        wr16(h + 40, 700); wr16(h + 42, 700); // xMax yMax
+        wr16(h + 46, 8);                // lowestRecPPEM
+        wr16(h + 48, 2);                // fontDirectionHint
+        wr16(h + 50, 0);                // indexToLocFormat (no glyf)
+        wr16(h + 52, 0);                // glyphDataFormat
+    }
+    QByteArray maxpB(6, '\0');
+    {
+        unsigned char* m = reinterpret_cast<unsigned char*>(maxpB.data());
+        wr32(m + 0, 0x00005000u);       // version 0.5 (CFF)
+        wr16(m + 4, 4);                 // numGlyphs
+    }
+    QByteArray hheaB(36, '\0');
+    {
+        unsigned char* h = reinterpret_cast<unsigned char*>(hheaB.data());
+        wr32(h + 0, 0x00010000u);
+        wr16(h + 4, 800); wr16(h + 6, 0xFF38u); // ascender, descender (-200)
+        wr16(h + 8, 0);                          // lineGap
+        wr16(h + 10, 600);                       // advanceWidthMax
+        wr16(h + 12, 0); wr16(h + 14, 0); wr16(h + 16, 600);
+        wr16(h + 18, 1); wr16(h + 20, 0); wr16(h + 22, 0); // caret
+        wr16(h + 24, 0); wr16(h + 26, 0); wr16(h + 28, 0); wr16(h + 30, 0);
+        wr16(h + 32, 0);                         // metricDataFormat
+        wr16(h + 34, 4);                         // numberOfHMetrics
+    }
+    QByteArray hmtxB(16, '\0');
+    {
+        unsigned char* m = reinterpret_cast<unsigned char*>(hmtxB.data());
+        for (int i = 0; i < 4; ++i) { wr16(m + i * 4, 600); wr16(m + i * 4 + 2, 0); }
+    }
+    QByteArray cmapSub(40, '\0');
+    {
+        // format 12: groups 'A'(65)→1, 'C'(67)→3
+        unsigned char* s = reinterpret_cast<unsigned char*>(cmapSub.data());
+        wr16(s + 0, 12); wr16(s + 2, 0); wr32(s + 4, 40); // format, reserved, length
+        wr32(s + 8, 0);  wr32(s + 12, 2);                 // language, nGroups
+        wr32(s + 16, 65); wr32(s + 20, 65); wr32(s + 24, 1);
+        wr32(s + 28, 67); wr32(s + 32, 67); wr32(s + 36, 3);
+    }
+    QByteArray cmapB;
+    {
+        unsigned char* c = reinterpret_cast<unsigned char*>(cmapB.data());
+        QByteArray headerPart(12, '\0');
+        unsigned char* h = reinterpret_cast<unsigned char*>(headerPart.data());
+        wr16(h + 0, 0); wr16(h + 2, 1);            // version, numTables
+        wr16(h + 4, 3); wr16(h + 6, 10);           // platformID 3, encodingID 10
+        wr32(h + 8, 12);                           // subtable offset
+        cmapB = headerPart + cmapSub;
+        Q_UNUSED(c);
+    }
+
+    struct T { uint32_t tag; QByteArray body; };
+    const T tables[6] = {
+        { kCffTag, cff }, { kCmapTag, cmapB }, { kHeadTag, headB },
+        { kHheaTag, hheaB }, { kHmtxTag, hmtxB }, { kMaxpTag, maxpB },
+    };
+    uint32_t cursor = 12 + 6u * 16u;
+    uint32_t offs[6], lens[6];
+    for (int i = 0; i < 6; ++i) {
+        offs[i] = cursor;
+        lens[i] = static_cast<uint32_t>(tables[i].body.size());
+        cursor = (cursor + lens[i] + 3u) & ~3u;
+    }
+    QByteArray out(cursor, '\0');
+    unsigned char* o = reinterpret_cast<unsigned char*>(out.data());
+    wr32(o + 0, 0x4F54544Fu); // 'OTTO'
+    wr16(o + 4, 6);
+    wr16(o + 6, 96);  // searchRange (6 × 16)
+    wr16(o + 8, 2);   // entrySelector
+    wr16(o + 10, 0);  // rangeShift
+    for (int i = 0; i < 6; ++i) {
+        unsigned char* rec = o + 12 + i * 16;
+        wr32(rec + 0, tables[i].tag);
+        wr32(rec + 4, 0);
+        wr32(rec + 8, offs[i]);
+        wr32(rec + 12, lens[i]);
+        std::memcpy(o + offs[i], tables[i].body.constData(), tables[i].body.size());
     }
     return out;
 }
@@ -432,6 +835,224 @@ SimpleFixture buildSimpleFixture(const QTemporaryDir& tmp, const QString& name,
     doc.Save(fx.path.toUtf8().constData());
     fx.ok = true;
     return fx;
+}
+
+// ── CFF document fixtures (hermetic: the synthetic programs above) ────────────
+
+// Type0 /CIDFontType0 with /Identity-H over a bare CID-keyed CFF
+// (FontFile3 /CIDFontType0C): 2-byte codes ARE CIDs; the charset maps
+// GID1..5 → CIDs 7..11, so shown CIDs 7/9/11 select GIDs 1/3/5.
+struct CffCidFixture {
+    QString path;
+    QByteArray cff;
+};
+
+CffCidFixture buildCidCffFixture(const QTemporaryDir& tmp, const QString& name,
+                                 const QByteArray& cff)
+{
+    CffCidFixture fx;
+    fx.cff = cff;
+
+    PoDoFo::PdfMemDocument doc;
+    doc.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& page = doc.GetPages().GetPageAt(0);
+
+    auto& ff3 = doc.GetObjects().CreateDictionaryObject();
+    ff3.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("CIDFontType0C"));
+    {
+        PoDoFo::charbuff buf(
+            std::string_view(cff.constData(), static_cast<size_t>(cff.size())));
+        ff3.GetOrCreateStream().SetData(buf,
+            PoDoFo::PdfFilterList{ PoDoFo::PdfFilterType::FlateDecode }, /*raw=*/false);
+    }
+    auto& fd = makeFontDescriptor(doc, ff3, "FontFile3");
+
+    auto& cidFont = doc.GetObjects().CreateDictionaryObject();
+    cidFont.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
+    cidFont.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("CIDFontType0"));
+    cidFont.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName("FixtureCFF"));
+    auto& csi = doc.GetObjects().CreateDictionaryObject();
+    csi.GetDictionary().AddKey("Registry", PoDoFo::PdfString("Adobe"));
+    csi.GetDictionary().AddKey("Ordering", PoDoFo::PdfString("Identity"));
+    csi.GetDictionary().AddKey("Supplement", static_cast<int64_t>(0));
+    cidFont.GetDictionary().AddKey("CIDSystemInfo", csi.GetIndirectReference());
+    cidFont.GetDictionary().AddKey("FontDescriptor", fd.GetIndirectReference());
+    cidFont.GetDictionary().AddKey("DW", static_cast<int64_t>(600));
+    PoDoFo::PdfArray w;
+    PoDoFo::PdfArray widths;
+    widths.Add(PoDoFo::PdfVariant(static_cast<int64_t>(600)));
+    w.Add(PoDoFo::PdfVariant(static_cast<int64_t>(7)));
+    w.Add(PoDoFo::PdfVariant(widths));
+    cidFont.GetDictionary().AddKey("W", PoDoFo::PdfVariant(w));
+
+    auto& type0 = doc.GetObjects().CreateDictionaryObject();
+    type0.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
+    type0.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Type0"));
+    type0.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName("FixtureCFF"));
+    type0.GetDictionary().AddKey("Encoding", PoDoFo::PdfName("Identity-H"));
+    PoDoFo::PdfArray descendants;
+    descendants.Add(PoDoFo::PdfObject(cidFont.GetIndirectReference()));
+    type0.GetDictionary().AddKey("DescendantFonts", PoDoFo::PdfVariant(descendants));
+
+    QString toUni = QStringLiteral(
+        "/CIDInit /ProcSet findresource begin\n"
+        "12 dict begin\nbegincmap\n"
+        "1 begincodespacerange <0000> <FFFF> endcodespacerange\n"
+        "3 beginbfchar\n"
+        "<0007> <0041>\n<0009> <0042>\n<000B> <0043>\n"
+        "endbfchar\nendcmap\nend\nend\n");
+    const QByteArray toUniB = toUni.toLatin1();
+    auto& toUniObj = doc.GetObjects().CreateDictionaryObject();
+    PoDoFo::charbuff tuBuf(std::string_view(toUniB.constData(),
+                                            static_cast<size_t>(toUniB.size())));
+    toUniObj.GetOrCreateStream().SetData(tuBuf, PoDoFo::PdfFilterList{}, /*raw=*/true);
+    type0.GetDictionary().AddKey("ToUnicode", toUniObj.GetIndirectReference());
+
+    const std::string content =
+        "BT /F1 24 Tf 72 700 Td <0007> Tj 0 -30 Td <0009> Tj 0 -30 Td <000B> Tj ET\n";
+    addContentStream(doc, page, content, &type0, "F1");
+
+    fx.path = tmp.filePath(name);
+    doc.Save(fx.path.toUtf8().constData());
+    return fx;
+}
+
+// Simple /Type1 over a bare name-keyed CFF (FontFile3 /Type1C); 1-byte codes
+// resolve through the CFF's built-in encoding (no PDF /Encoding) unless
+// `namedEncoding` adds one (the unprovable-disclosure case). `subFontMatrix`
+// adds a non-default /FontMatrix (the sub-FontMatrix-disclosure case).
+QString buildSimpleCffFixture(const QTemporaryDir& tmp, const QString& name,
+                              const QByteArray& cff, bool namedEncoding,
+                              bool subFontMatrix = false)
+{
+    PoDoFo::PdfMemDocument doc;
+    doc.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& page = doc.GetPages().GetPageAt(0);
+
+    auto& ff3 = doc.GetObjects().CreateDictionaryObject();
+    ff3.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Type1C"));
+    {
+        PoDoFo::charbuff buf(
+            std::string_view(cff.constData(), static_cast<size_t>(cff.size())));
+        ff3.GetOrCreateStream().SetData(buf,
+            PoDoFo::PdfFilterList{ PoDoFo::PdfFilterType::FlateDecode }, /*raw=*/false);
+    }
+    auto& fd = makeFontDescriptor(doc, ff3, "FontFile3");
+    auto& font = doc.GetObjects().CreateDictionaryObject();
+    font.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
+    font.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("Type1"));
+    font.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName("FixtureCFF"));
+    font.GetDictionary().AddKey("FirstChar", static_cast<int64_t>(65));
+    font.GetDictionary().AddKey("LastChar", static_cast<int64_t>(67));
+    PoDoFo::PdfArray widths;
+    for (int i = 0; i < 3; ++i)
+        widths.Add(PoDoFo::PdfVariant(static_cast<int64_t>(600)));
+    font.GetDictionary().AddKey("Widths", PoDoFo::PdfVariant(widths));
+    if (namedEncoding)
+        font.GetDictionary().AddKey("Encoding", PoDoFo::PdfName("WinAnsiEncoding"));
+    if (subFontMatrix) {
+        // [0.0005 0 0 0.0005 0 0] — half the default glyph scale.
+        PoDoFo::PdfArray fm;
+        fm.Add(PoDoFo::PdfVariant(0.0005));
+        fm.Add(PoDoFo::PdfVariant(0.0));
+        fm.Add(PoDoFo::PdfVariant(0.0));
+        fm.Add(PoDoFo::PdfVariant(0.0005));
+        fm.Add(PoDoFo::PdfVariant(0.0));
+        fm.Add(PoDoFo::PdfVariant(0.0));
+        font.GetDictionary().AddKey("FontMatrix", PoDoFo::PdfVariant(fm));
+    }
+    font.GetDictionary().AddKey("FontDescriptor", fd.GetIndirectReference());
+
+    addContentStream(doc, page, "BT /F1 24 Tf 72 700 Td (AC) Tj ET\n", &font, "F1");
+
+    const QString path = tmp.filePath(name);
+    doc.Save(path.toUtf8().constData());
+    return path;
+}
+
+// Simple /OpenType over an OTTO-wrapped CFF (FontFile3 /OpenType): 1-byte
+// codes resolve through the sfnt cmap (no PDF /Encoding).
+QString buildOpenTypeCffFixture(const QTemporaryDir& tmp, const QString& name,
+                                const QByteArray& otto)
+{
+    PoDoFo::PdfMemDocument doc;
+    doc.GetPages().CreatePage(
+        PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
+    auto& page = doc.GetPages().GetPageAt(0);
+
+    auto& ff3 = doc.GetObjects().CreateDictionaryObject();
+    ff3.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("OpenType"));
+    {
+        PoDoFo::charbuff buf(
+            std::string_view(otto.constData(), static_cast<size_t>(otto.size())));
+        ff3.GetOrCreateStream().SetData(buf,
+            PoDoFo::PdfFilterList{ PoDoFo::PdfFilterType::FlateDecode }, /*raw=*/false);
+    }
+    auto& fd = makeFontDescriptor(doc, ff3, "FontFile3");
+    auto& font = doc.GetObjects().CreateDictionaryObject();
+    font.GetDictionary().AddKey("Type", PoDoFo::PdfName("Font"));
+    font.GetDictionary().AddKey("Subtype", PoDoFo::PdfName("OpenType"));
+    font.GetDictionary().AddKey("BaseFont", PoDoFo::PdfName("FixtureOTF"));
+    font.GetDictionary().AddKey("FirstChar", static_cast<int64_t>(65));
+    font.GetDictionary().AddKey("LastChar", static_cast<int64_t>(67));
+    PoDoFo::PdfArray widths;
+    for (int i = 0; i < 3; ++i)
+        widths.Add(PoDoFo::PdfVariant(static_cast<int64_t>(600)));
+    font.GetDictionary().AddKey("Widths", PoDoFo::PdfVariant(widths));
+    font.GetDictionary().AddKey("FontDescriptor", fd.GetIndirectReference());
+
+    addContentStream(doc, page, "BT /F1 24 Tf 72 700 Td (AC) Tj ET\n", &font, "F1");
+
+    const QString path = tmp.filePath(name);
+    doc.Save(path.toUtf8().constData());
+    return path;
+}
+
+// ── test-side CFF/sfnt readers for byte-level after-state assertions ──────────
+
+struct TestIndex {
+    uint32_t count = 0;
+    std::vector<std::pair<uint32_t, uint32_t>> spans; // absolute [start,end) per entry
+};
+
+TestIndex readCffIndexAt(const QByteArray& cff, uint32_t indexOffset)
+{
+    TestIndex ix;
+    const unsigned char* p =
+        reinterpret_cast<const unsigned char*>(cff.constData()) + indexOffset;
+    ix.count = rd16(p);
+    if (ix.count == 0) return ix;
+    const int offSize = p[2];
+    const uint32_t base = indexOffset + 3u + (ix.count + 1u) * offSize - 1u;
+    // INDEX offsets are 1-based relative to `base` and the first one is
+    // spec-mandated to be 1 — so entry 0 starts at base+1, not base.
+    uint32_t prev = 1;
+    for (uint32_t i = 1; i <= ix.count; ++i) {
+        uint32_t o = 0;
+        for (int s = 0; s < offSize; ++s)
+            o = (o << 8) | p[3 + i * offSize + s];
+        ix.spans.push_back({ base + prev, base + o });
+        prev = o;
+    }
+    return ix;
+}
+
+std::map<uint32_t, std::pair<uint32_t, uint32_t>> readSfntTables(const QByteArray& sfnt)
+{
+    // Version-agnostic directory read (accepts OTTO — parseSfntDirectory
+    // deliberately does not; the TrueType lane's pin keeps that contract).
+    // Values are [start, end) spans — same convention as readCffIndexAt.
+    std::map<uint32_t, std::pair<uint32_t, uint32_t>> out;
+    const unsigned char* p = reinterpret_cast<const unsigned char*>(sfnt.constData());
+    const uint16_t numTables = rd16(p + 4);
+    for (uint16_t i = 0; i < numTables; ++i) {
+        const unsigned char* rec = p + 12 + static_cast<size_t>(i) * 16;
+        const uint32_t off = rd32(rec + 8);
+        out[rd32(rec)] = { off, off + rd32(rec + 12) };
+    }
+    return out;
 }
 
 PoDoFo::PdfObject* resolveObject(PoDoFo::PdfMemDocument& doc, PoDoFo::PdfObject* obj)
@@ -899,10 +1520,11 @@ private slots:
 
     // ── 4. scope disclosure ──────────────────────────────────────────────────
 
-    void cffProgramIsLeftUntouched() {
-        // A Type0/CIDFontType0 fixture: its /FontFile3 program belongs to the
-        // CFF lane — the pass must not touch a byte of it, and the estimator
-        // must claim nothing for it.
+    void unparseableCffProgramIsLeftUntouched() {
+        // CFF lane shipped: an ELIGIBLE /FontFile3 program is now subsetted
+        // (round-trip pins below). This pin keeps the degradation contract
+        // for a FontFile3 whose bytes are not a parseable CFF: not one byte
+        // of it may be touched, and the estimator must claim nothing.
         PoDoFo::PdfMemDocument doc;
         doc.GetPages().CreatePage(
             PoDoFo::PdfPage::CreateStandardPageSize(PoDoFo::PdfPageSize::A4));
@@ -950,6 +1572,563 @@ private slots:
         const auto streams = findFontFileStreams(after, "FontFile3");
         QCOMPARE(streams.size(), 1);
         QCOMPARE(decodedStream(streams.first()).size(), cffBytes.size());
+    }
+
+    // ── 1b. CFF surgery (hermetic) ────────────────────────────────────────────
+
+    void cffLayoutParsesSyntheticFonts() {
+        const QByteArray cid = makeCidCff();
+        CffLayout lay;
+        QVERIFY2(parseCffLayout(reinterpret_cast<const unsigned char*>(cid.constData()),
+                                static_cast<size_t>(cid.size()), lay),
+                 "the synthetic CID-keyed CFF must parse");
+        QVERIFY(lay.cidKeyed);
+        QCOMPARE(lay.numGlyphs, 6u);
+        QVERIFY(lay.hasFdArray);
+        QVERIFY(lay.hasFdSelect);
+        QCOMPARE(lay.header.length, 4u);
+        QCOMPARE(lay.charset.length, 11u); // format 0: 1 + 5 SIDs
+        QVERIFY(lay.charStrings.length > 0);
+        QCOMPARE(static_cast<int>(lay.privates.size()), 1);
+        QVERIFY(lay.privates[0].hasSubrs);
+        QVERIFY(lay.privates[0].subrs.length > 0);
+
+        const QByteArray name = makeNameCff();
+        CffLayout lay2;
+        QVERIFY2(parseCffLayout(reinterpret_cast<const unsigned char*>(name.constData()),
+                                static_cast<size_t>(name.size()), lay2),
+                 "the synthetic name-keyed CFF must parse");
+        QVERIFY2(!lay2.cidKeyed, "no ROS operator → not CID-keyed");
+        QCOMPARE(lay2.numGlyphs, 4u);
+        QCOMPARE(static_cast<int>(lay2.privates.size()), 1);
+        QVERIFY2(!lay2.privates[0].hasSubrs, "the name-keyed fixture has no Subrs");
+
+        // A Top-DICT FontMatrix operator (12 7) is a sub-FontMatrix transform:
+        // the parse must refuse the program (the caller skips + discloses).
+        const QByteArray fmCff = makeNameCff(false, false, /*topFontMatrix=*/true);
+        CffLayout lay3;
+        QVERIFY2(!parseCffLayout(
+                     reinterpret_cast<const unsigned char*>(fmCff.constData()),
+                     static_cast<size_t>(fmCff.size()), lay3),
+                 "a Top-DICT FontMatrix operator must be refused");
+    }
+
+    void cffBlankingPreservesNumberingAndKeptBytes() {
+        const QByteArray cff = makeCidCff();
+        const unsigned char* ip =
+            reinterpret_cast<const unsigned char*>(cff.constData());
+        CffLayout before;
+        QVERIFY(parseCffLayout(ip, static_cast<size_t>(cff.size()), before));
+
+        // Used CIDs 7/9/11 → GIDs 1/3/5; plus .notdef (0). g2+g4 blankable:
+        // (16-1) + (16-1) = 30 raw bytes.
+        QSet<uint32_t> keep{ 0, 1, 3, 5 };
+        bool ok = false;
+        const qint64 blankable = blankableCffCharstringBytes(
+            ip, static_cast<size_t>(cff.size()), keep, &ok);
+        QVERIFY(ok);
+        QCOMPARE(blankable, static_cast<qint64>(30));
+
+        QByteArray out;
+        QVERIFY2(blankUnusedCffCharstrings(ip, static_cast<size_t>(cff.size()),
+                                           keep, out),
+                 "the rewriter must accept its own synthetic fixture");
+        QVERIFY(out.size() < cff.size());
+        const unsigned char* op =
+            reinterpret_cast<const unsigned char*>(out.constData());
+        CffLayout after;
+        QVERIFY(parseCffLayout(op, static_cast<size_t>(out.size()), after));
+        QCOMPARE(after.numGlyphs, 6u);
+
+        // CharStrings INDEX: same entry count; kept entries byte-verbatim;
+        // blanked entries collapse to a single endchar (0x0E).
+        const TestIndex inIx = readCffIndexAt(cff, before.charStrings.offset);
+        const TestIndex outIx = readCffIndexAt(out, after.charStrings.offset);
+        QCOMPARE(outIx.count, inIx.count);
+        for (uint32_t gid = 0; gid < 6; ++gid) {
+            const auto inSpan = inIx.spans[gid];
+            const auto outSpan = outIx.spans[gid];
+            const int inLen = static_cast<int>(inSpan.second - inSpan.first);
+            const int outLen = static_cast<int>(outSpan.second - outSpan.first);
+            if (keep.contains(gid)) {
+                QCOMPARE(outLen, inLen);
+                QVERIFY(std::memcmp(ip + inSpan.first, op + outSpan.first, inLen) == 0);
+            } else {
+                QCOMPARE(outLen, 1);
+                QCOMPARE(static_cast<int>(op[outSpan.first]), 0x0E);
+            }
+        }
+        // charset, FDSelect, Name/String/gsubr INDEXes, Private DICT and its
+        // Subrs all stay byte-identical (FDArray is rebuilt: Private offsets
+        // move — that is its only content change and it is checked via the
+        // render-diff round-trip below).
+        for (const CffSection section : { before.charset, before.fdSelect,
+                                          before.nameIndex, before.stringIndex,
+                                          before.gsubrIndex }) {
+            QVERIFY(section.length > 0);
+        }
+        QVERIFY(std::memcmp(ip + before.charset.offset, op + after.charset.offset,
+                            before.charset.length) == 0);
+        QVERIFY(std::memcmp(ip + before.fdSelect.offset, op + after.fdSelect.offset,
+                            before.fdSelect.length) == 0);
+        QVERIFY(std::memcmp(ip + before.nameIndex.offset, op + after.nameIndex.offset,
+                            before.nameIndex.length) == 0);
+        QVERIFY(std::memcmp(ip + before.stringIndex.offset,
+                            op + after.stringIndex.offset,
+                            before.stringIndex.length) == 0);
+        QVERIFY(std::memcmp(ip + before.gsubrIndex.offset, op + after.gsubrIndex.offset,
+                            before.gsubrIndex.length) == 0);
+        QCOMPARE(after.privates.size(), before.privates.size());
+        for (size_t i = 0; i < before.privates.size(); ++i) {
+            QVERIFY(std::memcmp(ip + before.privates[i].dict.offset,
+                                op + after.privates[i].dict.offset,
+                                before.privates[i].dict.length) == 0);
+            QVERIFY(before.privates[i].hasSubrs);
+            QVERIFY(std::memcmp(ip + before.privates[i].subrs.offset,
+                                op + after.privates[i].subrs.offset,
+                                before.privates[i].subrs.length) == 0);
+        }
+    }
+
+    // ── 2b. CFF document round-trips + render-diff ───────────────────────────
+
+    void roundTripCidFontType0CPreservesUsedAndBlanksUnused() {
+        const QByteArray cff = makeCidCff();
+        const CffCidFixture fx = buildCidCffFixture(m_tmpDir,
+                                                    QStringLiteral("cffcid.pdf"), cff);
+        QVERIFY(!fx.path.isEmpty());
+
+        // Estimator honesty, both ways.
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(fx.path));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = false;
+        const OptimizeEstimate off = engine.estimateOptimization(estOpts);
+        estOpts.subsetFonts = true;
+        const OptimizeEstimate on = engine.estimateOptimization(estOpts);
+        QCOMPARE(off.estimatedBytes, off.originalBytes);
+        QVERIFY2(on.estimatedBytes < on.originalBytes,
+                 "an eligible CIDFontType0C program must yield a real estimate");
+        {
+            PoDoFo::PdfMemDocument probe;
+            probe.Load(fx.path.toUtf8().constData());
+            qint64 encoded = 0;
+            for (auto* ff : findFontFileStreams(probe, "FontFile3"))
+                encoded += encodedStreamSize(ff);
+            QVERIFY2(encoded > 0, "the fixture must carry an embedded FontFile3");
+            QVERIFY2(on.originalBytes - on.estimatedBytes <= encoded,
+                     "the subset claim must never exceed the program's encoded size");
+        }
+
+        // Before state.
+        PdfiumBackend rendererBefore;
+        QVERIFY(rendererBefore.loadDocument(fx.path));
+        const QImage pageBefore = rendererBefore.renderPage(0, 150);
+        QVERIFY(!pageBefore.isNull());
+        const QString textBefore = rendererBefore.extractText(0);
+        QVERIFY2(!textBefore.trimmed().isEmpty(),
+                 "the fixture must render extractable text (ToUnicode)");
+        PoDoFo::PdfMemDocument before;
+        before.Load(fx.path.toUtf8().constData());
+        auto* ff3Before = findFontFileStreams(before, "FontFile3").first();
+        const QByteArray programBefore = decodedStream(ff3Before);
+        QCOMPARE(programBefore, cff);
+        auto contentsBefore = before.GetPages().GetPageAt(0).GetContents();
+        QVERIFY(contentsBefore);
+        PoDoFo::charbuff cb;
+        contentsBefore->CopyTo(cb);
+        const QByteArray contentBefore(cb.data(), static_cast<qsizetype>(cb.size()));
+        PoDoFo::PdfObject* font0Before = nullptr;
+        for (auto obj : before.GetObjects()) {
+            if (!obj->IsDictionary()) continue;
+            auto* st = obj->GetDictionary().FindKey("Subtype");
+            if (st && st->IsName() && st->GetName().GetString() == "Type0")
+                font0Before = obj;
+        }
+        QVERIFY(font0Before);
+        const QByteArray toUniBeforeBytes = decodedStream(resolveObject(
+            before, font0Before->GetDictionary().FindKey("ToUnicode")));
+        // /W lives on the descendant CIDFont dict, not on the Type0 wrapper.
+        const auto descendantOf = [](PoDoFo::PdfMemDocument& doc,
+                                     PoDoFo::PdfObject* type0) -> PoDoFo::PdfObject* {
+            auto* arr = resolveObject(doc,
+                type0->GetDictionary().FindKey("DescendantFonts"));
+            if (!arr || !arr->IsArray() || arr->GetArray().IsEmpty()) return nullptr;
+            return resolveObject(doc, &arr->GetArray()[0]);
+        };
+        auto* cidFontBefore = descendantOf(before, font0Before);
+        QVERIFY(cidFontBefore);
+        const QByteArray wBefore = QString::fromUtf8(
+            cidFontBefore->GetDictionary().FindKey("W")->ToString().c_str()).toUtf8();
+
+        // Run the pass.
+        const QString outPath = tmpPath(QStringLiteral("cffcid_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+        QVERIFY(QFileInfo(outPath).size() < QFileInfo(fx.path).size());
+
+        // After state: program shrunk; content/ToUnicode/W byte-identical.
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3After = findFontFileStreams(after, "FontFile3").first();
+        const QByteArray programAfter = decodedStream(ff3After);
+        QVERIFY2(programAfter.size() < programBefore.size(),
+                 "the decoded CFF program must shrink (unused charstrings removed)");
+        QVERIFY2(encodedStreamSize(ff3After) < encodedStreamSize(ff3Before),
+                 "the encoded FontFile3 stream must shrink");
+        auto contentsAfter = after.GetPages().GetPageAt(0).GetContents();
+        QVERIFY(contentsAfter);
+        PoDoFo::charbuff ca;
+        contentsAfter->CopyTo(ca);
+        QCOMPARE(QByteArray(ca.data(), static_cast<qsizetype>(ca.size())), contentBefore);
+        PoDoFo::PdfObject* font0After = nullptr;
+        for (auto obj : after.GetObjects()) {
+            if (!obj->IsDictionary()) continue;
+            auto* st = obj->GetDictionary().FindKey("Subtype");
+            if (st && st->IsName() && st->GetName().GetString() == "Type0")
+                font0After = obj;
+        }
+        QVERIFY(font0After);
+        QCOMPARE(decodedStream(resolveObject(
+                     after, font0After->GetDictionary().FindKey("ToUnicode"))),
+                 toUniBeforeBytes);
+        auto* cidFontAfter = descendantOf(after, font0After);
+        QVERIFY(cidFontAfter);
+        QCOMPARE(QString::fromUtf8(
+                     cidFontAfter->GetDictionary().FindKey("W")->ToString().c_str()),
+                 QString::fromUtf8(wBefore.constData()));
+
+        // Charstrings: used CIDs' glyphs intact, unused blanked to endchar.
+        CffLayout layBefore;
+        CffLayout layAfter;
+        QVERIFY(parseCffLayout(reinterpret_cast<const unsigned char*>(cff.constData()),
+                               static_cast<size_t>(cff.size()), layBefore));
+        QVERIFY(parseCffLayout(
+            reinterpret_cast<const unsigned char*>(programAfter.constData()),
+            static_cast<size_t>(programAfter.size()), layAfter));
+        const TestIndex inIx = readCffIndexAt(cff, layBefore.charStrings.offset);
+        const TestIndex outIx = readCffIndexAt(programAfter,
+                                               layAfter.charStrings.offset);
+        QCOMPARE(outIx.count, inIx.count);
+        QSet<uint32_t> keep{ 0, 1, 3, 5 };
+        for (uint32_t gid = 0; gid < 6; ++gid) {
+            const auto inSpan = inIx.spans[gid];
+            const auto outSpan = outIx.spans[gid];
+            if (keep.contains(gid)) {
+                QCOMPARE(static_cast<int>(outSpan.second - outSpan.first),
+                         static_cast<int>(inSpan.second - inSpan.first));
+                QVERIFY(std::memcmp(cff.constData() + inSpan.first,
+                                    programAfter.constData() + outSpan.first,
+                                    inSpan.second - inSpan.first) == 0);
+            } else {
+                QCOMPARE(static_cast<int>(outSpan.second - outSpan.first), 1);
+                QCOMPARE(static_cast<int>(
+                             programAfter.constData()[outSpan.first]), 0x0E);
+            }
+        }
+
+        // Render-diff + extraction identity.
+        PdfiumBackend rendererAfter;
+        QVERIFY(rendererAfter.loadDocument(outPath));
+        const QImage pageAfter = rendererAfter.renderPage(0, 150);
+        QVERIFY(!pageAfter.isNull());
+        const double diff = imageDiffFraction(pageBefore, pageAfter, 16);
+        QVERIFY2(diff < 0.001,
+                 qPrintable(QStringLiteral(
+                     "the page must render identically after CFF subsetting "
+                     "(differing pixel fraction %1)").arg(diff)));
+        QCOMPARE(rendererAfter.extractText(0), textBefore);
+    }
+
+    void simpleCffBuiltinEncodingRoundTrip() {
+        // Name-keyed CFF, NO PDF /Encoding → the CFF's built-in encoding is
+        // what a conforming reader consults; the fixture's charset carries
+        // standard-string SIDs (A/B/C), so codes 'A'/'C' resolve provably.
+        const QByteArray cff = makeNameCff();
+        const QString inPath =
+            buildSimpleCffFixture(m_tmpDir, QStringLiteral("cffsimple.pdf"), cff,
+                                  /*namedEncoding=*/false);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(inPath));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = false;
+        QCOMPARE(engine.estimateOptimization(estOpts).estimatedBytes,
+                 engine.estimateOptimization(estOpts).originalBytes);
+        estOpts.subsetFonts = true;
+        QVERIFY2(engine.estimateOptimization(estOpts).estimatedBytes
+                     < engine.estimateOptimization(estOpts).originalBytes,
+                 "an eligible Type1C program must yield a real estimate");
+
+        PdfiumBackend rendererBefore;
+        QVERIFY(rendererBefore.loadDocument(inPath));
+        const QImage pageBefore = rendererBefore.renderPage(0, 150);
+        QVERIFY(!pageBefore.isNull());
+        const QString textBefore = rendererBefore.extractText(0);
+
+        const QString outPath = tmpPath(QStringLiteral("cffsimple_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3 = findFontFileStreams(after, "FontFile3").first();
+        const QByteArray program = decodedStream(ff3);
+        QVERIFY2(program.size() < static_cast<qint64>(cff.size()),
+                 "the decoded CFF program must shrink");
+
+        CffLayout layBefore;
+        CffLayout layAfter;
+        QVERIFY(parseCffLayout(reinterpret_cast<const unsigned char*>(cff.constData()),
+                               static_cast<size_t>(cff.size()), layBefore));
+        QVERIFY(parseCffLayout(
+            reinterpret_cast<const unsigned char*>(program.constData()),
+            static_cast<size_t>(program.size()), layAfter));
+        const TestIndex inIx = readCffIndexAt(cff, layBefore.charStrings.offset);
+        const TestIndex outIx = readCffIndexAt(program, layAfter.charStrings.offset);
+        QCOMPARE(outIx.count, inIx.count);
+        // Used 'A'→g1, 'C'→g3 stay; unused g2 blanked.
+        QVERIFY(outIx.spans[1].second > outIx.spans[1].first);
+        QVERIFY(std::memcmp(cff.constData() + inIx.spans[1].first,
+                            program.constData() + outIx.spans[1].first,
+                            inIx.spans[1].second - inIx.spans[1].first) == 0);
+        QVERIFY(outIx.spans[3].second > outIx.spans[3].first);
+        QCOMPARE(static_cast<int>(outIx.spans[2].second - outIx.spans[2].first), 1);
+        QCOMPARE(static_cast<int>(program.constData()[outIx.spans[2].first]), 0x0E);
+
+        PdfiumBackend rendererAfter;
+        QVERIFY(rendererAfter.loadDocument(outPath));
+        QCOMPARE(rendererAfter.extractText(0), textBefore);
+        const double diff =
+            imageDiffFraction(pageBefore, rendererAfter.renderPage(0, 150), 16);
+        QVERIFY2(diff < 0.001,
+                 qPrintable(QStringLiteral("render-diff fraction %1").arg(diff)));
+    }
+
+    void openTypeWrapperCffRoundTrip() {
+        // OTTO-wrapped CFF under a simple /OpenType font: the cmap path
+        // proves GIDs; the pass must rewrite ONLY the 'CFF ' table and keep
+        // every other sfnt table byte-identical. bulkUnused pads the unused
+        // glyph (+180 raw bytes) so the Flate-encoded sfnt reliably shrinks —
+        // the bare 15-byte delta of the default fixture is inside deflate
+        // noise on a wrapper this small.
+        const QByteArray cff = makeNameCff(/*seacGlyph=*/false, /*bulkUnused=*/true);
+        const QByteArray otto = makeOttWrapper(cff);
+        const QString inPath =
+            buildOpenTypeCffFixture(m_tmpDir, QStringLiteral("cffotf.pdf"), otto);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(inPath));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = true;
+        QVERIFY2(engine.estimateOptimization(estOpts).estimatedBytes
+                     < engine.estimateOptimization(estOpts).originalBytes,
+                 "an eligible OpenType/CFF program must yield a real estimate");
+
+        PdfiumBackend rendererBefore;
+        QVERIFY(rendererBefore.loadDocument(inPath));
+        const QImage pageBefore = rendererBefore.renderPage(0, 150);
+        QVERIFY(!pageBefore.isNull());
+        const QString textBefore = rendererBefore.extractText(0);
+
+        const QString outPath = tmpPath(QStringLiteral("cffotf_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3 = findFontFileStreams(after, "FontFile3").first();
+        const QByteArray program = decodedStream(ff3);
+        QVERIFY2(program.size() < static_cast<qint64>(otto.size()),
+                 "the wrapped program must shrink");
+
+        // Every non-'CFF ' table stays byte-identical — EXCEPT head's
+        // checkSumAdjustment, which the sfnt rebuild recomputes over the new
+        // layout (ISO 14496-6, the same discipline blankUnusedGlyphs pins for
+        // the TrueType lane). For head we assert the stronger property: every
+        // other byte identical AND the adjustment equals 0xB1B0AFBA minus the
+        // whole-font checksum of the OUTPUT bytes.
+        const uint32_t kCffTag = 0x43464620u;  // 'CFF '
+        const uint32_t kHeadTag = 0x68656164u; // 'head'
+        auto inTables = readSfntTables(otto);
+        auto outTables = readSfntTables(program);
+        QCOMPARE(inTables.size(), outTables.size());
+        const auto sfntChecksum = [](const QByteArray& b) {
+            uint32_t sum = 0;
+            for (int i = 0; i < b.size(); i += 4) {
+                uint32_t word = 0;
+                for (int k = 0; k < 4; ++k) {
+                    const int idx = i + k;
+                    const uint32_t octet = idx < b.size()
+                        ? static_cast<unsigned char>(b.constData()[idx]) : 0;
+                    word = (word << 8) | octet;
+                }
+                sum += word; // wraparound 32-bit accumulate
+            }
+            return sum;
+        };
+        for (const auto& [tag, span] : inTables) {
+            QVERIFY(outTables.count(tag) == 1);
+            const auto outSpan = outTables[tag];
+            if (tag == kCffTag) continue; // rewritten by design
+            QCOMPARE(static_cast<int>(outSpan.second - outSpan.first),
+                     static_cast<int>(span.second - span.first));
+            if (tag != kHeadTag) {
+                QVERIFY(std::memcmp(otto.constData() + span.first,
+                                    program.constData() + outSpan.first,
+                                    span.second - span.first) == 0);
+                continue;
+            }
+            const int headLen = static_cast<int>(span.second - span.first);
+            for (int i = 0; i < headLen; ++i) {
+                if (i >= 8 && i < 12) continue; // checkSumAdjustment slot
+                QCOMPARE(static_cast<int>(program.constData()[outSpan.first + i]),
+                         static_cast<int>(otto.constData()[span.first + i]));
+            }
+            // The ISO 14496-6 invariant: a correctly adjusted whole font
+            // checksums to 0xB1B0AFBA (adjustment = 0xB1B0AFBA - checksum
+            // with the adjustment zeroed; checksumming the final font must
+            // therefore yield exactly 0xB1B0AFBA).
+            QCOMPARE(sfntChecksum(program), 0xB1B0AFBAu);
+        }
+        // Inside the rewritten 'CFF ': used glyphs intact, unused blanked.
+        CffLayout layBefore;
+        CffLayout layAfter;
+        QVERIFY(parseCffLayout(reinterpret_cast<const unsigned char*>(cff.constData()),
+                               static_cast<size_t>(cff.size()), layBefore));
+        const auto cffSpan = outTables[kCffTag];
+        QVERIFY(parseCffLayout(
+            reinterpret_cast<const unsigned char*>(program.constData()) + cffSpan.first,
+            cffSpan.second - cffSpan.first, layAfter));
+        const TestIndex outIx = readCffIndexAt(program,
+            cffSpan.first + layAfter.charStrings.offset);
+        QCOMPARE(outIx.count, 4u);
+        QCOMPARE(static_cast<int>(outIx.spans[2].second - outIx.spans[2].first), 1);
+        QCOMPARE(static_cast<int>(
+                     program.constData()[outIx.spans[2].first]), 0x0E);
+        QVERIFY(outIx.spans[1].second > outIx.spans[1].first);
+        QVERIFY(outIx.spans[3].second > outIx.spans[3].first);
+
+        PdfiumBackend rendererAfter;
+        QVERIFY(rendererAfter.loadDocument(outPath));
+        QCOMPARE(rendererAfter.extractText(0), textBefore);
+        const double diff =
+            imageDiffFraction(pageBefore, rendererAfter.renderPage(0, 150), 16);
+        QVERIFY2(diff < 0.001,
+                 qPrintable(QStringLiteral("render-diff fraction %1").arg(diff)));
+    }
+
+    // ── 4b. CFF scope disclosure ─────────────────────────────────────────────
+
+    void nonCidKeyedCffUnderType0IsUntouched() {
+        // A name-keyed CFF cannot prove CID→GID (no charset CID mapping):
+        // under Type0/CIDFontType0 + Identity-H the usage is unprovable, so
+        // the font is disclosed as skipped — never a guessed keep-set.
+        const QByteArray cff = makeNameCff();
+        const CffCidFixture fx =
+            buildCidCffFixture(m_tmpDir, QStringLiteral("cffname_cid.pdf"), cff);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(fx.path));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = true;
+        const OptimizeEstimate est = engine.estimateOptimization(estOpts);
+        QCOMPARE(est.estimatedBytes, est.originalBytes);
+
+        const QString outPath = tmpPath(QStringLiteral("cffname_cid_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3 = findFontFileStreams(after, "FontFile3").first();
+        QCOMPARE(decodedStream(ff3), cff); // untouched
+    }
+
+    void simpleCffNamedEncodingIsUntouched() {
+        // Named /Encoding shifts the code→glyph path out of provability
+        // (same rule as simple TrueType): untouched + zero claim.
+        const QByteArray cff = makeNameCff();
+        const QString inPath =
+            buildSimpleCffFixture(m_tmpDir, QStringLiteral("cffambig.pdf"), cff,
+                                  /*namedEncoding=*/true);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(inPath));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = true;
+        const OptimizeEstimate est = engine.estimateOptimization(estOpts);
+        QCOMPARE(est.estimatedBytes, est.originalBytes);
+
+        const QString outPath = tmpPath(QStringLiteral("cffambig_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3 = findFontFileStreams(after, "FontFile3").first();
+        QCOMPARE(decodedStream(ff3), cff); // untouched
+    }
+
+    void cffSeacCharstringSkipsFont() {
+        // A kept charstring in the seac form (4-5 numbers + endchar)
+        // references other glyphs by standard-encoding code — the referenced
+        // glyphs cannot be proven into the keep set without the full Adobe
+        // Standard Encoding machinery, so the font is skipped + disclosed.
+        CidCffSpec spec;
+        spec.seacGlyph = true;
+        const QByteArray cff = makeCidCff(spec);
+        const CffCidFixture fx =
+            buildCidCffFixture(m_tmpDir, QStringLiteral("cffseac.pdf"), cff);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(fx.path));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = true;
+        const OptimizeEstimate est = engine.estimateOptimization(estOpts);
+        QCOMPARE(est.estimatedBytes, est.originalBytes);
+
+        const QString outPath = tmpPath(QStringLiteral("cffseac_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3 = findFontFileStreams(after, "FontFile3").first();
+        QCOMPARE(decodedStream(ff3), cff); // untouched
+    }
+
+    void cffSubFontMatrixIsUntouched() {
+        // A non-default /FontMatrix on the font dict is a sub-FontMatrix
+        // transform: the lane refuses the rewrite and claims nothing —
+        // counted skip, never a guessed keep-set.
+        const QByteArray cff = makeNameCff();
+        const QString inPath =
+            buildSimpleCffFixture(m_tmpDir, QStringLiteral("cffmatrix.pdf"), cff,
+                                  /*namedEncoding=*/false, /*subFontMatrix=*/true);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(inPath));
+        OptimizeOptions estOpts = subsetOnlyOptions();
+        estOpts.subsetFonts = true;
+        const OptimizeEstimate est = engine.estimateOptimization(estOpts);
+        QCOMPARE(est.estimatedBytes, est.originalBytes);
+
+        const QString outPath = tmpPath(QStringLiteral("cffmatrix_out.pdf"));
+        QVERIFY(engine.optimizeDocument(outPath, subsetOnlyOptions()));
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        auto* ff3 = findFontFileStreams(after, "FontFile3").first();
+        QCOMPARE(decodedStream(ff3), cff); // untouched
+    }
+
+    void corruptCffProgramSkipsSafely() {
+        QByteArray cff = makeCidCff();
+        cff.truncate(40); // header-shaped but truncated
+        const CffCidFixture fx =
+            buildCidCffFixture(m_tmpDir, QStringLiteral("cffcorrupt.pdf"), cff);
+
+        PdfEditorEngine engine;
+        QVERIFY(engine.loadDocumentForEditing(fx.path));
+        const QString outPath = tmpPath(QStringLiteral("cffcorrupt_out.pdf"));
+        QVERIFY2(engine.optimizeDocument(outPath, subsetOnlyOptions()),
+                 "one hostile font must degrade to a skip, never abort the run");
+        PoDoFo::PdfMemDocument after;
+        after.Load(outPath.toUtf8().constData());
+        const auto streams = findFontFileStreams(after, "FontFile3");
+        QCOMPARE(streams.size(), 1);
+        QCOMPARE(decodedStream(streams.first()), cff); // left exactly as it was
     }
 
     void type1ProgramIsLeftUntouched() {

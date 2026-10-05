@@ -12,8 +12,8 @@
 //   1. the unsupported-pass seam explains MRC-only unavailability (the retired
 //      R12 "font subsetting not implemented" wording is gone),
 //   2. subset fonts: ENABLED, default UNCHECKED (user opt-in — it mutates font
-//      programs), carrying the SCOPE disclosure (TrueType covered; CFF/Type1/
-//      OpenType, unprovable usage and signed documents left untouched),
+//      programs), carrying the SCOPE disclosure (TrueType + CFF covered;
+//      Type1, unprovable usage and signed documents left untouched),
 //   3. remove unused: enabled, checked, options follow the checkbox,
 //   4. no preset checks or disables subset fonts (and never overrides the
 //      user's choice),
