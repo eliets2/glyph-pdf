@@ -1,0 +1,32 @@
+Test project D:/pdf/pdf-cmyk/build-rel
+    Start  23: TestImageDedup
+1/6 Test  #23: TestImageDedup ...................   Passed    0.71 sec
+    Start  26: TestDedupSMask
+2/6 Test  #26: TestDedupSMask ...................   Passed    0.85 sec
+    Start  27: TestCompressJpegReencode
+3/6 Test  #27: TestCompressJpegReencode .........   Passed   15.75 sec
+    Start  29: TestOptimizeEstimate
+4/6 Test  #29: TestOptimizeEstimate .............   Passed    0.05 sec
+    Start 123: TestCompressStripSanitize
+5/6 Test #123: TestCompressStripSanitize ........   Passed    0.92 sec
+    Start 124: TestCompressDialogHonesty
+6/6 Test #124: TestCompressDialogHonesty ........   Passed    0.10 sec
+
+100% tests passed, 0 tests failed out of 6
+
+Label Time Summary:
+compression     =  18.39 sec*proc (6 tests)
+dedup           =   0.85 sec*proc (1 test)
+estimate        =   0.05 sec*proc (1 test)
+headless        =  18.39 sec*proc (6 tests)
+honesty         =   0.10 sec*proc (1 test)
+integration     =   0.71 sec*proc (1 test)
+jpeg            =  15.75 sec*proc (1 test)
+optimize        =   0.71 sec*proc (1 test)
+privacy         =   0.92 sec*proc (1 test)
+qt              =  18.39 sec*proc (6 tests)
+regression      =  16.66 sec*proc (3 tests)
+sanitization    =   0.92 sec*proc (1 test)
+unit            =  17.67 sec*proc (5 tests)
+
+Total Test time (real) =  18.41 sec

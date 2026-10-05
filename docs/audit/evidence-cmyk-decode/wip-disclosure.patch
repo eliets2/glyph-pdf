@@ -1,0 +1,55 @@
+diff --git a/src/core/Capability.cpp b/src/core/Capability.cpp
+index fc2f373d..b4f2d1f5 100644
+--- a/src/core/Capability.cpp
++++ b/src/core/Capability.cpp
+@@ -39,6 +39,21 @@ QString subsetFontsScopeDisclosure()
+                        "untouched.");
+ }
+ 
++// feat/cmyk-decode (2026-10-04): canonical downsample-scope disclosure — the
++// CMYK half of parity row 13. States exactly which image classes the
++// downsample pass recolors (CMYK with an embedded ICC profile, via Qt's
++// color-managed decode) and which it leaves untouched (profile-less CMYK:
++// PDF 2.0 Annex B defines no default CMYK→RGB, so guessing is not honest).
++QString downsampleScopeDisclosure()
++{
++    return QObject::tr("Downsamples JPEG and raw images and re-encodes them "
++                       "as JPEG. CMYK images that carry an embedded ICC color "
++                       "profile are converted colorimetrically before "
++                       "downsampling; CMYK images without a profile are left "
++                       "untouched, because PDF defines no default CMYK to RGB "
++                       "conversion and guessing colors would shift them.");
++}
++
+ // LibreOffice import — verbatim from the HomeController dialog
+ // (HomeController::onImportOffice), now owned by the registry.
+ QString officeImportWhyNot()
+diff --git a/src/core/Capability.h b/src/core/Capability.h
+index a558b6ab..9e0dbbb5 100644
+--- a/src/core/Capability.h
++++ b/src/core/Capability.h
+@@ -62,6 +62,7 @@ struct Capability {
+ };
+ 
+ QString subsetFontsScopeDisclosure(); // canonical subset-scope wording (probe + dialog)
++QString downsampleScopeDisclosure();  // canonical downsample-scope wording (CMYK half, feat/cmyk-decode)
+ QString officeImportWhyNot();            // canonical LibreOffice import wording
+ QString officeImportAlternative();
+ QString mrcWhyNot();                     // canonical MRC fallback wording
+diff --git a/src/modes/CompressDialog.cpp b/src/modes/CompressDialog.cpp
+index 0a09590a..d2bf8dea 100644
+--- a/src/modes/CompressDialog.cpp
++++ b/src/modes/CompressDialog.cpp
+@@ -148,6 +148,12 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
+ 
+     _chkDownsample = new QCheckBox(tr("Downsample images"));
+     _chkDownsample->setChecked(true);
++    // Scope disclosure (same seam as "Subset fonts"): says which image classes
++    // are recolored (CMYK with an embedded ICC profile, colorimetrically) and
++    // which stay untouched (profile-less CMYK — no default CMYK→RGB in PDF).
++    const QString downsampleScope = gp::downsampleScopeDisclosure();
++    _chkDownsample->setToolTip(downsampleScope);
++    _chkDownsample->setStatusTip(downsampleScope);
+     af->addWidget(_chkDownsample, 0, 0);
+ 
+     auto* dpiRow = new QHBoxLayout;

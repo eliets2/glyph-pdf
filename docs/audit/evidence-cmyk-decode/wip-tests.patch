@@ -1,0 +1,921 @@
+diff --git a/tests/TestCompressDialogHonesty.cpp b/tests/TestCompressDialogHonesty.cpp
+index 2703a587..358b11dc 100644
+--- a/tests/TestCompressDialogHonesty.cpp
++++ b/tests/TestCompressDialogHonesty.cpp
+@@ -27,6 +27,7 @@
+ 
+ #include "modes/CompressDialog.h"
+ #include "core/AppContext.h"
++#include "core/Capability.h"
+ #include "mocks/MockPdfEditorEngine.h"
+ 
+ namespace {
+@@ -83,6 +84,21 @@ QStringList stateViolations(const gp::CompressDialog &dlg)
+             v << QStringLiteral("'Subset fonts' status tip does not carry the "
+                                 "canonical scope disclosure");
+     }
++    // Downsample scope disclosure (feat/cmyk-decode): the checkbox must carry
++    // the canonical CMYK-scope wording — which classes are recolored and which
++    // stay untouched — the same honesty seam as "Subset fonts".
++    auto *downsample = findBox(dlg, QStringLiteral("Downsample images"));
++    if (!downsample)
++        v << QStringLiteral("the 'Downsample images' checkbox is missing");
++    else {
++        const QString scope = gp::downsampleScopeDisclosure();
++        if (downsample->toolTip() != scope)
++            v << QStringLiteral("'Downsample images' tooltip does not carry the canonical "
++                                "scope disclosure");
++        if (downsample->statusTip() != scope)
++            v << QStringLiteral("'Downsample images' status tip does not carry the "
++                                "canonical scope disclosure");
++    }
+     // "Remove unused objects" is implemented — its sweep contract is pinned in
+     // TestCompressJpegReencode; its enabled state is asserted explicitly below.
+     return v;
+@@ -149,6 +165,32 @@ private slots:
+                  "honors the user's choice");
+     }
+ 
++    // feat/cmyk-decode: the downsample checkbox carries the CMYK scope
++    // disclosure — it must state that profile-ful CMYK is converted
++    // colorimetrically and profile-less CMYK is left untouched (the honesty
++    // contract of parity row 13's second half).
++    void downsampleCarriesCmykScopeDisclosure() {
++        gp::CompressDialog dlg(nullptr);
++        const QStringList v = stateViolations(dlg);
++        QVERIFY2(v.isEmpty(), qPrintable(v.join(QStringLiteral("; "))));
++        auto *downsample = findBox(dlg, QStringLiteral("Downsample images"));
++        QVERIFY2(downsample, "the 'Downsample images' checkbox is missing");
++        QVERIFY2(downsample->isEnabled(), "'Downsample images' must be enabled");
++        QVERIFY2(downsample->isChecked(),
++                 "'Downsample images' must default CHECKED (lossless-flags pass "
++                 "honors the user's DPI choice)");
++        const QString scope = gp::downsampleScopeDisclosure();
++        QVERIFY2(scope.contains(QStringLiteral("ICC"), Qt::CaseInsensitive),
++                 "the disclosure must name the embedded ICC profile trigger");
++        QVERIFY2(scope.contains(QStringLiteral("colorimetric"), Qt::CaseInsensitive),
++                 "the disclosure must say the CMYK conversion is colorimetric");
++        QVERIFY2(scope.contains(QStringLiteral("left untouched")),
++                 "the disclosure must say profile-less CMYK stays untouched");
++        QVERIFY2(!scope.contains(QStringLiteral("not available"), Qt::CaseInsensitive),
++                 "an implemented pass must not be explained with an "
++                 "availability excuse");
++    }
++
+     // Switching presets (Screen/Ebook/Printer/Custom) must never silently
+     // check "Subset fonts" (font-program mutation is opt-in) — and since the
+     // pass is implemented, never disable or uncheck it either. The user's
+diff --git a/tests/TestCompressJpegReencode.cpp b/tests/TestCompressJpegReencode.cpp
+index 67c618b7..6709b100 100644
+--- a/tests/TestCompressJpegReencode.cpp
++++ b/tests/TestCompressJpegReencode.cpp
+@@ -32,12 +32,15 @@
+ #include <QtTest/QtTest>
+ #include <QTemporaryDir>
+ #include <QBuffer>
++#include <QColorSpace>
+ #include <QImage>
+ #include <QImageWriter>
+ #include <QFile>
+ #include <QFileInfo>
++#include <QtEndian>
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <cstring>
+ 
+ #include <podofo/podofo.h>
+@@ -194,6 +197,199 @@ OptimizeOptions downsampleOptions()
+     return opts;
+ }
+ 
++// ── PARITY row 13 second half (CMYK): fixture machinery ─────────────────────
++// A minimal but genuine CMYK ICC profile: ICC v2 lut16 (mft2) A2B0 tag, PCS
++// XYZ, 4 input channels, 4-point CLUT grid (vertices at 0/85/170/255 —
++// multilinear interpolation is EXACT at every grid vertex, so band colors
++// sampled at vertices have a mathematically defined expected value). The
++// A2B0 mapping is defined as RGB = (C, M, Y) (K ignored): CMYK (85,170,255,0)
++// must decode to rgb(85,170,255). The naive photographic conversion gives
++// (170,85,0) — a per-channel distance of 255 — so these pins fail loudly if
++// anyone swaps the color-managed decode for a naive one.
++//
++// Verified against the installed Qt 6.11.0 at lane time (probe3-pipeline):
++// full decode→transform→downsample→JPEG-q50→decode chain kept bands within
++// 2/255 of the defined mapping, and the same chain driven by Windows'
++// CoatedFOGRA39.icc reproduced the plan's §3.4 reference values within 2/255.
++QByteArray makeCmykIccProfile()
++{
++    auto put16 = [](QByteArray& b, quint16 v) {
++        const quint16 be = qToBigEndian(v);
++        b.append(reinterpret_cast<const char*>(&be), 2);
++    };
++    auto put32 = [](QByteArray& b, quint32 v) {
++        const quint32 be = qToBigEndian(v);
++        b.append(reinterpret_cast<const char*>(&be), 4);
++    };
++    auto s15Fixed16 = [](double v) { return quint32(qRound(v * 65536.0)); };
++
++    const int grid = 4, inEntries = 2, outEntries = 2;
++    const int clutEntries = grid * grid * grid * grid; // 256
++    const int a2b0Size = 4 + 4 + 4 + 36 + 4
++                       + 4 * inEntries * 2 + 3 * outEntries * 2
++                       + clutEntries * 3 * 2;
++    const int a2b0Offset = 128 + 16; // header + tag count + one tag entry
++    const int profileSize = a2b0Offset + a2b0Size;
++
++    QByteArray p;
++    put32(p, profileSize);          // 0   profile size
++    put32(p, 0);                    // 4   preferred CMM
++    put32(p, 0x02100000);           // 8   version 2.1
++    put32(p, 0x6D6E7472);           // 12  'mntr'
++    put32(p, 0x434D594B);           // 16  'CMYK'
++    put32(p, 0x58595A20);           // 20  'XYZ '
++    put32(p, 0); put32(p, 0); put32(p, 0);   // 24  datetime
++    put32(p, 0x61637370);           // 36  'acsp'
++    put32(p, 0);                    // 40  platform
++    put32(p, 0);                    // 44  flags
++    put32(p, 0);                    // 48  manufacturer
++    put32(p, 0);                    // 52  model
++    put32(p, 0); put32(p, 0);       // 56  attributes
++    put32(p, 0);                    // 64  rendering intent (perceptual)
++    put32(p, s15Fixed16(0.9642));   // 68  D50 illuminant (ICC canonical)
++    put32(p, s15Fixed16(1.0));
++    put32(p, s15Fixed16(0.8249));
++    put32(p, 0);                    // 80  creator
++    for (int i = 0; i < 4; ++i) put32(p, 0); // 84  profile id
++    for (int i = 0; i < 7; ++i) put32(p, 0); // 100 reserved
++    put32(p, 1);                    // 128 tag count
++    put32(p, 0x41324230);           // 'A2B0'
++    put32(p, a2b0Offset);
++    put32(p, a2b0Size);
++    // lut16 (mft2) tag data
++    put32(p, 0x6D667432);           // 'mft2'
++    put32(p, 0);                    // reserved
++    p.append(char(4));              // input channels (CMYK)
++    p.append(char(3));              // output channels (XYZ)
++    p.append(char(grid));           // CLUT grid points
++    p.append(char(0));              // padding
++    // matrix — unused for 4-input luts, identity keeps it sane
++    put32(p, s15Fixed16(1.0)); put32(p, s15Fixed16(0.0)); put32(p, s15Fixed16(0.0));
++    put32(p, s15Fixed16(0.0)); put32(p, s15Fixed16(1.0)); put32(p, s15Fixed16(0.0));
++    put32(p, s15Fixed16(0.0)); put32(p, s15Fixed16(0.0)); put32(p, s15Fixed16(1.0));
++    put16(p, inEntries);
++    put16(p, outEntries);
++    // input tables: identity ramps (2 entries each)
++    for (int ch = 0; ch < 4; ++ch)
++        for (int i = 0; i < inEntries; ++i)
++            put16(p, quint16(i * 65535 / (inEntries - 1)));
++    // CLUT: XYZ_D50(sRGB(C,M,Y)); first channel (C) varies slowest.
++    const double M[3][3] = {
++        { 0.4360747, 0.3850649, 0.1430804 },
++        { 0.2225045, 0.7168786, 0.0606169 },
++        { 0.0139322, 0.0971045, 0.7141733 }
++    };
++    auto srgbDecode = [](double v) -> double {
++        v /= 255.0;
++        return v <= 0.04045 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
++    };
++    auto putXyz = [&](int c, int m, int y) {
++        const double lin[3] = { srgbDecode(c), srgbDecode(m), srgbDecode(y) };
++        for (int r = 0; r < 3; ++r) {
++            const double xyz = std::clamp(M[r][0] * lin[0] + M[r][1] * lin[1]
++                                        + M[r][2] * lin[2], 0.0, 1.0);
++            put16(p, quint16(qRound(xyz * 65535.0)));
++        }
++    };
++    for (int iC = 0; iC < grid; ++iC)
++        for (int iM = 0; iM < grid; ++iM)
++            for (int iY = 0; iY < grid; ++iY)
++                for (int iK = 0; iK < grid; ++iK)
++                    putXyz(iC * 255 / (grid - 1), iM * 255 / (grid - 1),
++                           iY * 255 / (grid - 1));
++    // output tables: identity ramps
++    for (int ch = 0; ch < 3; ++ch)
++        for (int i = 0; i < outEntries; ++i)
++            put16(p, quint16(i * 65535 / (outEntries - 1)));
++    return p;
++}
++
++// The four band CMYK values shared by the CMYK fixtures — all at CLUT grid
++// vertices so the profile-defined mapping is exact. Expected sRGB = (C,M,Y).
++struct CmykQuad { uchar c, m, y, k; };
++const CmykQuad kCmykBands[4] = {
++    { 85, 170, 255, 0 },
++    { 170, 255, 85, 0 },
++    { 255, 0, 170, 0 },
++    { 0, 0, 0, 255 }
++};
++QRgb cmykBandExpectedRgb(int band)
++{
++    return qRgb(kCmykBands[band].c, kCmykBands[band].m, kCmykBands[band].y);
++}
++
++// The naive photographic conversion (what pre-6.8 Qt / a plain .convert()
++// would produce): 255·(1−C)·(1−K) per channel. This is the FAILURE signature:
++// the color pins must never match these values (plan §1.2 quantified the
++// drift at up to ~97/255 per channel on a real press profile).
++QRgb naivePhotographicRgb(const CmykQuad& q)
++{
++    const double kk = (255 - q.k) / 255.0;
++    return qRgb(qRound(255.0 * (255 - q.c) / 255.0 * kk),
++                qRound(255.0 * (255 - q.m) / 255.0 * kk),
++                qRound(255.0 * (255 - q.y) / 255.0 * kk));
++}
++
++QImage makeBandedCmyk8888(int w, int h, const QVector<CmykQuad>& quads)
++{
++    QImage img(w, h, QImage::Format_CMYK8888);
++    for (int y = 0; y < h; ++y) {
++        const int band = std::min(int(quads.size()) - 1, y * int(quads.size()) / h);
++        const CmykQuad b = quads[band];
++        auto* line = reinterpret_cast<quint32*>(img.scanLine(y));
++        for (int x = 0; x < w; ++x) {
++#if Q_BYTE_ORDER == Q_LITTLE_ENDIAN
++            // QCmyk32 little-endian layout: byte0=C, byte1=M, byte2=Y, byte3=K
++            line[x] = quint32(b.c) | (quint32(b.m) << 8)
++                    | (quint32(b.y) << 16) | (quint32(b.k) << 24);
++#else
++            line[x] = (quint32(b.c) << 24) | (quint32(b.m) << 16)
++                    | (quint32(b.y) << 8) | quint32(b.k);
++#endif
++        }
++    }
++    return img;
++}
++
++// Convenience overload: the shared fixture bands (CLUT grid vertices).
++QImage makeBandedCmyk8888(int w, int h)
++{
++    return makeBandedCmyk8888(w, h,
++        QVector<CmykQuad>{ kCmykBands, kCmykBands + 4 });
++}
++
++// Encode a CMYK8888 image as a JPEG; when `profile` is valid the image
++// carries it so the writer embeds it as an APP2 ICC_PROFILE marker (Qt writes
++// CMYK JPEGs with the Adobe APP14 marker and the 0=100%-ink inversion, which
++// Qt's reader undoes — probe-verified). An invalid QColorSpace produces a
++// profile-less CMYK JPEG (the profile-less-pin fixture).
++QByteArray encodeCmykJpeg(const QImage& cmyk, const QColorSpace& profile)
++{
++    QImage src = cmyk;
++    if (profile.isValid())
++        src.setColorSpace(profile);
++    QBuffer buf;
++    buf.open(QIODevice::WriteOnly);
++    QImageWriter writer(&buf, "jpg");
++    writer.setQuality(100);
++    if (!writer.write(src))
++        return {};
++    return buf.buffer();
++}
++
++// Add an /ICCBased stream object (/N 4 by default; pass another N to craft a
++// non-CMYK profile claim) and return its indirect reference.
++PoDoFo::PdfReference addIccProfileStream(PoDoFo::PdfMemDocument& doc,
++                                        const QByteArray& profile, int n = 4)
++{
++    auto& obj = doc.GetObjects().CreateDictionaryObject();
++    obj.GetDictionary().AddKey("N", static_cast<int64_t>(n));
++    obj.GetOrCreateStream().SetData(
++        PoDoFo::bufferview(profile.constData(), static_cast<size_t>(profile.size())),
++        /*raw=*/true);
++    return obj.GetIndirectReference();
++}
++
+ } // namespace
+ 
+ class TestCompressJpegReencode : public QObject {
+@@ -420,7 +616,10 @@ private slots:
+             // Now mutate into the adversarial shapes:
+             // a) garbage DCT payload (decode must fail → skip, no crash);
+             //    embedJpeg already wrote 4 KiB of '\xA5' as the DCT stream.
+-            // b) CMYK colorspace — outside the supported re-encode set.
++            // b) /DeviceCMYK label over an RGB JPEG payload — the decoded
++            //    pixels are NOT CMYK and no profile exists, so the image is
++            //    not color-manageable and stays untouched (re-labeling the
++            //    dictionary must not unlock a naive re-encode).
+             cmyk.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
+             // c) ImageMask — bi-level masks are not for lossy re-encode.
+             mimg->GetDictionary().AddKey("ImageMask", PoDoFo::PdfVariant(true));
+@@ -463,9 +662,13 @@ private slots:
+             }
+         }
+         QCOMPARE(garbageSurvivors, 1);
+-        // CMYK and ImageMask images must survive with dims intact.
++        // The CMYK-labeled and ImageMask images must survive with dims intact.
++        // (The CMYK case carries an RGB JPEG payload with no profile: the
++        // color-managed lift does not apply, so the image stays untouched.
++        // Genuine profile-ful CMYK downsampling is pinned positively by
++        // cmykJpegWithEmbeddedProfileIsDownsampledColorimetrically.)
+         QVERIFY2(findImages(doc, 1240, 1754).size() == 1,
+-                 "CMYK image must survive untouched");
++                 "unmanageable CMYK-labeled image must survive untouched");
+         QVERIFY2(findImages(doc, 64, 64).size() == 1,
+                  "ImageMask image must survive untouched");
+     }
+@@ -1046,8 +1249,11 @@ private slots:
+     // and byte-identical:
+     //  a) lookup table shorter than (hival+1) * base-components — indices
+     //     would read past the palette;
+-    //  b) /Indexed /DeviceCMYK base — CMYK stays blocked until the tree has a
+-    //     color-managed decode (parity row 13 rationale; no silent recolor);
++    //  b) /Indexed /DeviceCMYK base — a plain /DeviceCMYK base carries NO
++    //     profile and PDF 2.0 Annex B defines no default CMYK→RGB, so it
++    //     stays skipped (the profile-ful counterpart — an /ICCBased /N 4
++    //     base — is lifted color-managed; pinned by
++    //     indexedCmykBaseWithProfileIsDownsampled);
+     //  c) 4bpc indices — bounded scope is 8bpc, consistent with the raw path.
+     void malformedIndexedImagesAreSkippedSafely() {
+         // Widths distinct for findImages and multiples of 4: PdfImage::SetData
+@@ -1115,22 +1321,33 @@ private slots:
+         QVERIFY2(rawStream(*im1[0].obj) == before1,
+                  "short-lookup indexed image must stay byte-identical");
+         QVERIFY2(rawStream(*im2[0].obj) == before2,
+-                 "CMYK-base indexed image must stay byte-identical (CMYK remains "
+-                 "blocked until a color-managed decode exists)");
++                 "CMYK-base indexed image (no profile) must stay byte-identical "
++                 "(profile-less CMYK is never guessed at — only an /ICCBased "
++                 "base is lifted, color-managed)");
+         QVERIFY2(rawStream(*im3[0].obj) == before3,
+                  "4bpc indexed image must stay byte-identical (bounded scope: 8bpc)");
+     }
+ 
+-    // Characterization pin for the CMYK half of parity row 13: a raw
+-    // /DeviceCMYK 8bpc image stays SKIPPED byte-identical. CMYK needs a
+-    // color-managed decode to lift the deliberate skip; the tree has none
+-    // (no ICC transform engine; the MRC/OCR pipeline only sees pre-rendered
+-    // RGB QImages), and a naive CMYK→RGB conversion is exactly the silent
+-    // color shift the guard exists to prevent. If this pin ever goes RED,
+-    // someone lifted the CMYK skip without color management.
+-    void rawCmykImageStaysSkippedUntilColorManagedDecode() {
++    // ── PARITY row 13 second half (CMYK), feat/cmyk-decode 2026-10-04 ──────
++    // CONTRACTED TRIPWIRE FLIP (per docs/research/cmyk-lcms2-plan-2026-10-04
++    // §4.3): the former pin rawCmykImageStaysSkippedUntilColorManagedDecode
++    // ("CMYK stays skipped; if this pin ever goes RED someone lifted the skip
++    // without color management") is superseded. Qt 6.8+ on the pinned Qt
++    // 6.11.0 provides the color-managed CMYK decode the old pin demanded
++    // (Format_CMYK8888 + QColorSpace ICC parsing + CLUT transform,
++    // probe-verified against lcms2 within ≤5/255), so profile-FUL CMYK is now
++    // downsampled colorimetrically — pinned positively by the three slots
++    // below. The surviving half of the old guard — and the new tripwire — is
++    // THIS pin: profile-LESS CMYK stays skipped, because PDF 2.0 Annex B
++    // defines no default CMYK→RGB conversion and guessing a CMYK space is
++    // exactly the uncontrolled recolor the guard was written to prevent.
++    // If this pin ever goes RED, someone lifted the profile-less skip or is
++    // naive-converting CMYK.
++    void profileLessCmykStaysSkipped() {
+         const int W = 1240, H = 1754;
++        const int SMALL_W = 200, SMALL_H = 280; // estDpi ≈ 24 → below threshold
+ 
++        // (a) raw uncompressed /DeviceCMYK 8bpc stream — no profile anywhere.
+         QString pdf = tmpPath("raw_cmyk.pdf");
+         {
+             PoDoFo::PdfMemDocument doc;
+@@ -1161,22 +1378,538 @@ private slots:
+             before = rawStream(*findImages(doc, W, H)[0].obj);
+         }
+ 
++        // (b) profile-less CMYK JPEG — 4-component, Adobe-encoded, but the
++        // JPEG carries no APP2 ICC profile and the dictionary names only
++        // /DeviceCMYK: no source colorspace ⇒ no colorimetric transform.
++        QByteArray cmykJpegNoProfile =
++            encodeCmykJpeg(makeBandedCmyk8888(W, H), QColorSpace());
++        QByteArray smallCmykJpegNoProfile =
++            encodeCmykJpeg(makeBandedCmyk8888(SMALL_W, SMALL_H), QColorSpace());
++        QVERIFY2(!cmykJpegNoProfile.isEmpty() && !smallCmykJpegNoProfile.isEmpty(),
++                 "profile-less CMYK JPEG fixtures must encode");
++
++        QString pdf2 = tmpPath("profileless_cmyk_jpeg.pdf");
++        QByteArray smallBefore;
++        {
++            PoDoFo::PdfMemDocument doc;
++            auto& page = doc.GetPages().CreatePage(
++                PoDoFo::PdfPageSize::A4);
++            auto& big = embedJpeg(doc, page, cmykJpegNoProfile, W, H);
++            big.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
++            auto& small = embedJpeg(doc, page, smallCmykJpegNoProfile, SMALL_W, SMALL_H);
++            small.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
++            doc.Save(pdf2.toUtf8().constData());
++        }
++        {
++            PoDoFo::PdfMemDocument doc;
++            doc.Load(pdf2.toUtf8().constData());
++            smallBefore = rawStream(*findImages(doc, SMALL_W, SMALL_H)[0].obj);
++        }
++
++        // Run the pass on both fixtures.
++        for (const QString& src : { pdf, pdf2 }) {
++            PdfEditorEngine engine;
++            QVERIFY2(engine.loadDocumentForEditing(src),
++                     qPrintable(QStringLiteral("loadDocumentForEditing failed: %1").arg(src)));
++            OptimizeOptions opts = downsampleOptions();
++            QString out = tmpPath(src == pdf ? "profileless_cmyk_out.pdf"
++                                             : "profileless_cmykjpeg_out.pdf");
++            QVERIFY2(engine.optimizeDocument(out, opts),
++                     "optimizeDocument must succeed");
++            PoDoFo::PdfMemDocument doc;
++            doc.Load(out.toUtf8().constData());
++            if (src == pdf) {
++                auto imgs = findImages(doc, W, H);
++                QCOMPARE(imgs.size(), 1);
++                QVERIFY2(rawStream(*imgs[0].obj) == before,
++                         "raw /DeviceCMYK image without a profile must stay "
++                         "byte-identical (no default CMYK→RGB in PDF 2.0 "
++                         "Annex B — lifting the skip would silently recolor)");
++                auto* cs = imgs[0].obj->GetDictionary().FindKey("ColorSpace");
++                QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceCMYK",
++                         "skipped CMYK image must keep its colorspace");
++            } else {
++                // Big profile-less CMYK JPEG: re-encoded nowhere — dims intact.
++                // (It is above the DPI threshold but has no profile: skip.)
++                auto bigs = findImages(doc, W, H);
++                QCOMPARE(bigs.size(), 1);
++                QVERIFY2(rawStream(*bigs[0].obj) == cmykJpegNoProfile,
++                         "profile-less CMYK JPEG must stay byte-identical");
++                auto* csBig = bigs[0].obj->GetDictionary().FindKey("ColorSpace");
++                QVERIFY2(csBig && csBig->IsName()
++                         && csBig->GetName().GetString() == "DeviceCMYK",
++                         "skipped CMYK JPEG must keep its colorspace");
++                // Small one below the threshold: byte-identical either way.
++                auto smalls = findImages(doc, SMALL_W, SMALL_H);
++                QCOMPARE(smalls.size(), 1);
++                QVERIFY2(rawStream(*smalls[0].obj) == smallBefore,
++                         "below-threshold image must stay byte-identical");
++            }
++        }
++    }
++
++    // Positive pin (DCT door): a CMYK JPEG with an EMBEDDED ICC profile must
++    // be decoded through Qt's color-managed CMYK path, downsampled, and
++    // re-encoded as a real /DeviceRGB JPEG whose band colors match the
++    // profile-defined mapping — NOT the naive photographic conversion. A
++    // small profile-ful CMYK JPEG below the DPI threshold stays byte-identical
++    // (per-image scoping).
++    void cmykJpegWithEmbeddedProfileIsDownsampledColorimetrically() {
++        const int BIG_W = 1240, BIG_H = 1754;   // estDpi ≈ 150 > 72 * 1.2
++        const int SMALL_W = 200, SMALL_H = 280; // estDpi ≈ 24 → below threshold
++        const QColorSpace profile = QColorSpace::fromIccProfile(makeCmykIccProfile());
++        QVERIFY2(profile.isValid()
++                 && profile.colorModel() == QColorSpace::ColorModel::Cmyk,
++                 "fixture ICC profile must parse as CMYK");
++        QByteArray bigJpeg = encodeCmykJpeg(makeBandedCmyk8888(BIG_W, BIG_H), profile);
++        QByteArray smallJpeg = encodeCmykJpeg(makeBandedCmyk8888(SMALL_W, SMALL_H), profile);
++        QVERIFY2(!bigJpeg.isEmpty() && !smallJpeg.isEmpty(), "CMYK JPEG fixtures must encode");
++        // Fixture sanity: Qt decodes these as CMYK8888 with the profile
++        // attached (the Adobe 0=100%-ink inversion already undone).
++        {
++            QImage probe;
++            QVERIFY(probe.loadFromData(bigJpeg, "JPG"));
++            QCOMPARE(int(probe.format()), int(QImage::Format_CMYK8888));
++            QVERIFY2(probe.colorSpace().isValid()
++                     && probe.colorSpace().colorModel() == QColorSpace::ColorModel::Cmyk,
++                     "fixture JPEG must carry a parseable CMYK ICC profile");
++        }
++
++        QString pdf = tmpPath("cmyk_dct.pdf");
++        {
++            PoDoFo::PdfMemDocument doc;
++            auto& page = doc.GetPages().CreatePage(
++                PoDoFo::PdfPageSize::A4);
++            auto& big = embedJpeg(doc, page, bigJpeg, BIG_W, BIG_H);
++            big.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
++            auto& small = embedJpeg(doc, page, smallJpeg, SMALL_W, SMALL_H);
++            small.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
++            doc.Save(pdf.toUtf8().constData());
++        }
++        QVERIFY2(QFileInfo::exists(pdf), "source PDF must be written");
++
++        QByteArray smallBefore;
++        {
++            PoDoFo::PdfMemDocument doc;
++            doc.Load(pdf.toUtf8().constData());
++            smallBefore = rawStream(*findImages(doc, SMALL_W, SMALL_H)[0].obj);
++        }
++
+         PdfEditorEngine engine;
+         QVERIFY(engine.loadDocumentForEditing(pdf));
+         OptimizeOptions opts = downsampleOptions();
+-        QString out = tmpPath("raw_cmyk_out.pdf");
++        QString out = tmpPath("cmyk_dct_out.pdf");
+         QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
+ 
+         PoDoFo::PdfMemDocument doc;
+         doc.Load(out.toUtf8().constData());
+-        auto imgs = findImages(doc, W, H);
+-        QCOMPARE(imgs.size(), 1);
+-        QVERIFY2(rawStream(*imgs[0].obj) == before,
+-                 "raw /DeviceCMYK image must stay byte-identical (no color-managed "
+-                 "decode in this tree — lifting the skip would silently recolor)");
+-        auto* cs = imgs[0].obj->GetDictionary().FindKey("ColorSpace");
+-        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceCMYK",
+-                 "skipped CMYK image must keep its colorspace");
++
++        // Small profile-ful CMYK JPEG below the threshold: byte-identical.
++        auto smalls = findImages(doc, SMALL_W, SMALL_H);
++        QCOMPARE(smalls.size(), 1);
++        QVERIFY2(rawStream(*smalls[0].obj) == smallBefore,
++                 "below-threshold CMYK JPEG must stay byte-identical");
++
++        // Big profile-ful CMYK JPEG: color-managed lift → /DeviceRGB JPEG.
++        auto outImages = findImages(doc);
++        QCOMPARE(outImages.size(), 2);
++        const FoundImage* big = nullptr;
++        for (const auto& im : outImages)
++            if (im.w != SMALL_W) big = &im;
++        QVERIFY2(big != nullptr, "big CMYK image must survive the pass");
++        QVERIFY2(filterIs(*big->obj, "DCTDecode"),
++                 "CMYK image must be re-encoded to /DCTDecode");
++        QVERIFY2(big->w >= 580 && big->w <= 610,
++                 qPrintable(QString("CMYK image must be downsampled toward 72dpi, "
++                                    "got %1x%2").arg(big->w).arg(big->h)));
++        auto* cs = big->obj->GetDictionary().FindKey("ColorSpace");
++        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceRGB",
++                 "color-managed CMYK must re-encode as /DeviceRGB JPEG");
++        auto* bpc = big->obj->GetDictionary().FindKey("BitsPerComponent");
++        QVERIFY2(bpc && bpc->IsNumberOrReal() && bpc->GetReal() == 8,
++                 "re-encoded image must stay 8bpc");
++
++        QImage check;
++        QVERIFY2(check.loadFromData(rawStream(*big->obj), "JPEG"),
++                 "re-encoded stream must be a decodable JPEG");
++        for (int band = 0; band < 4; ++band) {
++            const int y = check.height() * (2 * band + 1) / 8;
++            const QRgb got = check.pixel(check.width() / 2, y);
++            const QRgb want = cmykBandExpectedRgb(band);
++            const QRgb naive = naivePhotographicRgb(kCmykBands[band]);
++            QVERIFY2(qAbs(qRed(got) - qRed(want)) <= 15
++                     && qAbs(qGreen(got) - qGreen(want)) <= 15
++                     && qAbs(qBlue(got) - qBlue(want)) <= 15,
++                 qPrintable(QString("band %1 drifted from the profile-defined "
++                                    "color: got rgb(%2,%3,%4), want rgb(%5,%6,%7)")
++                     .arg(band).arg(qRed(got)).arg(qGreen(got)).arg(qBlue(got))
++                     .arg(qRed(want)).arg(qGreen(want)).arg(qBlue(want))));
++            if (band < 3) { // band 3 is full-K black: naive happens to agree
++                QVERIFY2(qAbs(qRed(got) - qRed(naive)) > 15
++                         && qAbs(qGreen(got) - qGreen(naive)) > 15
++                         && qAbs(qBlue(got) - qBlue(naive)) > 15,
++                         qPrintable(QString("band %1 matches the NAIVE conversion "
++                                            "(rgb(%2,%3,%4)) — a naive CMYK→RGB "
++                                            "swap is the failure signature")
++                             .arg(band).arg(qRed(naive)).arg(qGreen(naive))
++                             .arg(qBlue(naive))));
++            }
++        }
++    }
++
++    // Positive pin (raw/Flate door): a raw 8bpc /ICCBased /N 4 CMYK image must
++    // be decoded through its profile, downsampled and re-encoded colorimetrically.
++    void rawCmykIccBasedImageIsDownsampledColorimetrically() {
++        const int W = 1240, H = 1754;
++
++        QString pdf = tmpPath("cmyk_icc_raw.pdf");
++        {
++            PoDoFo::PdfMemDocument doc;
++            auto& page = doc.GetPages().CreatePage(
++                PoDoFo::PdfPageSize::A4);
++            auto img = doc.CreateImage();
++            QByteArray px(W * H * 3, '\x40');
++            img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
++                         W, H, PoDoFo::PdfPixelFormat::RGB24);
++            PoDoFo::PdfPainter painter;
++            painter.SetCanvas(page);
++            painter.DrawImage(*img, 40, 40, 200.0, 280.0);
++            painter.FinishDrawing();
++
++            // Craft the CMYK shape: raw uncompressed 4-bytes-per-pixel stream
++            // (filter explicitly cleared) + /ICCBased /N 4 colorspace.
++            QByteArray cmyk(static_cast<qint64>(W) * H * 4, '\0');
++            for (int y = 0; y < H; ++y) {
++                const int band = std::min(3, y * 4 / H);
++                const CmykQuad b = kCmykBands[band];
++                for (int x = 0; x < W; ++x) {
++                    const qint64 o = (static_cast<qint64>(y) * W + x) * 4;
++                    cmyk[o + 0] = char(b.c);
++                    cmyk[o + 1] = char(b.m);
++                    cmyk[o + 2] = char(b.y);
++                    cmyk[o + 3] = char(b.k);
++                }
++            }
++            img->GetDictionary().RemoveKey("Filter");
++            img->GetObject().GetOrCreateStream().SetData(
++                PoDoFo::bufferview(cmyk.constData(), static_cast<size_t>(cmyk.size())),
++                /*raw=*/true);
++            const auto iccRef = addIccProfileStream(doc, makeCmykIccProfile());
++            PoDoFo::PdfArray cs;
++            cs.Add(PoDoFo::PdfName("ICCBased"));
++            cs.Add(iccRef);
++            img->GetDictionary().AddKey("ColorSpace", PoDoFo::PdfObject(std::move(cs)));
++            doc.Save(pdf.toUtf8().constData());
++        }
++
++        PdfEditorEngine engine;
++        QVERIFY(engine.loadDocumentForEditing(pdf));
++        OptimizeOptions opts = downsampleOptions();
++        QString out = tmpPath("cmyk_icc_raw_out.pdf");
++        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
++
++        PoDoFo::PdfMemDocument doc;
++        doc.Load(out.toUtf8().constData());
++        auto outImages = findImages(doc);
++        QCOMPARE(outImages.size(), 1);
++        QVERIFY2(filterIs(*outImages[0].obj, "DCTDecode"),
++                 "raw /ICCBased CMYK image must be re-encoded to /DCTDecode");
++        QVERIFY2(outImages[0].w >= 580 && outImages[0].w <= 610,
++                 qPrintable(QString("image must be downsampled toward 72dpi, got %1x%2")
++                     .arg(outImages[0].w).arg(outImages[0].h)));
++        auto* cs = outImages[0].obj->GetDictionary().FindKey("ColorSpace");
++        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceRGB",
++                 "color-managed CMYK must re-encode as /DeviceRGB JPEG");
++        QImage check;
++        QVERIFY2(check.loadFromData(rawStream(*outImages[0].obj), "JPEG"),
++                 "re-encoded stream must be a decodable JPEG");
++        for (int band = 0; band < 4; ++band) {
++            const int y = check.height() * (2 * band + 1) / 8;
++            const QRgb got = check.pixel(check.width() / 2, y);
++            const QRgb want = cmykBandExpectedRgb(band);
++            const QRgb naive = naivePhotographicRgb(kCmykBands[band]);
++            QVERIFY2(qAbs(qRed(got) - qRed(want)) <= 15
++                     && qAbs(qGreen(got) - qGreen(want)) <= 15
++                     && qAbs(qBlue(got) - qBlue(want)) <= 15,
++                 qPrintable(QString("band %1 drifted from the profile-defined "
++                                    "color: got rgb(%2,%3,%4), want rgb(%5,%6,%7)")
++                     .arg(band).arg(qRed(got)).arg(qGreen(got)).arg(qBlue(got))
++                     .arg(qRed(want)).arg(qGreen(want)).arg(qBlue(want))));
++            if (band < 3) {
++                QVERIFY2(qAbs(qRed(got) - qRed(naive)) > 15
++                         && qAbs(qGreen(got) - qGreen(naive)) > 15
++                         && qAbs(qBlue(got) - qBlue(naive)) > 15,
++                         "band matches the NAIVE conversion — failure signature");
++            }
++        }
++    }
++
++    // Positive pin (indexed door): an /Indexed image whose base is an
++    // /ICCBased /N 4 CMYK profile must be lifted — the palette is transformed
++    // colorimetrically ONCE, then the shared expansion/downsample/re-encode
++    // runs. Output: /DeviceRGB JPEG with the transformed palette colors.
++    void indexedCmykBaseWithProfileIsDownsampled() {
++        const int W = 1240, H = 1754;
++        QByteArray lookup;
++        for (const auto& b : kCmykBands) {
++            lookup.append(char(b.c));
++            lookup.append(char(b.m));
++            lookup.append(char(b.y));
++            lookup.append(char(b.k));
++        }
++
++        QString pdf = tmpPath("cmyk_indexed.pdf");
++        {
++            PoDoFo::PdfMemDocument doc;
++            auto& page = doc.GetPages().CreatePage(
++                PoDoFo::PdfPageSize::A4);
++            auto img = doc.CreateImage();
++            QByteArray px(W * H * 3, '\x30');
++            img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
++                         W, H, PoDoFo::PdfPixelFormat::RGB24);
++            PoDoFo::PdfPainter painter;
++            painter.SetCanvas(page);
++            painter.DrawImage(*img, 40, 40, 200.0, 280.0);
++            painter.FinishDrawing();
++
++            // Craft: raw index stream + /ColorSpace [/Indexed [/ICCBased ref]
++            // 3 <lookup>] (the base is an ARRAY — the profile-ful CMYK base).
++            img->GetDictionary().RemoveKey("Filter");
++            img->GetObject().GetOrCreateStream().SetData(
++                PoDoFo::bufferview(bandedIndices(W, H, 4).constData(),
++                                   static_cast<size_t>(W * H)),
++                /*raw=*/true);
++            const auto iccRef = addIccProfileStream(doc, makeCmykIccProfile());
++            PoDoFo::PdfArray base;
++            base.Add(PoDoFo::PdfName("ICCBased"));
++            base.Add(iccRef);
++            PoDoFo::PdfArray cs;
++            cs.Add(PoDoFo::PdfName("Indexed"));
++            cs.Add(PoDoFo::PdfObject(base));
++            cs.Add(static_cast<int64_t>(3));
++            cs.Add(PoDoFo::PdfString::FromRaw(
++                PoDoFo::bufferview(lookup.constData(), static_cast<size_t>(lookup.size())),
++                /*hex=*/true));
++            img->GetDictionary().AddKey("ColorSpace", PoDoFo::PdfObject(std::move(cs)));
++            img->GetDictionary().AddKey("BitsPerComponent", static_cast<int64_t>(8));
++            doc.Save(pdf.toUtf8().constData());
++        }
++
++        PdfEditorEngine engine;
++        QVERIFY(engine.loadDocumentForEditing(pdf));
++        OptimizeOptions opts = downsampleOptions();
++        QString out = tmpPath("cmyk_indexed_out.pdf");
++        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
++
++        PoDoFo::PdfMemDocument doc;
++        doc.Load(out.toUtf8().constData());
++        auto outImages = findImages(doc);
++        QCOMPARE(outImages.size(), 1);
++        QVERIFY2(filterIs(*outImages[0].obj, "DCTDecode"),
++                 "indexed CMYK-base image must be re-encoded to /DCTDecode");
++        QVERIFY2(outImages[0].w >= 580 && outImages[0].w <= 610,
++                 qPrintable(QString("image must be downsampled toward 72dpi, got %1x%2")
++                     .arg(outImages[0].w).arg(outImages[0].h)));
++        auto* cs = outImages[0].obj->GetDictionary().FindKey("ColorSpace");
++        QVERIFY2(cs && cs->IsName() && cs->GetName().GetString() == "DeviceRGB",
++                 "indexed CMYK-base image must re-encode expanded as /DeviceRGB");
++        QImage check;
++        QVERIFY2(check.loadFromData(rawStream(*outImages[0].obj), "JPEG"),
++                 "re-encoded stream must be a decodable JPEG");
++        for (int band = 0; band < 4; ++band) {
++            const int y = check.height() * (2 * band + 1) / 8;
++            const QRgb got = check.pixel(check.width() / 2, y);
++            const QRgb want = cmykBandExpectedRgb(band);
++            QVERIFY2(qAbs(qRed(got) - qRed(want)) <= 15
++                     && qAbs(qGreen(got) - qGreen(want)) <= 15
++                     && qAbs(qBlue(got) - qBlue(want)) <= 15,
++                 qPrintable(QString("palette band %1 drifted: got rgb(%2,%3,%4), "
++                                    "want rgb(%5,%6,%7)")
++                     .arg(band).arg(qRed(got)).arg(qGreen(got)).arg(qBlue(got))
++                     .arg(qRed(want)).arg(qGreen(want)).arg(qBlue(want))));
++        }
++    }
++
++    // Profile-handling refusal pin: a CMYK image whose ICC profile cannot be
++    // used must stay SKIPPED byte-identical — never naive-converted, never
++    // partially processed:
++    //  a) raw /ICCBased /N 4 whose stream the ICC parser refuses (mangled
++    //     lut16 input-channel count — parseA2B rejects it);
++    //  b) raw /ICCBased with /N 3 (not a CMYK profile — cannot manage the
++    //     4-channel samples);
++    //  c) profile-less CMYK JPEG with a PDF-side /ICCBased profile that the
++    //     parser refuses.
++    void cmykWithUnusableIccProfileStaysSkipped() {
++        // Widths distinct for findImages and multiples of 4 (SetData stride
++        // constraint). All above the DPI threshold so they reach the decode.
++        const int W1 = 1240, W2 = 1244, W3 = 1248, H = 1754;
++        QByteArray mangledProfile = makeCmykIccProfile();
++        const int a2b0Offset = 128 + 16;
++        // Lut16TagData: 'mft2'(4) + reserved(4) + inputChannels at +8:
++        mangledProfile[a2b0Offset + 8] = char(7); // != 4 → parseA2B refuses
++        QVERIFY2(!QColorSpace::fromIccProfile(mangledProfile).isValid(),
++                 "mangled fixture profile must be refused by the ICC parser");
++
++        QString pdf = tmpPath("cmyk_bad_icc.pdf");
++        {
++            PoDoFo::PdfMemDocument doc;
++            auto& page = doc.GetPages().CreatePage(
++                PoDoFo::PdfPageSize::A4);
++            auto mkImage = [&](unsigned w) {
++                auto img = doc.CreateImage();
++                QByteArray px(static_cast<qint64>(w) * H * 3, '\x50');
++                img->SetData(PoDoFo::bufferview(px.constData(), px.size()),
++                             w, H, PoDoFo::PdfPixelFormat::RGB24);
++                return img;
++            };
++            // Only i1 and i2 are raw placeholders — NO third placeholder: the
++            // case-(c) JPEG below owns W3, and an unconverted RGB placeholder
++            // sharing its dimensions would be a legitimate re-encode that
++            // findImages(W3,H) could not tell apart from the CMYK JPEG.
++            auto i1 = mkImage(W1), i2 = mkImage(W2);
++            PoDoFo::PdfPainter painter;
++            painter.SetCanvas(page);
++            painter.DrawImage(*i1, 20, 500, 60.0, 80.0);
++            painter.DrawImage(*i2, 100, 500, 60.0, 80.0);
++            painter.FinishDrawing();
++
++            // (a) and (b): raw 4-byte-per-pixel streams with ICC colorspaces.
++            const auto badRef = addIccProfileStream(doc, mangledProfile);
++            const auto rgbRef = addIccProfileStream(doc, makeCmykIccProfile(), /*n=*/3);
++            for (PoDoFo::PdfImage* img : { i1.get(), i2.get() }) {
++                QByteArray cmyk(static_cast<qint64>(img->GetObject().GetDictionary()
++                                                    .FindKey("Width")->GetNumber()) * H * 4, '\x33');
++                img->GetDictionary().RemoveKey("Filter");
++                img->GetObject().GetOrCreateStream().SetData(
++                    PoDoFo::bufferview(cmyk.constData(), static_cast<size_t>(cmyk.size())),
++                    /*raw=*/true);
++            }
++            {
++                PoDoFo::PdfArray cs;
++                cs.Add(PoDoFo::PdfName("ICCBased"));
++                cs.Add(badRef);
++                i1->GetDictionary().AddKey("ColorSpace", PoDoFo::PdfObject(std::move(cs)));
++            }
++            {
++                PoDoFo::PdfArray cs;
++                cs.Add(PoDoFo::PdfName("ICCBased"));
++                cs.Add(rgbRef);
++                i2->GetDictionary().AddKey("ColorSpace", PoDoFo::PdfObject(std::move(cs)));
++            }
++            // (c) profile-less CMYK JPEG + parser-refused PDF-side profile.
++            auto& cmykJpeg = embedJpeg(doc, page,
++                                       encodeCmykJpeg(makeBandedCmyk8888(W3, H), QColorSpace()),
++                                       W3, H);
++            {
++                const auto badRef2 = addIccProfileStream(doc, mangledProfile);
++                PoDoFo::PdfArray cs;
++                cs.Add(PoDoFo::PdfName("ICCBased"));
++                cs.Add(badRef2);
++                cmykJpeg.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfObject(std::move(cs)));
++            }
++            doc.Save(pdf.toUtf8().constData());
++        }
++
++        QByteArray before1, before2, before3;
++        {
++            PoDoFo::PdfMemDocument doc;
++            doc.Load(pdf.toUtf8().constData());
++            before1 = rawStream(*findImages(doc, W1, H)[0].obj);
++            before2 = rawStream(*findImages(doc, W2, H)[0].obj);
++            before3 = rawStream(*findImages(doc, W3, H)[0].obj);
++        }
++
++        PdfEditorEngine engine;
++        QVERIFY(engine.loadDocumentForEditing(pdf));
++        OptimizeOptions opts = downsampleOptions();
++        QString out = tmpPath("cmyk_bad_icc_out.pdf");
++        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
++
++        PoDoFo::PdfMemDocument doc;
++        doc.Load(out.toUtf8().constData());
++        auto im1 = findImages(doc, W1, H);
++        auto im2 = findImages(doc, W2, H);
++        auto im3 = findImages(doc, W3, H);
++        QCOMPARE(im1.size(), 1);
++        QCOMPARE(im2.size(), 1);
++        QCOMPARE(im3.size(), 1);
++        QVERIFY2(rawStream(*im1[0].obj) == before1,
++                 "CMYK with a parser-refused ICC profile must stay byte-identical");
++        QVERIFY2(rawStream(*im2[0].obj) == before2,
++                 "CMYK with a non-CMYK (/N 3) ICC profile must stay byte-identical");
++        QVERIFY2(rawStream(*im3[0].obj) == before3,
++                 "CMYK JPEG with a refused PDF-side profile must stay byte-identical");
++    }
++
++    // Render-color reference pin (supplementary, environment-conditional):
++    // drives the SAME lift through Windows' real CoatedFOGRA39 press profile
++    // and asserts the plan's §3.4 colorimetric reference values through the
++    // full decode→transform→downsample→re-encode chain (probe-measured drift
++    // ≤2/255). QSKIPs loudly on machines without the profile — the
++    // synthetic-profile pins above carry the guarantee everywhere.
++    void cmykDownsampleMatchesFogra39Reference() {
++        static const char* kFogra39Path =
++            "C:/Windows/System32/spool/drivers/color/CoatedFOGRA39.icc";
++        QFile f39{ QString::fromLatin1(kFogra39Path) };
++        if (!f39.open(QIODevice::ReadOnly))
++            QSKIP("CoatedFOGRA39.icc not present on this machine — "
++                  "synthetic-profile pins carry the colorimetric guarantee");
++        const QColorSpace profile = QColorSpace::fromIccProfile(f39.readAll());
++        if (!profile.isValid() || profile.colorModel() != QColorSpace::ColorModel::Cmyk)
++            QSKIP("the installed CoatedFOGRA39.icc did not parse as CMYK");
++
++        // Plan §3.4 reference table (Qt QColorSpace == lcms2 within ≤5/255).
++        struct F39Band { uchar c, m, y, k; QRgb want; };
++        const F39Band bands[4] = {
++            { 0, 255, 255, 0, qRgb(227, 6, 20) },     // pure magenta
++            { 255, 0, 0, 0, qRgb(0, 159, 227) },      // pure cyan
++            { 0, 0, 0, 255, qRgb(29, 29, 27) },       // full black ink
++            { 0, 0, 0, 0, qRgb(255, 255, 255) },      // paper white
++        };
++        QVector<CmykQuad> quads;
++        for (const auto& b : bands)
++            quads.append({ b.c, b.m, b.y, b.k });
++
++        const int W = 1240, H = 1754;
++        QString pdf = tmpPath("cmyk_fogra39.pdf");
++        {
++            PoDoFo::PdfMemDocument doc;
++            auto& page = doc.GetPages().CreatePage(
++                PoDoFo::PdfPageSize::A4);
++            auto& img = embedJpeg(
++                doc, page, encodeCmykJpeg(makeBandedCmyk8888(W, H, quads), profile),
++                W, H);
++            img.GetDictionary().AddKey("ColorSpace", PoDoFo::PdfName("DeviceCMYK"));
++            doc.Save(pdf.toUtf8().constData());
++        }
++
++        PdfEditorEngine engine;
++        QVERIFY(engine.loadDocumentForEditing(pdf));
++        OptimizeOptions opts = downsampleOptions();
++        QString out = tmpPath("cmyk_fogra39_out.pdf");
++        QVERIFY2(engine.optimizeDocument(out, opts), "optimizeDocument must succeed");
++
++        PoDoFo::PdfMemDocument doc;
++        doc.Load(out.toUtf8().constData());
++        auto outImages = findImages(doc);
++        QCOMPARE(outImages.size(), 1);
++        QVERIFY2(filterIs(*outImages[0].obj, "DCTDecode"),
++                 "FOGRA39 CMYK image must be re-encoded to /DCTDecode");
++        QImage check;
++        QVERIFY2(check.loadFromData(rawStream(*outImages[0].obj), "JPEG"),
++                 "re-encoded stream must be a decodable JPEG");
++        for (int band = 0; band < 4; ++band) {
++            const int y = check.height() * (2 * band + 1) / 8;
++            const QRgb got = check.pixel(check.width() / 2, y);
++            const QRgb want = bands[band].want;
++            QVERIFY2(qAbs(qRed(got) - qRed(want)) <= 8
++                     && qAbs(qGreen(got) - qGreen(want)) <= 8
++                     && qAbs(qBlue(got) - qBlue(want)) <= 8,
++                 qPrintable(QString("FOGRA39 band %1 off the §3.4 reference: got "
++                                    "rgb(%2,%3,%4), want rgb(%5,%6,%7)")
++                     .arg(band).arg(qRed(got)).arg(qGreen(got)).arg(qBlue(got))
++                     .arg(qRed(want)).arg(qGreen(want)).arg(qBlue(want))));
++        }
+     }
+ };
+ 

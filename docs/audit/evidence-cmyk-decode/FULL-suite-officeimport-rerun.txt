@@ -1,0 +1,50 @@
+Test project D:/pdf/pdf-cmyk/build-rel
+    Start 174: TestOfficeImport
+1/1 Test #174: TestOfficeImport .................***Timeout 120.03 sec
+********* Start testing of TestOfficeImport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOfficeImport::initTestCase()
+PASS   : TestOfficeImport::testImagesToPdf_threePages()
+QWARN  : TestOfficeImport::testImagesToPdf_emptyList() convertImagesToPdf: no input images provided
+PASS   : TestOfficeImport::testImagesToPdf_emptyList()
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+convert     = 120.03 sec*proc (1 test)
+headless    = 120.03 sec*proc (1 test)
+images      = 120.03 sec*proc (1 test)
+import      = 120.03 sec*proc (1 test)
+office      = 120.03 sec*proc (1 test)
+qt          = 120.03 sec*proc (1 test)
+unit        = 120.03 sec*proc (1 test)
+
+Total Test time (real) = 120.27 sec
+
+The following tests FAILED:
+	174 - TestOfficeImport (Timeout)                        convert headless images import office qt unit
+Errors while running CTest
+
+════ ANALYSIS APPENDED BY LANE (not ctest output) ════
+FULL-suite-final.txt = occurrence 1 (Timeout 120.25s, full serial suite).
+This file (ctest part) = re-run occurrence 2 (Timeout 120.03s) — same slot,
+same signature; not a transient flake. A third re-run after warming the
+LibreOffice profile also timed out identically.
+
+Root cause (proven by direct probe on this machine, 2026-10-05):
+  ConversionManager.cpp:655 launches soffice with "--env:UserInstallation=..."
+  (double dash). LibreOffice requires the single-dash spelling "-env:".
+  Probe, same machine/file/outdir:
+    -env:UserInstallation=file:///tmp/lo-prof1 ... --convert-to pdf  → RC 0, PDF produced
+    --env:UserInstallation=file:///tmp/lo-prof2 ... --convert-to pdf  → HANG (killed at 60s)
+  Bare soffice --headless --convert-to pdf (no env flag) also works (RC 0).
+  The slot testOfficeToPdf_realConversion is the only office slot that runs a
+  real conversion; prior lanes' environments had LibreOffice ABSENT (slot
+  QSKIPped — CLEANUP-LEDGER-2026-09-09.md:56, SWEEP-W2B-VERIFY-2026-09-20.md:50),
+  so this pre-existing invocation defect never executed there. This machine has
+  LibreOffice installed → the defect surfaces as a timeout.
+  ZERO overlap with the cmyk-decode diff (ConversionManager/soffice subprocess
+  path vs optimizeDocument Phase-1 image decode + dialog disclosure). Left
+  unfixed deliberately: out of lane scope; owner gets a one-character fix
+  ("--env:" → "-env:") with this evidence.

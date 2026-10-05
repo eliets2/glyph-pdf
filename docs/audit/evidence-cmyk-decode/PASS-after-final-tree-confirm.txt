@@ -1,0 +1,78 @@
+UpdateCTestConfiguration  from :D:/pdf/pdf-cmyk/build-rel/DartConfiguration.tcl
+Parse Config file:D:/pdf/pdf-cmyk/build-rel/DartConfiguration.tcl
+Test project D:/pdf/pdf-cmyk/build-rel
+Constructing a list of tests
+Done constructing a list of tests
+Updating test list for fixtures
+Added 0 tests to meet fixture requirements
+Checking test dependency graph...
+Checking test dependency graph end
+test 27
+    Start 27: TestCompressJpegReencode
+
+27: Test command: D:\pdf\pdf-cmyk\build-rel\TestCompressJpegReencode.exe
+27: Working Directory: D:/pdf/pdf-cmyk/build-rel
+27: Environment variables: 
+27:  QT_QPA_PLATFORM=offscreen
+27:  TMP=D:/pdf/pdf-cmyk/build-rel/test-tmp/TestCompressJpegReencode
+27:  TEMP=D:/pdf/pdf-cmyk/build-rel/test-tmp/TestCompressJpegReencode
+27:  TMPDIR=D:/pdf/pdf-cmyk/build-rel/test-tmp/TestCompressJpegReencode
+27: Test timeout computed to be: 300
+27: ********* Start testing of TestCompressJpegReencode *********
+27: Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+27: PASS   : TestCompressJpegReencode::initTestCase()
+27: PASS   : TestCompressJpegReencode::perImageScopingOnMultiPageDoc()
+27: PASS   : TestCompressJpegReencode::qualityIsHonored()
+27: QDEBUG : TestCompressJpegReencode::malformedImagesAreSkippedSafely() optimizeDocument: DCT image with unsupported colorspace, left untouched
+27: PASS   : TestCompressJpegReencode::malformedImagesAreSkippedSafely()
+27: QDEBUG : TestCompressJpegReencode::mediaFilterChainImageIsSkipped() optimizeDocument: image with media filter chain, left untouched
+27: QDEBUG : TestCompressJpegReencode::mediaFilterChainImageIsSkipped() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+27: QDEBUG : TestCompressJpegReencode::mediaFilterChainImageIsSkipped() optimizeDocument: unused-object sweep removed 0 object(s)
+27: PASS   : TestCompressJpegReencode::mediaFilterChainImageIsSkipped()
+27: QDEBUG : TestCompressJpegReencode::danglingXobjectRefDoesNotFailDedup() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+27: QDEBUG : TestCompressJpegReencode::danglingXobjectRefDoesNotFailDedup() optimizeDocument: unused-object sweep removed 0 object(s)
+27: PASS   : TestCompressJpegReencode::danglingXobjectRefDoesNotFailDedup()
+27: QDEBUG : TestCompressJpegReencode::degenerateTargetDpiLeavesImagesUntouched() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+27: QDEBUG : TestCompressJpegReencode::degenerateTargetDpiLeavesImagesUntouched() optimizeDocument: unused-object sweep removed 0 object(s)
+27: PASS   : TestCompressJpegReencode::degenerateTargetDpiLeavesImagesUntouched()
+27: QDEBUG : TestCompressJpegReencode::unusedObjectSweepRemovesOrphans() optimizeDocument: unused-object sweep removed 1 object(s)
+27: PASS   : TestCompressJpegReencode::unusedObjectSweepRemovesOrphans()
+27: PASS   : TestCompressJpegReencode::flateGrayAndRgbImagesAreReencodedToJpeg()
+27: QDEBUG : TestCompressJpegReencode::predictorImageIsSkippedSafely() optimizeDocument: predictor-coded image, left untouched
+27: PASS   : TestCompressJpegReencode::predictorImageIsSkippedSafely()
+27: PASS   : TestCompressJpegReencode::indexedRgbImageIsDownsampledToRgbJpeg()
+27: PASS   : TestCompressJpegReencode::indexedGrayImageBecomesGrayscaleJpeg()
+27: QDEBUG : TestCompressJpegReencode::malformedIndexedImagesAreSkippedSafely() optimizeDocument: indexed image with short palette, left untouched
+27: QDEBUG : TestCompressJpegReencode::malformedIndexedImagesAreSkippedSafely() optimizeDocument: indexed image with unsupported base colorspace, left untouched
+27: PASS   : TestCompressJpegReencode::malformedIndexedImagesAreSkippedSafely()
+27: QDEBUG : TestCompressJpegReencode::profileLessCmykStaysSkipped() optimizeDocument: profile-less CMYK JPEG, left untouched
+27: PASS   : TestCompressJpegReencode::profileLessCmykStaysSkipped()
+27: PASS   : TestCompressJpegReencode::cmykJpegWithEmbeddedProfileIsDownsampledColorimetrically()
+27: PASS   : TestCompressJpegReencode::rawCmykIccBasedImageIsDownsampledColorimetrically()
+27: PASS   : TestCompressJpegReencode::indexedCmykBaseWithProfileIsDownsampled()
+27: QWARN  : TestCompressJpegReencode::cmykWithUnusableIccProfileStaysSkipped() qt.gui.icc: Unsupported lut8/lut16 input channel count 7
+27: QWARN  : TestCompressJpegReencode::cmykWithUnusableIccProfileStaysSkipped() qt.gui.icc: Unsupported lut8/lut16 input channel count 7
+27: QDEBUG : TestCompressJpegReencode::cmykWithUnusableIccProfileStaysSkipped() optimizeDocument: CMYK image with unusable ICC profile, left untouched
+27: QWARN  : TestCompressJpegReencode::cmykWithUnusableIccProfileStaysSkipped() qt.gui.icc: Unsupported lut8/lut16 input channel count 7
+27: QDEBUG : TestCompressJpegReencode::cmykWithUnusableIccProfileStaysSkipped() optimizeDocument: CMYK image without a usable ICC profile, left untouched
+27: PASS   : TestCompressJpegReencode::cmykWithUnusableIccProfileStaysSkipped()
+27: PASS   : TestCompressJpegReencode::cmykDownsampleMatchesFogra39Reference()
+27: PASS   : TestCompressJpegReencode::cleanupTestCase()
+27: Totals: 20 passed, 0 failed, 0 skipped, 0 blacklisted, 7974ms
+27: ********* Finished testing of TestCompressJpegReencode *********
+1/1 Test #27: TestCompressJpegReencode .........   Passed    8.37 sec
+
+The following tests passed:
+	TestCompressJpegReencode
+
+100% tests passed, 0 tests failed out of 1
+
+Label Time Summary:
+compression    =   8.37 sec*proc (1 test)
+headless       =   8.37 sec*proc (1 test)
+jpeg           =   8.37 sec*proc (1 test)
+qt             =   8.37 sec*proc (1 test)
+regression     =   8.37 sec*proc (1 test)
+unit           =   8.37 sec*proc (1 test)
+
+Total Test time (real) =   8.38 sec
