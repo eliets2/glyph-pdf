@@ -8,6 +8,7 @@
 #include "modes/PagesMode.h"
 #include "modes/BatchMode.h"
 #include "modes/FormBuilderMode.h"
+#include "modes/ComposeMode.h"
 
 namespace gp {
 
@@ -20,6 +21,7 @@ ModeController::ModeController(QWidget* parent) : QStackedWidget(parent) {
     _byId.insert("pages",     nullptr);
     _byId.insert("batch",     nullptr);
     _byId.insert("form",      nullptr);
+    _byId.insert("compose",   nullptr);   // §9.17/§9.18: side-by-side composition
 
     addWidget(_viewer);
     setCurrentWidget(_viewer);
@@ -70,6 +72,15 @@ void ModeController::setScreen(const QString& id) {
             auto* pm = new PagesMode(this);
             pm->setAppContext(_ctx);
             target = pm;
+        }
+        else if (id == "compose") {
+            // §9.17/§9.18: side-by-side composition. The screen's status text
+            // reaches the host status bar (the redactStatusMessage idiom).
+            auto* cm = new ComposeMode(this);
+            cm->setAppContext(_ctx);
+            connect(cm, &ComposeMode::statusMessageRequested,
+                    this, &ModeController::composeStatusMessage);
+            target = cm;
         }
         else if (id == "batch") {
             auto* bm = new BatchMode(this);

@@ -669,6 +669,15 @@
     }
    ]
   },
+  "compose": {
+   "action": "mode:compose",
+   "description": "Open two documents side by side, pick pages and images, and compose them into the other document at a chosen position.",
+   "icon": "merge",
+   "label": "Compose",
+   "name": "Compose Documents",
+   "status": "toolid",
+   "toolId": "Compose"
+  },
   "compress": {
    "action": "pane:compress",
    "description": "Shrink the file with presets and see the size before you save.",

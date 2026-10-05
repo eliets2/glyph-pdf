@@ -196,6 +196,10 @@ enum class ToolId {
     // Appended AFTER PrepareSigningRequest so existing ToolId ordinals stay
     // stable (same append-only rule).
     UnlockGs,          // Protect ▸ Security "Unlock PDF…" (ribbon "unlockGs")
+    // ── §9.17/§9.18: side-by-side visual composition ──────────────────────
+    // Appended AFTER PrepareSigningRequest so existing ToolId ordinals stay
+    // stable (same append-only rule).
+    Compose,           // Organize ▸ Document "Compose" (ribbon "compose")
 
     COUNT  // sentinel for array sizing — must be last
 };

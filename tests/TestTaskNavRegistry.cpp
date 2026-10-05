@@ -27,10 +27,11 @@ using namespace gp;
 
 namespace {
 // ModeController ctor registers exactly these swap-in screens
-// (src/modes/ModeController.cpp:16-22).
+// (src/modes/ModeController.cpp). §9.17/§9.18 adds the compose workspace.
 const QSet<QString> kWorkspaceScreens = {
     QStringLiteral("ocr"), QStringLiteral("redact"), QStringLiteral("compare"),
     QStringLiteral("pages"), QStringLiteral("batch"), QStringLiteral("form"),
+    QStringLiteral("compose"),
 };
 // Modal snap-back screens in MainWindow::onScreenSelected.
 const QSet<QString> kDialogScreens = {

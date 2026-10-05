@@ -147,6 +147,10 @@ public:
     bool addTextWatermark(const TextWatermarkOptions &options) override;
     bool addImageWatermark(const ImageWatermarkOptions &options) override;
 
+    // §9.17/§9.18 Compose Mode: explicit page + rect image placement.
+    bool placeImageOnPage(const QString &path, int pageIndex, const QImage &image,
+                          const QRectF &rect, double opacity = 1.0) override;
+
     // Optimization (Session 13)
     OptimizeEstimate estimateOptimization(const OptimizeOptions &options) override;
     bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options) override;

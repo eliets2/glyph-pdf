@@ -154,7 +154,7 @@ static RibbonTabDef makeEdit() {
 static RibbonTabDef makeOrganize() {
     return { "Organize", {
         { "Pages", {{ "insertPage","Insert","insertPage",true },{ "deletePage","Delete","deletePage",false },{ "rotate","Rotate","rotate",false },{ "replace","Replace","rotate",false },{ "reorder","Reorder","reorder",false },{ "reverse","Reverse","rotate",false }}},
-        { "Document", {{ "split","Split","compare",true },{ "merge","Merge","merge",true },{ "extract","Extract","merge",false },{ "compareDocs","Compare","compare",false }}},
+        { "Document", {{ "split","Split","compare",true },{ "merge","Merge","merge",true },{ "extract","Extract","merge",false },{ "compareDocs","Compare","compare",false },{ "compose","Compose","merge",false }}},
         { "Numbering", {{ "pageNums","Page Numbers","form",true },{ "header","Header/Footer","textbox",false },{ "bates","Bates","form",false }}},
         { "Decorate", {{ "watermark","Watermark","form",true },{ "background","Background","form",false }}},
     }};

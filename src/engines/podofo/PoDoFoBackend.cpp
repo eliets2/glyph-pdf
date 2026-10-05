@@ -6610,6 +6610,146 @@ bool PoDoFoBackend::addImageWatermark(const ImageWatermarkOptions &options)
     }
 }
 
+// ── §9.17/§9.18 Compose Mode: explicit page + rect image placement ─────────
+
+bool PoDoFoBackend::placeImageOnPage(const QString &path, int pageIndex, const QImage &image,
+                                     const QRectF &rect, double opacity)
+{
+    QMutexLocker locker(&d->mutex);
+    if (!d->beginResidentMutation()) return false;   // WP-R02: no revertible state, no mutation
+    try {
+        auto& doc = d->resolveDocument(path);
+        auto& pages = doc.GetPages();
+        // S1-1 index contract: validated here, never delegated to PoDoFo.
+        if (pageIndex < 0 || static_cast<size_t>(pageIndex) >= pages.GetCount()) {
+            qWarning() << "placeImageOnPage refused: page" << pageIndex
+                       << "out of range (" << pages.GetCount() << "pages)";
+            return false;
+        }
+        // Image guards: decodable, non-empty, within the shared 10 000 px
+        // per-axis writer cap (addImageWatermark / replaceImage discipline).
+        if (image.isNull() || image.width() <= 0 || image.height() <= 0
+            || image.width() > 10000 || image.height() > 10000) {
+            qWarning() << "placeImageOnPage refused: unusable image"
+                       << image.width() << "x" << image.height();
+            return false;
+        }
+        // Rect guards: finite and positive; the rect need not sit fully
+        // inside the page (content may bleed), but a non-finite or empty
+        // rect would corrupt the content stream.
+        if (!rect.isValid() || rect.width() <= 0.0 || rect.height() <= 0.0
+            || !std::isfinite(rect.left()) || !std::isfinite(rect.top())
+            || !std::isfinite(rect.width()) || !std::isfinite(rect.height())) {
+            qWarning() << "placeImageOnPage refused: invalid placement rect"
+                       << rect;
+            return false;
+        }
+
+        auto& page = pages.GetPageAt(pageIndex);
+
+        // Pack RGB24 + a separate 8-bit alpha plane (the §9.7 signature-
+        // Upload appearance idiom): soft-mask transparency survives, so a
+        // signature raster or any RGBA pick keeps its background-free look.
+        const QImage rgba = image.convertToFormat(QImage::Format_RGBA8888);
+        const int imgW = rgba.width();
+        const int imgH = rgba.height();
+        std::vector<char> rgb(static_cast<size_t>(imgW) * imgH * 3);
+        std::vector<char> alpha(static_cast<size_t>(imgW) * imgH);
+        bool alphaUsed = false;
+        for (int y = 0; y < imgH; ++y) {
+            const uchar *line = rgba.constScanLine(y);
+            for (int x = 0; x < imgW; ++x) {
+                const size_t o = static_cast<size_t>(y) * imgW + x;
+                rgb[o * 3 + 0] = static_cast<char>(line[x * 4 + 0]);
+                rgb[o * 3 + 1] = static_cast<char>(line[x * 4 + 1]);
+                rgb[o * 3 + 2] = static_cast<char>(line[x * 4 + 2]);
+                alpha[o]       = static_cast<char>(line[x * 4 + 3]);
+                if (line[x * 4 + 3] != 255) alphaUsed = true;
+            }
+        }
+
+        auto imageObj = doc.CreateImage();
+        imageObj->SetData(PoDoFo::bufferview(rgb.data(), rgb.size()),
+                          static_cast<unsigned>(imgW), static_cast<unsigned>(imgH),
+                          PoDoFo::PdfPixelFormat::RGB24, imgW * 3);
+        if (alphaUsed) {
+            auto mask = doc.CreateImage();
+            mask->SetData(PoDoFo::bufferview(alpha.data(), alpha.size()),
+                          static_cast<unsigned>(imgW), static_cast<unsigned>(imgH),
+                          PoDoFo::PdfPixelFormat::Grayscale, imgW);
+            imageObj->SetSoftMask(*mask);
+        }
+
+        // Constant opacity through an ExtGState (S1-2: clamped at the seam).
+        const double op = qBound(0.0, opacity, 1.0);
+
+        // Resource registration under UNIQUE names — two placements on one
+        // page must not collide (the watermark's fixed WM_Img name cannot be
+        // reused here: compose adds placements one Apply at a time).
+        auto* resDict = page.GetDictionary().FindKey("Resources");
+        if (!resDict) {
+            page.GetDictionary().AddKey("Resources", PoDoFo::PdfDictionary());
+            resDict = page.GetDictionary().FindKey("Resources");
+        }
+        auto* xobjDict = resDict->GetDictionary().FindKey("XObject");
+        if (!xobjDict) {
+            resDict->GetDictionary().AddKey("XObject", PoDoFo::PdfDictionary());
+            xobjDict = resDict->GetDictionary().FindKey("XObject");
+        }
+        std::string imgName;
+        for (int n = 1; n < 100000; ++n) {
+            imgName = "CmpImg" + std::to_string(n);
+            if (!xobjDict->GetDictionary().HasKey(imgName)) break;
+        }
+        auto& imgRefObj = imageObj->GetObject();
+        xobjDict->GetDictionary().AddKeyIndirect(PoDoFo::PdfName(imgName), imgRefObj);
+
+        std::string gsName;
+        PoDoFo::PdfObject* gsDictPtr = nullptr;
+        if (op < 1.0) {
+            auto* gsDict = resDict->GetDictionary().FindKey("ExtGState");
+            if (!gsDict) {
+                resDict->GetDictionary().AddKey("ExtGState", PoDoFo::PdfDictionary());
+                gsDict = resDict->GetDictionary().FindKey("ExtGState");
+            }
+            auto& gsObj = doc.GetObjects().CreateDictionaryObject();
+            gsObj.GetDictionary().AddKey("Type", PoDoFo::PdfName("ExtGState"));
+            gsObj.GetDictionary().AddKey("ca", op);
+            gsObj.GetDictionary().AddKey("CA", op);
+            for (int n = 1; n < 100000; ++n) {
+                gsName = "CmpGS" + std::to_string(n);
+                if (!gsDict->GetDictionary().HasKey(gsName)) break;
+            }
+            gsDict->GetDictionary().AddKeyIndirect(PoDoFo::PdfName(gsName), gsObj);
+            gsDictPtr = gsDict;
+        }
+        Q_UNUSED(gsDictPtr);
+
+        // Draw exactly into `rect`: the cm maps the unit image square onto
+        // (x, y, w, h). The rect follows the PdfImageInfo::placement
+        // convention — x() and y() are the BOTTOM-LEFT corner in PDF user
+        // space (top() == y() stores that same PDF y). Aspect preservation
+        // is the CALLER's contract (ComposeMode::fittedRect) — this op never
+        // silently rescales.
+        std::ostringstream ops;
+        ops << "q\n";
+        if (op < 1.0) ops << "/" << gsName << " gs\n";
+        ops << rect.width() << " 0 0 " << rect.height() << " "
+            << rect.left() << " " << rect.top() << " cm\n";
+        ops << "/" << imgName << " Do\n";
+        ops << "Q\n";
+        appendPageContent(doc, page, ops.str());
+
+        if (!commitMutation(path)) throw std::runtime_error("commitMutation failed");
+        return true;
+    } catch (const std::exception& e) {
+        qWarning() << "placeImageOnPage error:" << e.what();
+        return false;
+    } catch (...) {
+        return false;
+    }
+}
+
 // ── Optimization (Session 13) ──────────────────────────────────────────────
 
 // §9.13 P1: read-only reachability walk mirroring the mark phase of PoDoFo's

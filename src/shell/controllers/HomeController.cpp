@@ -66,7 +66,8 @@ QList<ToolId> HomeController::handledTools() const {
         ToolId::ExportPresets, ToolId::Share, ToolId::Properties,
         ToolId::ImportOffice, ToolId::ImagesToPdf,
         ToolId::Undo, ToolId::Redo,
-        ToolId::Watermark, ToolId::Compare
+        ToolId::Watermark, ToolId::Compare,
+        ToolId::Compose   // §9.17/§9.18: the Compose task entry
     };
 }
 
@@ -129,6 +130,13 @@ void HomeController::activate(ToolId id) {
         break;
     case ToolId::Compare:
         _mainWindow->onScreenSelected(QStringLiteral("compare"));
+        break;
+    case ToolId::Compose:
+        // §9.17/§9.18: the Compose entry routes to its one task surface
+        // (the Compare entry pattern; the U02 entry-route branch normally
+        // intercepts before this — the direct case keeps belt-and-braces
+        // parity with Compare).
+        _mainWindow->onScreenSelected(QStringLiteral("compose"));
         break;
     default:
         break;

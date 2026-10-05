@@ -24,6 +24,8 @@ const QVector<TaskSpec>& TaskNav::tasks() {
         { "measure",   "Measure",     TaskKind::Panel,     ToolId::COUNT,      false, "",        ""         },
         { "compare",   "Compare",     TaskKind::Workspace, ToolId::Compare,    true,  "",        "View"     },
         { "pages",     "Pages",       TaskKind::Workspace, ToolId::COUNT,      false, "",        "Organize" },
+        // §9.17/§9.18: side-by-side visual composition (ComposeMode workspace).
+        { "compose",   "Compose",     TaskKind::Workspace, ToolId::Compose,    true,  "",        "Organize" },
         { "batch",     "Batch",       TaskKind::Workspace, ToolId::COUNT,      false, "",        "Convert"  },
         { "ai",        "AI Chat",     TaskKind::Toggle,    ToolId::COUNT,      false, "",        ""         },
         { "form",      "Form Builder",TaskKind::Workspace, ToolId::CreateForm, false, "form",    "Forms"    },
@@ -66,6 +68,9 @@ QString TaskNav::screenForTool(ToolId id) {
         return QStringLiteral("redact");
     case ToolId::Compare:
         return QStringLiteral("compare");
+    // §9.17/§9.18: the Compose entry opens its one task surface.
+    case ToolId::Compose:
+        return QStringLiteral("compose");
     case ToolId::Compress:
         return QStringLiteral("compress");
     case ToolId::Watermark:

@@ -193,6 +193,14 @@ public:
     bool addTextWatermark(const TextWatermarkOptions &options);
     bool addImageWatermark(const ImageWatermarkOptions &options);
 
+    // §9.17/§9.18 Compose Mode: place ONE image at an explicit page + rect
+    // (user space, bottom-left origin) with soft-mask transparency and
+    // constant opacity. Path-addressed like the page mutators — the mutation
+    // is committed to `path` before returning. The image is drawn EXACTLY
+    // into `rect`; aspect preservation is the caller's contract.
+    bool placeImageOnPage(const QString &path, int pageIndex, const QImage &image,
+                          const QRectF &rect, double opacity);
+
     // Optimization (Session 13)
     OptimizeEstimate estimateOptimization(const OptimizeOptions &options);
     bool optimizeDocument(const QString &outputPath, const OptimizeOptions &options);

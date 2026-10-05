@@ -21,6 +21,7 @@ class CompareMode;
 class PagesMode;
 class BatchMode;
 class FormBuilderMode;
+class ComposeMode;
 
 // Owns the central area: one QStackedWidget routing between Standard canvas and
 // the 11 extended mode widgets.
@@ -62,6 +63,9 @@ signals:
     // §9.8 P1: RedactMode's Cancel/Exit control — relayed to the host, which
     // returns to the standard canvas (mirrors redactStatusMessage).
     void redactExitRequested();
+    // §9.17: ComposeMode status text relayed to the host's status bar
+    // (the redactStatusMessage idiom).
+    void composeStatusMessage(const QString& message);
 
 private:
     QHash<QString, QWidget*> _byId;

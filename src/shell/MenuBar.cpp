@@ -93,6 +93,9 @@ const QList<MenuActionSpec>& MenuBar::actionSpecs() {
         { "ocr",          MenuDispatch::Local    },
         { "redact",       MenuDispatch::Local    },
         { "compare",      MenuDispatch::Local    },
+        // §9.17/§9.18: the Compose task entry (onScreenSelected route, like
+        // its Compare sibling).
+        { "compose",      MenuDispatch::Local    },
         { "compress",     MenuDispatch::Registry },
         { "watermark",    MenuDispatch::Registry },
         // R15 (T1 route): the Measure task panel owns distance/area — the
@@ -160,7 +163,7 @@ const QList<QString>& MenuBar::localHandlerIds() {
     static const QList<QString> ids = {
         "find", "find-replace", "exit", "close", "save-copy",
         "minimize", "maximize", "fullscreen", "darkMode",
-        "ocr", "redact", "compare", "guide", "about",
+        "ocr", "redact", "compare", "compose", "guide", "about",
         "shortcuts", "preferences",
     };
     return ids;
@@ -245,6 +248,9 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
                 mainWindow->onScreenSelected("redact");
             } else if (toolId == "compare") {
                 mainWindow->onScreenSelected("compare");
+            } else if (toolId == "compose") {
+                // §9.17/§9.18: the Compose task entry (the compare pattern).
+                mainWindow->onScreenSelected("compose");
             } else if (toolId == "guide") {
                 QMessageBox::information(mainWindow, tr("User Guide"),
                     tr("Glyph PDF Editor User Guide is available online at https://glyph.app/guide"));
@@ -380,6 +386,8 @@ MenuBar::MenuBar(QWidget* parent) : QMenuBar(parent) {
     addActionToMenu(toolsMenu, tr("&OCR Document"), "ocr", QKeySequence(), true, false);
     addActionToMenu(toolsMenu, tr("&Redaction Mode"), "redact", QKeySequence(), true, false);
     addActionToMenu(toolsMenu, tr("&Compare Documents…"), "compare");
+    // §9.17/§9.18: side-by-side visual composition.
+    addActionToMenu(toolsMenu, tr("Co&mpose Documents…"), "compose");
     addActionToMenu(toolsMenu, tr("C&ompress Document…"), "compress");
     addActionToMenu(toolsMenu, tr("&Watermark…"), "watermark");
     addActionToMenu(toolsMenu, tr("Set E&xpiry Date…"), "expiry-date");

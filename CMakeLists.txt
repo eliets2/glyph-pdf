@@ -438,6 +438,7 @@ add_library(pdfws_engines STATIC
     src/engines/podofo/ContentSpans.h src/engines/podofo/ContentSpans.cpp
     src/engines/podofo/PdfEncryptPubSec.h src/engines/podofo/PdfEncryptPubSec.cpp
     src/engines/podofo/PdfPageOps.h       src/engines/podofo/PdfPageOps.cpp
+    src/engines/ImageExtractEngine.h      src/engines/ImageExtractEngine.cpp
     src/engines/pdfium/PdfiumEnvironment.h src/engines/pdfium/PdfiumEnvironment.cpp
     src/engines/pdfium/PdfiumBackend.h src/engines/pdfium/PdfiumBackend.cpp
     src/engines/qpdf/QpdfBackend.h     src/engines/qpdf/QpdfBackend.cpp
@@ -1172,6 +1173,7 @@ add_library(pdfws_ui STATIC
     src/modes/RedactApplyDialog.h           src/modes/RedactApplyDialog.cpp
     src/modes/CompareMode.h                 src/modes/CompareMode.cpp
     src/modes/PagesMode.h                   src/modes/PagesMode.cpp
+    src/modes/ComposeMode.h                 src/modes/ComposeMode.cpp
     src/modes/BatchMode.h                   src/modes/BatchMode.cpp
     src/modes/HotFolderController.h         src/modes/HotFolderController.cpp
     # R26-P2 U7 (plan §4.9): the preset manager + multi-step editor dialogs.
@@ -3036,6 +3038,39 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPagesMode.cpp")
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
         TIMEOUT 60
         LABELS "unit;modes;pages;ui;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
+    )
+endif()
+
+# §9.17/§9.18: side-by-side visual composition — ComposeMode two-document
+# open, page-pick → insert (order + position), image inventory → pick →
+# placement geometry pin, transactional save (candidate/commit/refusal),
+# checked-history undo, mismatched-size scaling disclosure, and the r4-ux
+# accessibleName discipline on every thumbnail surface. Offscreen; holds the
+# shared SafeSave candidate dir lock (TestPagesMode precedent).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestComposeMode.cpp")
+    add_executable(TestComposeMode
+        tests/TestComposeMode.cpp
+    )
+    target_include_directories(TestComposeMode PRIVATE src tests)
+    target_link_libraries(TestComposeMode PRIVATE
+        pdfws_ui pdfws_engines pdfws_commands pdfws_core podofo::podofo
+        Qt6::Test Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Concurrent
+        Qt6::Pdf Qt6::PdfWidgets
+    )
+    add_custom_command(TARGET TestComposeMode POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:TestComposeMode>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT6_PLUGINS_DIR}/platforms/${GLYPH_QPA_PLUGIN}"
+            "$<TARGET_FILE_DIR:TestComposeMode>/platforms/${GLYPH_QPA_PLUGIN}"
+        COMMENT "Deploying qoffscreen platform plugin for TestComposeMode"
+    )
+    add_test(NAME TestComposeMode COMMAND TestComposeMode)
+    set_tests_properties(TestComposeMode PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+        TIMEOUT 120
+        LABELS "unit;modes;compose;ui;qt;headless"
         RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()

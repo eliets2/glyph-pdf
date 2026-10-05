@@ -2356,6 +2356,22 @@ bool PdfEditorEngine::addImageWatermark(const ImageWatermarkOptions &options)
     return ok;
 }
 
+// §9.17/§9.18 Compose Mode: explicit page + rect image placement.
+bool PdfEditorEngine::placeImageOnPage(const QString &path, int pageIndex, const QImage &image,
+                                       const QRectF &rect, double opacity)
+{
+    QMutexLocker locker(&d->mutex);
+    d->clearErr();
+    if (!d->backend) return d->noBackend("placeImageOnPage");
+    bool ok = d->backend->placeImageOnPage(path, pageIndex, image, rect, opacity);
+    if (!ok)
+        d->setErr(ErrorInfo::Error,
+                  QObject::tr("Failed to place the image on the page. Check that the page exists and the image is a supported format."),
+                  QStringLiteral("placeImageOnPage path=\"%1\" page=%2").arg(path).arg(pageIndex),
+                  ErrorInfo::Retry);
+    return ok;
+}
+
 // ── Optimization (Session 13) ─────────────────────────────────────────────
 
 OptimizeEstimate PdfEditorEngine::estimateOptimization(const OptimizeOptions &options)

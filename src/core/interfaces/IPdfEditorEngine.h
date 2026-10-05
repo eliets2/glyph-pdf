@@ -372,6 +372,22 @@ public:
                                  int occurrence = 0) = 0;
     virtual bool addTextWatermark(const TextWatermarkOptions &options) = 0;
     virtual bool addImageWatermark(const ImageWatermarkOptions &options) = 0;
+
+    /// §9.17/§9.18 Compose Mode: place ONE image at an explicit page + rect
+    /// (PDF user space, bottom-left origin) with soft-mask transparency and
+    /// constant opacity. The image is drawn EXACTLY into `rect` — aspect-ratio
+    /// preservation is the caller's contract (ComposeMode::fittedRect), so
+    /// this op never silently stretches or letterboxes on its own.
+    /// Path-addressed (like insertPageFromBytes): `path` is the document the
+    /// mutation lands in and the write is committed to before returning.
+    /// Default: unsupported (false) — backends without the op refuse honestly.
+    virtual bool placeImageOnPage(const QString &path, int pageIndex, const QImage &image,
+                                  const QRectF &rect, double opacity = 1.0)
+    {
+        Q_UNUSED(path); Q_UNUSED(pageIndex); Q_UNUSED(image);
+        Q_UNUSED(rect); Q_UNUSED(opacity);
+        return false;
+    }
 };
 
 /// T2-2: Find & Replace — in-place text replacement over the content stream.

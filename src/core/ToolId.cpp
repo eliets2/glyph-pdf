@@ -161,6 +161,8 @@ QString toolIdToString(ToolId id) {
         { ToolId::PrepareSigningRequest, QStringLiteral("prepareSigningReq") },
         // 9.17: Ghostscript-assisted unlock
         { ToolId::UnlockGs,       QStringLiteral("unlockGs") },
+        // §9.17/§9.18: side-by-side visual composition
+        { ToolId::Compose,        QStringLiteral("compose") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -340,6 +342,8 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
                                             "signingrequest", "signrequest"});
         // 9.17: Ghostscript-assisted unlock
         add(ToolId::UnlockGs,       {"unlockGs", "unlock-gs", "unlock"});
+        // §9.17/§9.18: side-by-side visual composition
+        add(ToolId::Compose,        {"compose", "composeMode", "compose-docs"});
 
         return m;
     }();
