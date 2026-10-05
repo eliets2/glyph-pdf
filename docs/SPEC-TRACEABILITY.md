@@ -23,7 +23,11 @@ Legend: ✅ Done · 🟡 Partial · ⬜ Planned. Line numbers are indicative (cu
 | 9.14 | Accessibility — tagged-PDF reading order | 🟡 | `PdfAValidationPanel.cpp` `onCheckReadingOrder:463`, `/StructTreeRoot` walk `:413`. **Gap:** tag preservation/repair on export, screen-reader labels |
 | 9.15 | Search & navigation — full-text, thumbnails, bookmarks | 🟡 | `src/ui/FindBar.*`, `PdfViewerWidget::searchDocument`. **Gap:** regex + find-and-replace (`regex`/`findRep` in `RibbonModel.cpp:13` plannedTools) |
 | 9.16 | File import & export | ✅ | `ToolId.h` `ImportOffice:98`; `ConvertController.cpp`; `ConversionManager.cpp` |
+<<<<<<< HEAD
 | 9.17 | Ghostscript-assisted unlock (owner-password restrictions, re-distill broken protected files) | ✅ | `src/engines/GhostscriptRunner.{h,cpp}` (standard-install locator — NO PATH leg, disclose-if-absent, AGPL never vendored; bounded cancellable pdfwrite transaction through SafeSave; M-1 off-argv password channel; no-pages gate); `src/shell/controllers/SecurityController.cpp` `unlockPdf` (ribbon `unlockGs`, ToolId::UnlockGs); pins `tests/TestGhostscriptUnlock.cpp`; licensing `docs/research/ghostscript-unlock-notes.md`; evidence `docs/audit/evidence-gs-unlock/` |
+=======
+| 9.17 | Ghostscript-assisted unlock (owner-password restrictions, re-distill broken protected files) | ⬜ Planned (lane dispatched 2026-10-04) | `src/modes/UnlockController` + `src/engines/GhostscriptRunner.{h,cpp}` (external-process locator, disclose-if-absent); §9.11 unlock bullets |
+>>>>>>> 2729b70c (docs(compose): lane report + SPEC-TRACEABILITY 9.18 Done; R7 evidence logs)
 | 9.18 | Side-by-side visual composition (two PDFs, pick pages/images, compose into target, transactional save) | ✅ | `src/modes/ComposeMode.{h,cpp}` (two-pane workspace, pick model, `ComposeApplyCommand` checked-history step); `src/engines/ImageExtractEngine.{h,cpp}` (/XObject /Image inventory); `IPdfEditorEngine::placeImageOnPage` → `PoDoFoBackend` (page+rect placement, soft-mask transparency); SafeSave candidate→validate→identity-guarded commit; §9.9 `insertPageFromBytes`/`extractPageAsBytes` reuse |
 
 ## How to re-verify
