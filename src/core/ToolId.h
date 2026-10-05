@@ -192,6 +192,11 @@ enum class ToolId {
     // (same append-only rule).
     PrepareSigningRequest, // Protect ▸ Sign "Prepare Request" (ribbon "prepareSigningReq")
 
+    // ── 9.17 (2026-10-04): Ghostscript-assisted unlock ────────────────────
+    // Appended AFTER PrepareSigningRequest so existing ToolId ordinals stay
+    // stable (same append-only rule).
+    UnlockGs,          // Protect ▸ Security "Unlock PDF…" (ribbon "unlockGs")
+
     COUNT  // sentinel for array sizing — must be last
 };
 

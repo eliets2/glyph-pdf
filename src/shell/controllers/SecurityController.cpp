@@ -49,9 +49,12 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include "engines/PdfEditorEngine.h"
+#include "engines/GhostscriptRunner.h" // 9.17: Ghostscript-assisted unlock
 #include "core/PolicyController.h"  // R24(a): machine policy over signing prefs (additive)
 #include <memory>
 #include <atomic>
+#include <QtConcurrent/QtConcurrent>
+#include <QFutureWatcher>
 #include "shell/StatusBar.h"
 
 namespace gp {
@@ -384,7 +387,7 @@ QList<ToolId> SecurityController::handledTools() const {
         ToolId::ExportAnno, ToolId::ImportAnno,
         ToolId::Permissions, ToolId::RemoveSecurity, ToolId::Certify,
         ToolId::Timestamp, ToolId::PatternRedact, ToolId::RegexRedact,
-        ToolId::ExpiryDate
+        ToolId::ExpiryDate, ToolId::UnlockGs
     };
 }
 
@@ -444,6 +447,9 @@ void SecurityController::activate(ToolId id) {
         break;
     case ToolId::ExpiryDate:
         setExpiryDocument();
+        break;
+    case ToolId::UnlockGs:
+        unlockPdf();
         break;
     default:
         break;
@@ -1108,6 +1114,151 @@ void SecurityController::removeSecurity() {
     } else {
         QMessageBox::warning(_mainWindow, tr("Remove Security"), tr("Failed to remove security. Incorrect password?"));
     }
+}
+
+// ── 9.17: Ghostscript-assisted unlock (PRD §9.11 unlock bullet) ────────────
+// Ghostscript re-distillation (pdfwrite) drops owner-password restrictions AND
+// repairs structurally broken protected files in one pass — a capability the
+// in-process engines do not have (PoDoFo refuses broken files; qpdf keeps the
+// security semantics). The shape mirrors HomeController::createEncryptedPackage:
+//   resolve tool → honest pre-flight dialog (what will happen + optional
+//   password) → destination pick → SafeSave transaction off the GUI thread
+//   (bounded, cancellable; Cancel kills the process we own; the destination is
+//   never touched before the validated atomic commit).
+//
+// Disclosure discipline:
+//   * Ghostscript is NEVER bundled (AGPL — docs/research/ghostscript-
+//     unlock-notes.md §1): absence is disclosed honestly, naming the standard
+//     install locations; there is NO PATH leg (a planted gs.exe would receive
+//     the document AND the password — the same reasoning that removed the
+//     7-Zip legs in wave-2b F-02).
+//   * The dialog states what unlock does BEFORE it runs: restrictions removed,
+//     content preserved visually, metadata re-stamped, output written to a NEW
+//     file (the source is never modified). A document requiring a user
+//     password is NOT bypassable — the optional password field is for that
+//     case, delivered on the child's stdin, never on the command line (M-1).
+//   * Failures QUOTE Ghostscript's own captured output (the runner merges
+//     stdout+stderr and keeps the tail) instead of a bare exit code.
+void SecurityController::unlockPdf() {
+    auto* viewer = _mainWindow->pdfViewer();
+    if (!viewer) return;
+    const QString sourcePath = viewer->filePath();
+    if (sourcePath.isEmpty()) {
+        _mainWindow->statusBar()->showMessage(tr("No document is open."), 3000);
+        return;
+    }
+
+    // Resolution FIRST (a pure lookup — no side effects): absence is the
+    // honest-disclosure path, exactly like the encrypted-package flow.
+    const QString gs = gp::GhostscriptLocator::locate();
+    if (gs.isEmpty()) {
+        QMessageBox::warning(_mainWindow, tr("Unlock PDF"),
+                             gp::GhostscriptLocator::absenceDisclosure());
+        return;
+    }
+
+    // Honest pre-flight dialog: what unlock does + optional source password.
+    QDialog dlg(_mainWindow);
+    dlg.setWindowTitle(tr("Unlock PDF"));
+    auto* layout = new QVBoxLayout(&dlg);
+    auto* info = new QLabel(
+        tr("Ghostscript will re-write this document to remove password "
+           "restrictions and repair structural damage:\n\n"
+           "\xE2\x80\xA2 Owner-password restrictions (printing, copying, "
+           "editing) are REMOVED.\n"
+           "\xE2\x80\xA2 Content is preserved visually; the file is "
+           "re-generated, not copied byte-for-byte (metadata is re-stamped "
+           "and non-essential extras may be dropped).\n"
+           "\xE2\x80\xA2 The result is written to a NEW file — the original "
+           "is not modified.\n"
+           "\xE2\x80\xA2 A document that needs a password to OPEN is not "
+           "bypassable: enter its user password below if it has one; "
+           "otherwise leave the field empty."), &dlg);
+    info->setWordWrap(true);
+    layout->addWidget(info);
+    auto* pwdLabel = new QLabel(tr("User password (only if the document requires "
+                                   "a password to open; delivered out of the "
+                                   "command line):"), &dlg);
+    layout->addWidget(pwdLabel);
+    auto* pwdEdit = new QLineEdit(&dlg);
+    pwdEdit->setEchoMode(QLineEdit::Password);
+    layout->addWidget(pwdEdit);
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                                         &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    layout->addWidget(buttons);
+    if (dlg.exec() != QDialog::Accepted) return;
+    const QByteArray userPassword = pwdEdit->text().toUtf8();
+
+    QString outPath = QFileDialog::getSaveFileName(_mainWindow,
+        tr("Save Unlocked PDF"),
+        QFileInfo(sourcePath).completeBaseName() + QStringLiteral("-unlocked.pdf"),
+        tr("PDF Files (*.pdf)"));
+    if (outPath.isEmpty()) return;
+    if (!outPath.endsWith(QLatin1String(".pdf"), Qt::CaseInsensitive))
+        outPath += QStringLiteral(".pdf");
+
+    // P8 pattern (same as createEncryptedPackage): run off the GUI thread,
+    // bounded wait, cooperative cancel KILLS the Ghostscript process we own.
+    auto cancelFlag = std::make_shared<std::atomic<bool>>(false);
+    struct UnlockOutcome { bool ok = false; bool canceled = false; QString error; };
+
+    auto* progress = new QProgressDialog(
+        tr("Unlocking document (Ghostscript re-distillation)…"), tr("Cancel"),
+        0, 0, _mainWindow);
+    progress->setWindowModality(Qt::WindowModal);
+    progress->setMinimumDuration(500);
+    connect(progress, &QProgressDialog::canceled, progress, [cancelFlag]() {
+        cancelFlag->store(true);
+    });
+
+    auto* watcher = new QFutureWatcher<UnlockOutcome>(_mainWindow);
+    connect(watcher, &QFutureWatcher<UnlockOutcome>::finished, _mainWindow, [=]() {
+        progress->close();
+        progress->deleteLater();
+        const UnlockOutcome r = watcher->result();
+        watcher->deleteLater();
+
+        if (r.ok) {
+            _mainWindow->statusBar()->showMessage(
+                tr("Unlocked copy created: %1").arg(QFileInfo(outPath).fileName()), 5000);
+            QMessageBox box(_mainWindow);
+            box.setWindowTitle(tr("Unlock PDF"));
+            box.setIcon(QMessageBox::Information);
+            box.setText(tr("Unlocked copy created:\n%1\n\nRestrictions were removed. "
+                           "Review the copy before deleting the original.")
+                            .arg(outPath));
+            const QPushButton* openBtn = box.addButton(tr("Open the unlocked copy"),
+                                                       QMessageBox::AcceptRole);
+            box.addButton(QMessageBox::Ok);
+            box.exec();
+            if (box.clickedButton() == openBtn)
+                _mainWindow->openDocument(outPath);
+        } else if (r.canceled) {
+            _mainWindow->statusBar()->showMessage(tr("Unlock canceled."), 5000);
+            QMessageBox::information(_mainWindow, tr("Unlock PDF"),
+                tr("Unlock canceled. No file was written, and the original "
+                   "document was not modified."));
+        } else {
+            QMessageBox::warning(_mainWindow, tr("Unlock PDF"),
+                tr("Ghostscript could not unlock the document.\n\n%1\n\nThe "
+                   "original '%2' was not modified.")
+                    .arg(r.error, QFileInfo(sourcePath).fileName()));
+        }
+    });
+
+    watcher->setFuture(QtConcurrent::run([gs, sourcePath, outPath, cancelFlag,
+                                          userPassword]() -> UnlockOutcome {
+        const gp::GhostscriptRunner::UnlockResult r = gp::GhostscriptRunner::unlockPdf(
+            gs, sourcePath, outPath, userPassword, 180000,
+            [cancelFlag]() { return cancelFlag->load(); });
+        UnlockOutcome o;
+        o.ok = r.ok;
+        o.canceled = r.canceled;
+        o.error = r.error;
+        return o;
+    }));
 }
 
 void SecurityController::certifyDocument() {

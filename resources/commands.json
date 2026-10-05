@@ -3482,6 +3482,15 @@
    "status": "toolid",
    "toolId": "Undo"
   },
+  "unlockGs": {
+   "action": "dlg:S72",
+   "description": "Remove owner-password restrictions with Ghostscript re-distillation; needs Ghostscript installed locally.",
+   "icon": "lock_open",
+   "label": "Unlock PDF",
+   "name": "Unlock PDF (Ghostscript)",
+   "status": "toolid",
+   "toolId": "UnlockGs"
+  },
   "validateSig": {
    "action": "pane:signatures",
    "description": "Check every signature: integrity, signer trust, timestamp and revocation.",

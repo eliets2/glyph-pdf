@@ -108,6 +108,14 @@ private:
     void certifyDocument();
     void timestampDocument();
     void setExpiryDocument();
+    // 9.17: Ghostscript-assisted unlock (Security ▸ "Unlock PDF…"). Discloses
+    // Ghostscript's absence honestly (standard-install locations, no PATH
+    // leg), explains what re-distillation does before running, accepts an
+    // OPTIONAL user password (delivered off the command line — @response-file
+    // expansion + stdin pipe, never argv), and runs the SafeSave transaction
+    // off the GUI thread with cancellable progress. Failures quote
+    // Ghostscript's own captured output.
+    void unlockPdf();
 
     // §9.7 P1: capture of ONE signing/certifying request (defined in the .cpp)
     // — everything runSigning() needs to RE-RUN the exact same crypto

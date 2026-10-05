@@ -159,6 +159,8 @@ QString toolIdToString(ToolId id) {
         { ToolId::CertEncrypt,    QStringLiteral("certEncrypt") },
         // R26: send-for-signing workflow
         { ToolId::PrepareSigningRequest, QStringLiteral("prepareSigningReq") },
+        // 9.17: Ghostscript-assisted unlock
+        { ToolId::UnlockGs,       QStringLiteral("unlockGs") },
     };
     return map.value(id, QStringLiteral("unknown"));
 }
@@ -336,6 +338,8 @@ std::optional<ToolId> toolIdFromString(const QString& str) {
         // R26: send-for-signing workflow
         add(ToolId::PrepareSigningRequest, {"prepareSigningReq", "prepare-signing-request",
                                             "signingrequest", "signrequest"});
+        // 9.17: Ghostscript-assisted unlock
+        add(ToolId::UnlockGs,       {"unlockGs", "unlock-gs", "unlock"});
 
         return m;
     }();
