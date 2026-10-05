@@ -445,6 +445,7 @@ add_library(pdfws_engines STATIC
     src/engines/DiffEngine.h           src/engines/DiffEngine.cpp
     src/engines/MyersDiff.h            src/engines/MyersDiff.cpp
     src/engines/VeraPdfValidator.h     src/engines/VeraPdfValidator.cpp
+    src/engines/GhostscriptRunner.h    src/engines/GhostscriptRunner.cpp
     src/engines/scheduling/ILaneScheduler.h
     src/engines/scheduling/LaneScheduler.h  src/engines/scheduling/LaneScheduler.cpp
     src/engines/scheduling/PipelineStage.h
@@ -4931,6 +4932,29 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestEncryptedPackageSafeWrite.cpp")
         RESOURCE_LOCK GlyphpdfCandidates
     )
 endif()
+
+# ── TestGhostscriptUnlock (9.17 — Ghostscript-assisted unlock) ──────────────
+# Resolution pins (standard-install scan, honest absence), argv-shape pins
+# (never a secret in argv — M-1; -dSAFER always present) against a re-exec'd
+# fake tool, and REAL end-to-end legs against the installed Ghostscript
+# (QSKIP-honest when absent — Ghostscript is NEVER vendored: AGPL,
+# docs/research/ghostscript-unlock-notes.md).
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestGhostscriptUnlock.cpp")
+    add_executable(TestGhostscriptUnlock
+        tests/TestGhostscriptUnlock.cpp
+    )
+    target_include_directories(TestGhostscriptUnlock PRIVATE src tests)
+    find_package(ZLIB REQUIRED)
+    target_link_libraries(TestGhostscriptUnlock PRIVATE
+        pdfws_engines pdfws_core
+        Qt6::Test Qt6::Widgets podofo::podofo ZLIB::ZLIB
+    )
+    add_test(NAME TestGhostscriptUnlock COMMAND TestGhostscriptUnlock)
+    set_tests_properties(TestGhostscriptUnlock PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" TIMEOUT 300 LABELS "unit;security;unlock;ghostscript;qt;headless"
+        RESOURCE_LOCK GlyphpdfCandidates
+    )
+endif()
+
 
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestPrintJob.cpp")
     add_executable(TestPrintJob
