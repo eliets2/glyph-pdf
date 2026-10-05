@@ -155,6 +155,23 @@ No PoDoFo, directly unit-tested, all hermetic:
    `-Werror=shadow` build break in the new test lambda (local `byte` shadowing rpcndr.h's
    typedef) renamed to `octet`. Test-side only.
 
+5. **Pre-existing product bug fixed en route (out-of-mission drive-by, fully probed).**
+   The first full-gate run failed on **TestOfficeImport (Timeout 120.04 s)** — a feature
+   area this lane never touches. Isolation re-run reproduced it (not a flake), and the A/B
+   probes in `evidence-fs-cff/soffice-probes.md` root-caused a latent product bug:
+   `ConversionManager::convertOfficeToPdf` launched soffice with `--env:UserInstallation=…`
+   (double dash). LibreOffice bootstrap variables accept ONLY the single-dash `-env:` form;
+   the double-dash spelling is silently ignored, so soffice has ALWAYS used the shared
+   default profile instead of the intended private temp one — the private-profile isolation
+   (the code's own stated purpose) never worked. With this machine's default profile in a
+   blocking state (it changed between yesterday's green endgame and today), the conversion
+   stalls to the 120 s timeout. Controlled A/B on the same fresh profile seconds apart:
+   `-env` converts in 2.6 s, `--env` hangs past 45 s. Fixed with one token plus a comment
+   (`"-env:UserInstallation="`), rebuild BUILD_RC=0, TestOfficeImport **Passed 7.86 s**
+   (`pass-officeimport-postfix.log`), full gate re-run to green. Committed separately
+   (`fix(conversion)`) for honest attribution. Unlike bugs 2–4 this one HAD shipped — it is
+   older than the lane; the fix is honest-attributed, not part of the CFF feature.
+
 Bugs 2–4 never shipped anywhere (found before any commit of this lane); the implementation
 itself needed no behavior fix during R7 — every failure traced to a fixture/pin defect.
 
@@ -177,23 +194,8 @@ Recorded in `docs/audit/evidence-fs-cff/full-serial-suite2.log` (ctest, all test
 `Disabled` excluded): **202/202 passed, 0 failed (FULL_RC=0)**, 2 pre-existing `Disabled`
 probes (R14ProbeRedactSpace, R14ProbeBatchSkip), 433.55 s real. The first gate run
 (`full-serial-suite.log`) was **201/202** with TestOfficeImport timing out at 120.04 s —
-root-caused and fixed, see §3.5.
+root-caused and fixed, see §3 item 5.
 
-### 3.5 Pre-existing bug fixed en route (out-of-mission drive-by, fully probed)
-
-The first full-gate run failed on **TestOfficeImport (Timeout 120.04 s)** — a feature area
-this lane never touches. Isolation re-run reproduced it (not a flake), and the A/B probes in
-`evidence-fs-cff/soffice-probes.md` root-caused a **latent product bug**:
-`ConversionManager::convertOfficeToPdf` launched soffice with `--env:UserInstallation=…`
-(double dash). LibreOffice bootstrap variables accept ONLY the single-dash `-env:` form;
-the double-dash spelling is silently ignored, so soffice has ALWAYS used the shared default
-profile instead of the intended private temp one — the private-profile isolation (the code's
-own stated purpose) never worked. With this machine's default profile in a blocking state
-(it changed between yesterday's green endgame and today), the conversion stalls to the 120 s
-timeout. Controlled A/B on the same fresh profile seconds apart: `-env` converts in 2.6 s,
-`--env` hangs past 45 s. Fixed with one token plus a comment (`"-env:UserInstallation="`),
-rebuild BUILD_RC=0, TestOfficeImport **Passed 7.86 s** (`pass-officeimport-postfix.log`),
-full gate re-run to green. Committed separately (`fix(conversion)`) for honest attribution.
 
 ## 6. Files
 
