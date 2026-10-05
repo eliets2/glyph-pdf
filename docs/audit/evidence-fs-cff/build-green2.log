@@ -1,0 +1,95 @@
+[1/26] Linking CXX executable TestSep13LeadRedactionProof.exe; Deploying qoffscreen platform plugin for TestSep13LeadRedactionProof
+lto-wrapper.exe: warning: using serial compilation of 25 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[2/26] Linking CXX executable R14ProbeRedactSpace.exe; Deploying qoffscreen platform plugin for R14ProbeRedactSpace
+lto-wrapper.exe: warning: using serial compilation of 25 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[3/26] Linking CXX executable R14ProbeSep13Fixes-r2.exe; Deploying qoffscreen platform plugin for R14ProbeSep13Fixes
+lto-wrapper.exe: warning: using serial compilation of 34 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[4/26] Linking CXX executable TestSep13LeadBtDowngrade.exe; Deploying podofo 1.1.0 DLL for TestSep13LeadBtDowngrade; Deploying qoffscreen platform plugin for TestSep13LeadBtDowngrade
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[5/26] Linking CXX executable TestSep13LeadComparePerf.exe; Deploying qoffscreen platform plugin for TestSep13LeadComparePerf
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[6/26] Linking CXX executable TestSweepW1PresetAdversary.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[7/26] Linking CXX executable TestSweepW1SigningAdversary.exe; Deploying podofo 1.1.0 DLL for TestSweepW1SigningAdversary
+lto-wrapper.exe: warning: using serial compilation of 6 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[8/26] Linking CXX executable TestSweepW1SummaryPolicyAdversary.exe; Deploying podofo 1.1.0 DLL for TestSweepW1SummaryPolicyAdversary
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[9/26] Linking CXX executable TestPersistenceOutcomes.exe; Deploying qoffscreen platform plugin for TestPersistenceOutcomes
+lto-wrapper.exe: warning: using serial compilation of 118 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[10/26] Linking CXX executable W2BProbeNaming.exe; Deploying podofo 1.1.0 DLL for W2BProbeNaming
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[11/26] Linking CXX executable TestSweepW1SecProbe.exe; Deploying podofo 1.1.0 DLL for TestSweepW1SecProbe
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[12/26] Linking CXX executable W2BProbeSigning.exe; Deploying podofo 1.1.0 DLL for W2BProbeSigning; Deploying qoffscreen platform plugin for W2BProbeSigning
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[13/26] Linking CXX executable W2BProbeSummaryPolicy.exe; Deploying podofo 1.1.0 DLL for W2BProbeSummaryPolicy; Deploying qoffscreen platform plugin for W2BProbeSummaryPolicy
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[14/26] Linking CXX executable W2BProbeA11y.exe; Deploying podofo 1.1.0 DLL for W2BProbeA11y; Deploying qoffscreen platform plugin for W2BProbeA11y
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[15/26] Linking CXX executable W2BProbeOfficeSave.exe; Deploying podofo 1.1.0 DLL for W2BProbeOfficeSave; Deploying qoffscreen platform plugin for W2BProbeOfficeSave
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[16/26] Linking CXX executable W2BProbeLegacySpace.exe; Deploying podofo 1.1.0 DLL for W2BProbeLegacySpace; Deploying qoffscreen platform plugin for W2BProbeLegacySpace
+lto-wrapper.exe: warning: using serial compilation of 9 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[17/26] Linking CXX executable TestRotate270PageSpace.exe; Deploying podofo 1.1.0 DLL for TestRotate270PageSpace
+lto-wrapper.exe: warning: using serial compilation of 12 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[18/26] Linking CXX executable R14ProbeBatchSkip.exe; Deploying podofo 1.1.0 DLL for R14ProbeBatchSkip
+lto-wrapper.exe: warning: using serial compilation of 33 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[19/26] Linking CXX executable TestGsdW2Probe.exe; Deploying podofo 1.1.0 DLL for TestGsdW2Probe
+lto-wrapper.exe: warning: using serial compilation of 44 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[20/26] Linking CXX executable W2CProbeRotate270.exe; Deploying podofo 1.1.0 DLL for W2CProbeRotate270; Deploying qoffscreen platform plugin for W2CProbeRotate270
+lto-wrapper.exe: warning: using serial compilation of 33 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[21/26] Linking CXX executable TestPgr37PageSpaceLaw.exe; Deploying qoffscreen platform plugin for TestPgr37PageSpaceLaw
+lto-wrapper.exe: warning: using serial compilation of 21 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[22/26] Linking CXX executable TestPgr35BatchCollision.exe
+lto-wrapper.exe: warning: using serial compilation of 32 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[23/26] Linking CXX executable TestPgr36StaleSigningPanel.exe
+lto-wrapper.exe: warning: using serial compilation of 79 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[24/26] Linking CXX executable TestCommandRegistry.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[25/26] Staging runtime DLLs into build dir
+[26/26] Linking CXX executable TestFileHandleCoordination.exe
+lto-wrapper.exe: warning: using serial compilation of 120 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-fs-cff/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+BUILD_RC=0

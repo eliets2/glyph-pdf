@@ -1,0 +1,27 @@
+Test project D:/pdf/pdf-fs-cff/build-rel
+    Start 174: TestOfficeImport
+1/1 Test #174: TestOfficeImport .................***Timeout 120.03 sec
+********* Start testing of TestOfficeImport *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestOfficeImport::initTestCase()
+PASS   : TestOfficeImport::testImagesToPdf_threePages()
+QWARN  : TestOfficeImport::testImagesToPdf_emptyList() convertImagesToPdf: no input images provided
+PASS   : TestOfficeImport::testImagesToPdf_emptyList()
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+convert     = 120.03 sec*proc (1 test)
+headless    = 120.03 sec*proc (1 test)
+images      = 120.03 sec*proc (1 test)
+import      = 120.03 sec*proc (1 test)
+office      = 120.03 sec*proc (1 test)
+qt          = 120.03 sec*proc (1 test)
+unit        = 120.03 sec*proc (1 test)
+
+Total Test time (real) = 120.04 sec
+
+The following tests FAILED:
+	174 - TestOfficeImport (Timeout)                        convert headless images import office qt unit
+Errors while running CTest

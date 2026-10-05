@@ -1,0 +1,7 @@
+[1/5] Staging runtime DLLs into build dir
+[2/5] Automatic MOC and UIC for target TestFontSubset
+[3/4] Building CXX object CMakeFiles/TestFontSubset.dir/tests/TestFontSubset.cpp.obj
+[4/4] Linking CXX executable TestFontSubset.exe; Deploying podofo 1.1.0 DLL for TestFontSubset
+lto-wrapper.exe: warning: using serial compilation of 24 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+BUILD_RC=0

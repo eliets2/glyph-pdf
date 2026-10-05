@@ -1,0 +1,78 @@
+Test project D:/pdf/pdf-fs-cff/build-rel
+    Start 28: TestFontSubset
+1/1 Test #28: TestFontSubset ...................***Failed    0.85 sec
+********* Start testing of TestFontSubset *********
+Config: Using QtTest library 6.11.0, Qt 6.11.0 (x86_64-little_endian-llp64 shared (dynamic) release build; by GCC 16.1.0), windows 11
+PASS   : TestFontSubset::initTestCase()
+PASS   : TestFontSubset::sfntDirectoryRejectsCollectionsAndCff()
+PASS   : TestFontSubset::blankingPreservesNumberingAndKeptGlyphs()
+PASS   : TestFontSubset::compositeClosurePullsComponentChain()
+QDEBUG : TestFontSubset::roundTripCidFontType2PreservesUsedAndBlanksUnused() subsetDocumentFonts: eligible 1 subsetted 1 bytesSaved 427253 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::roundTripCidFontType2PreservesUsedAndBlanksUnused()
+QDEBUG : TestFontSubset::cidToGidMapStreamIsHonored() subsetDocumentFonts: eligible 1 subsetted 1 bytesSaved 427253 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::cidToGidMapStreamIsHonored()
+QDEBUG : TestFontSubset::simpleTrueTypeBuiltinCmapRoundTrip() subsetDocumentFonts: eligible 1 subsetted 1 bytesSaved 428023 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::simpleTrueTypeBuiltinCmapRoundTrip()
+QDEBUG : TestFontSubset::compositeGlyphComponentSurvivesViaClosure() subsetDocumentFonts: font program skipped — "its canvas stream could not be parsed — glyph usage cannot be proven"
+QDEBUG : TestFontSubset::compositeGlyphComponentSurvivesViaClosure() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 1 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::compositeGlyphComponentSurvivesViaClosure()
+QDEBUG : TestFontSubset::unparseableCffProgramIsLeftUntouched() subsetDocumentFonts: font program skipped — "a shown CID cannot be proven through the CFF charset (the program is not CID-keyed, or the CID has no glyph)"
+QDEBUG : TestFontSubset::unparseableCffProgramIsLeftUntouched() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 1 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::unparseableCffProgramIsLeftUntouched()
+PASS   : TestFontSubset::cffLayoutParsesSyntheticFonts()
+PASS   : TestFontSubset::cffBlankingPreservesNumberingAndKeptBytes()
+QDEBUG : TestFontSubset::roundTripCidFontType0CPreservesUsedAndBlanksUnused() subsetDocumentFonts: eligible 1 subsetted 1 bytesSaved 21 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::roundTripCidFontType0CPreservesUsedAndBlanksUnused()
+QDEBUG : TestFontSubset::simpleCffBuiltinEncodingRoundTrip() subsetDocumentFonts: eligible 1 subsetted 1 bytesSaved 27 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::simpleCffBuiltinEncodingRoundTrip()
+QDEBUG : TestFontSubset::openTypeWrapperCffRoundTrip() subsetDocumentFonts: eligible 1 subsetted 1 bytesSaved 10 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+FAIL!  : TestFontSubset::openTypeWrapperCffRoundTrip() 'std::memcmp(otto.constData() + span.first, program.constData() + outSpan.first, span.second - span.first) == 0' returned FALSE. ()
+D:/pdf/pdf-fs-cff/tests/TestFontSubset.cpp(1953) : failure location
+QDEBUG : TestFontSubset::nonCidKeyedCffUnderType0IsUntouched() subsetDocumentFonts: font program skipped — "a shown CID cannot be proven through the CFF charset (the program is not CID-keyed, or the CID has no glyph)"
+QDEBUG : TestFontSubset::nonCidKeyedCffUnderType0IsUntouched() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 1 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::nonCidKeyedCffUnderType0IsUntouched()
+QDEBUG : TestFontSubset::simpleCffNamedEncodingIsUntouched() subsetDocumentFonts: font program skipped — "simple font with a named /Encoding — code-to-glyph mapping cannot be proven"
+QDEBUG : TestFontSubset::simpleCffNamedEncodingIsUntouched() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 1 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::simpleCffNamedEncodingIsUntouched()
+QDEBUG : TestFontSubset::cffSeacCharstringSkipsFont() subsetDocumentFonts: font program skipped — "malformed Type 2 charstring"
+QDEBUG : TestFontSubset::cffSeacCharstringSkipsFont() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 1 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::cffSeacCharstringSkipsFont()
+QDEBUG : TestFontSubset::cffSubFontMatrixIsUntouched() subsetDocumentFonts: font program skipped — "the font dict carries a non-default /FontMatrix — a sub-FontMatrix transform is not modeled"
+QDEBUG : TestFontSubset::cffSubFontMatrixIsUntouched() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 1 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::cffSubFontMatrixIsUntouched()
+QDEBUG : TestFontSubset::corruptCffProgramSkipsSafely() subsetDocumentFonts: font program skipped — "a shown CID cannot be proven through the CFF charset (the program is not CID-keyed, or the CID has no glyph)"
+QDEBUG : TestFontSubset::corruptCffProgramSkipsSafely() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 1 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::corruptCffProgramSkipsSafely()
+QDEBUG : TestFontSubset::type1ProgramIsLeftUntouched() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 1 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::type1ProgramIsLeftUntouched()
+QDEBUG : TestFontSubset::corruptFontProgramSkipsSafely() subsetDocumentFonts: font program skipped — "not a parseable single TrueType sfnt (collection or CFF)"
+QDEBUG : TestFontSubset::corruptFontProgramSkipsSafely() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 0 corrupt 1 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::corruptFontProgramSkipsSafely()
+QDEBUG : TestFontSubset::signedDocumentClaimsNoSubsetSavings() validateSignatures: field "Signature1" ByteRange: 0 562293 627831 2064
+QDEBUG : TestFontSubset::signedDocumentClaimsNoSubsetSavings() CMS DER size: 32768 first 8 bytes: "3082052f06092a86"
+QDEBUG : TestFontSubset::signedDocumentClaimsNoSubsetSavings() extractOcspFromDss: catalog keys: false
+QDEBUG : TestFontSubset::signedDocumentClaimsNoSubsetSavings() extractOcspFromDss: DSS not found or not dictionary
+PASS   : TestFontSubset::signedDocumentClaimsNoSubsetSavings()
+QDEBUG : TestFontSubset::ambiguousEncodingSimpleFontClaimsNothing() subsetDocumentFonts: font program skipped — "simple font with a named /Encoding — code-to-glyph mapping cannot be proven"
+QDEBUG : TestFontSubset::ambiguousEncodingSimpleFontClaimsNothing() subsetDocumentFonts: eligible 0 subsetted 0 bytesSaved 0 | skips: signed 0 cff 0 cffUnsupported 0 fontMatrix 0 type1 0 type3 0 unknownUsage 0 encodingAmbiguous 1 corrupt 0 unsupportedStream 0 alreadySubset 0 noGain 0
+PASS   : TestFontSubset::ambiguousEncodingSimpleFontClaimsNothing()
+PASS   : TestFontSubset::cleanupTestCase()
+Totals: 23 passed, 1 failed, 0 skipped, 0 blacklisted, 741ms
+********* Finished testing of TestFontSubset *********
+
+
+0% tests passed, 1 tests failed out of 1
+
+Label Time Summary:
+compression    =   0.85 sec*proc (1 test)
+fontsubset     =   0.85 sec*proc (1 test)
+headless       =   0.85 sec*proc (1 test)
+qt             =   0.85 sec*proc (1 test)
+regression     =   0.85 sec*proc (1 test)
+unit           =   0.85 sec*proc (1 test)
+
+Total Test time (real) =   0.86 sec
+
+The following tests FAILED:
+	 28 - TestFontSubset (Failed)                           compression fontsubset headless qt regression unit
+Errors while running CTest
