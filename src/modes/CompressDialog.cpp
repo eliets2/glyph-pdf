@@ -175,9 +175,9 @@ CompressDialog::CompressDialog(const AppContext* ctx, QWidget* parent)
     _chkDedup->setChecked(true);
     af->addWidget(_chkDedup, 1, 0);
 
-    // Font-subsetting plan §5.1 (route A landed): the subset pass is
-    // implemented for TrueType /FontFile2 programs, so the checkbox is
-    // ENABLED for real — default UNCHECKED (it mutates font programs; the
+    // Font-subsetting plan §5.1 (route A + CFF follow-up landed): the subset
+    // pass is implemented for TrueType and CFF font programs, so the checkbox
+    // is ENABLED for real — default UNCHECKED (it mutates font programs; the
     // user opts in) with the SCOPE disclosure as tooltip/status tip instead
     // of the retired R12 unavailability label. The wording comes from the
     // CapabilityRegistry probe when one is present (an Available capability

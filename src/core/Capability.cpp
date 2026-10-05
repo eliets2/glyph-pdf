@@ -24,17 +24,19 @@ namespace gp {
 // MRC fallback) delegate to / match these strings so the existing test anchors
 // keep their exact user-visible wording.
 
-// Font-subsetting plan §5.1 (route A landed): the canonical scope disclosure —
-// what the subset pass does and exactly which fonts it leaves untouched. The
-// former R12 string ("does not implement font subsetting or unused-object
-// removal") was retired: BOTH halves are implemented now (sweep 21a387c,
-// subsetter feat/font-subset-tt).
+// Font-subsetting plan §5.1 (route A landed; CFF follow-up landed): the
+// canonical scope disclosure — what the subset pass does and exactly which
+// fonts it leaves untouched. The former R12 string ("does not implement font
+// subsetting or unused-object removal") was retired: BOTH halves are
+// implemented now (sweep 21a387c, subsetter feat/font-subset-tt; CFF lane
+// feat/fs-cff).
 QString subsetFontsScopeDisclosure()
 {
-    return QObject::tr("Subsets embedded TrueType font programs (/FontFile2): "
-                       "unused glyphs are blanked while glyph numbering is "
-                       "preserved, so text and layout never change. Fonts in "
-                       "CFF, Type1 and OpenType programs, fonts whose glyph "
+    return QObject::tr("Subsets embedded TrueType and CFF font programs "
+                       "(/FontFile2, /FontFile3 Type1C and CIDFontType0C, and "
+                       "OpenType-wrapped CFF): unused glyphs are blanked while "
+                       "glyph numbering is preserved, so text and layout never "
+                       "change. Fonts in Type1 programs, fonts whose glyph "
                        "usage cannot be proven, and signed documents are left "
                        "untouched.");
 }
