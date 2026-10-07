@@ -113,3 +113,36 @@ GlyphPDF inventory: modes/shell/themes/a11y files (this repo) + LANE-REPORT-r4-u
 LANE-REPORT-litems-2026-10-05. PrintCraft: github.com/storytold/pdfcraft (README, ROADMAP,
 AGENTS.md, crates/ui-egui/src/chrome.rs, crates/automation, apps/pdfcraft-cli), issue #129,
 PR #174, getartcraft.com, AUR printcraft, HN/Gigazine coverage.
+
+## Screen-by-screen: the TaskNav strip vs PdfCraft's surfaces
+
+GlyphPDF's mode strip carries 14 persistent task screens (STANDARD, OCR VERIFY, REDACTION,
+SIGNATURES, MEASURE, COMPARE, PAGES, BATCH, AI CHAT, FORM BUILDER, COMPRESS, PDF/A,
+ACCESSIBILITY, WATERMARK). PdfCraft's mode bar has five tabs (All tools | Read | Edit |
+Convert | E-Sign) and flattens most professional tasks into dialogs over a single reader.
+Screen-by-screen, what our layouts would add:
+
+| Our screen | Layout (and why) | PdfCraft today | What our layout adds |
+|---|---|---|---|
+| STANDARD | Full viewer; 4 layouts; painted night-mode; rotate fallback with named disclosure; view-layer signature badges | Reader with tiled zoom, reading-order selection, form-field infobar (strong) | The disclosure discipline: engine limitations named on the surface (rotated fallback accessibleDescription), validity badges never serialized |
+| OCR VERIFY | 4-pane splitter: page list \| source scan + confidence overlay \| RECOGNIZED·PREVIEW \| zoom word crop; ReviewState lifecycle (no stuck Run) | OCR dialog/flow only — Latin searchable-image, batch files; **no correction screen** | The entire professional correction workstation: simultaneous source/text/zoom comparison, honest pane labels, review lifecycle |
+| REDACTION | Marks placed on the live canvas; pattern pills + danger-variant Apply; config panel below; exit leaves marks recoverable | Redact dialog: mark + Search & Redact + verification (strong) | Canvas-centered placement (theirs is dialog-first), in-process "local-only" disclosure on the surface, marks-recoverable exit semantics |
+| SIGNATURES | Right dock over the live document — place-while-viewing; DIGITAL ID card; view-layer badges | Sign dialog + macOS Keychain; missing timestamps/LTV | Panel-not-mode hosting: the page stays center so placement is visual; badge state in the mode strip |
+| MEASURE | Right dock: calibration presets/custom, snap, live readouts; uncalibrated = pt, disclosed | **No measure tool** | The whole screen; plus the honesty contract (calibration session-only, measurements persist as /Measure) |
+| COMPARE | Side-by-side CompareWidget, linked scroll on-by-default, PREV/NEXT change nav, 5 change-type filter toggles, overlay, export | Text diff + PDF report + mark-as-comments; **no side-by-side view** | The visual comparison surface: synchronized panes + filterable change tree; their text report complements it |
+| PAGES | 3-pane: page grid (stretch) \| split form 280 \| reorder 220; atomic drag permutation shared with keyboard; split filename preview | Organize card grid + multi-select + contextual toolbar (strong; split preview) | Keyboard-parity reorder + the undo-coupled grid (any undo anywhere reloads selection); both sides preview-first |
+| BATCH | Queue UI: input panel 280 \| operation panel with progress + log pinned bottom; hot folder | Batch OCR files only | The full batch screen (convert/OCR/compress/watermark/redact/merge) with persistent per-item log |
+| AI CHAT | 340px toggle dock, never takes the canvas | JS console; MCP; **no assistant surface** | Side-channel assistant hosting pattern |
+| FORM BUILDER | 10 field pills → fields list \| live canvas \| properties; tab-order Apply mirrors read-only authority | Prepare-a-form authoring + fill + JS engine (strong) | Calculated-field UI, tab-order editor over the live canvas, properties-dock hosting |
+| COMPRESS | Preset-card modal (560×580), honesty estimator | Reduce File Size + PDF Optimizer + space audit (their audit is stronger) | Preset-card UX + the new real engines (color-managed CMYK, TrueType+CFF subsetting — now genuine reductions, honestly estimated) |
+| PDF/A | Right dock VeraPDF-backed validator + reading-order walk + truncation disclosures | pdfa_convert/verify CLI tools; **no panel** | The validation panel with identity-checked refresh (verdicts attach to the displayed file) |
+| ACCESSIBILITY | Right dock checker + Tag preflight + honesty contract in the header; HC theme; offscreen a11y pins | Checker w/ 32 rules + alt-text; **no Tags/Reading-Order panels, no keyboard-only** | The panels they name as missing, plus the a11y-as-build-gate system |
+| WATERMARK | WatermarkDialog | Watermark/background in Edit content | Parity |
+
+**The meta-enhancement: the strip itself.** One static TaskNav table drives three nav
+surfaces (bottom strip, Tools menu, tool↔screen sync) with one declared kind per task
+(Standard / Workspace / Panel / Dialog / Toggle). PdfCraft's five-tab bar flattens
+professional tasks into dialogs; a per-task kind means an OCR entry *is* the OCR screen,
+signatures stay a dock over the live page, and compress stays a dialog — each task gets
+the layout its workflow needs. Adding a 14-screen strip (and the one-table rule that
+keeps it honest) is the single structural upgrade we would hand them.
