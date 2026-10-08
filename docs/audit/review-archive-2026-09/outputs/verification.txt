@@ -1,0 +1,26 @@
+Audit commit: 703fa34ece32733ea3b2093da94fa1aed94e1afc
+Fresh Debug build: 530 steps completed.
+CTest: 84/84 targets passed; 7.31 seconds.
+
+OCR / endpoint probe:
+Binarization white paper pixel: input= 255 output= 0
+Deskew on 3-degree tilted text: angle= 0 imageUnchanged= true
+Error in pixFindSkew: pixs not 1 bpp
+Endpoint http://127.0.0.1:11434 allowed= true
+Endpoint http://127.audit.invalid:11434 allowed= true
+N-1: Blocked cleartext HTTP endpoint to non-loopback host: "remote.invalid"
+Endpoint http://remote.invalid:11434 allowed= false
+
+Engine probe:
+PDFium source text=Shared first page
+Export out.docx: success=1 prefix=3c68746d6c3e3c626f64793e3c703e000120000220000320000420000520000620000720000820000920000420000d0a20000b20000720000c200003
+Export out.xlsx: success=1 prefix=220001222c220002222c220003222c220004222c220005222c220006222c220007222c220008222c220009222c220004222c22000d0a222c22000b22
+Compare appended page: pageCounts=1/2 pagesCompared=1 addedWords=0 removedWords=0 pixelDiff=0 moves=0
+Error adding text field: PdfErrorCode::InvalidNumber, A number was expected but not found.
+Callstack:t#0 Error Source: private/PdfParserObject.cpp(341), Information: Object and generation number cannot be read
+t#1 Error Source: main/PdfTokenizer.cpp(201), Information: Could not read number
+Add field to same Qt PDF: success=0 sizeBefore=15257 sizeAfter=0
+Added text field "field" on page 0
+Add field with separate output: success=1
+
+Initial validation required environment key normalization, access to test-only Windows settings, and staging the sibling Djot Lua fixture directory. See the audit for limits and code-traced findings.

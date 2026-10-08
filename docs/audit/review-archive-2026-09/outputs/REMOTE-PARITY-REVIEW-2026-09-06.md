@@ -1,0 +1,127 @@
+# GlyphPDF fetched-branch review — 6 September 2026
+
+Historical snapshot at `4761443`. The [7 September update review](C:/Users/User/Documents/Codex/2026-09-05/read-c-users-user-projects-pdf/outputs/UPDATE-QUALITY-REVIEW-2026-09-07.md) supplies the current assessment at `95676e6`, including new failures and revised picker acceptance. This report retains its original evidence and D06/D07 instructions.
+
+**The fetched branch builds and passed all 101 CTest suites on the diagnostic rerun, but several package acceptance contracts still fail.** All 12 R packages and all eight distinct U packages now have committed implementations. U08 and signature-field anchoring are included in this review. Implementation is not equivalent to independent acceptance.
+
+`git fetch origin` completed successfully. The reviewed remote was pinned to **`origin/feat/parity-glm` at `4761443278750390c36dec0c1fe77cde775ced20`**. The baseline is `main` at `703fa34ece32733ea3b2093da94fa1aed94e1afc`. The requested two-dot tree comparison, `main..origin/feat/parity-glm`, contains 120 changed files, 21,154 insertions and 1,814 deletions. The archived diff uses those exact hashes, so later branch movement cannot change this assessment.
+
+This report follows every unique row in `docs/audit/CURRENT-EVIDENCE-LEDGER-2026-09-05.md`: 12 repair rows, 16 selected July rows, eight UI packages, E-1 and Q02. Its duplicate U07 entries are assessed once. This review did not edit or merge source checkouts. Concurrent tracked and untracked work appeared in `pdf-parity` during the review; it is excluded from the pinned snapshot and must be reviewed at its own committed revision. The installed application was not used as evidence; reinstall and live UI review remain deferred as requested.
+
+## Build and evidence
+
+- Built the application and all registered test targets from an isolated archive of the fetched commit: **609 build steps, exit 0**. Configuration: GCC 16.1, Qt 6.11, CMake/Ninja, Debug with `-g0`, existing vendored PoDoFo/PDFium/ONNX Runtime, and the detected Tesseract-enabled configuration.
+- Used the three untracked vendor binary trees documented by `05a3336`. The PoDoFo install and PDFium trees also supplied their matching headers/import libraries. This avoided the unrelated MSYS2 PoDoFo fallback/API mismatch and missing-DLL failures.
+- Initial full run: **99/101 passed in 65.06 seconds**. `TestBatchMode` and `TestFormSafety` failed without useful captured Qt output. Both passed individually when diagnostic file output was enabled.
+- Diagnostic full rerun: **101/101 passed in 34.69 seconds**. Only output-file arguments in the isolated generated CTest registration were temporarily added; the original registration was restored. No production source or test assertions were changed. The initial failures' cause remains unconfirmed; do not attribute them to another session's build hook without evidence.
+- Detailed Qt logs were collected for 33 relevant suites. They expose **three skipped RapidOCR model/recognition cases**. These models were not present, so real RapidOCR recognition is not independently accepted. Qt `Totals` include setup/cleanup entries; they are not counts of distinct feature requirements.
+- Independent probes against this same commit reproduced failed undo history, collapsed table columns, false structural comparison changes, broken sanitize retry, misplaced OCR overlays, and false RapidOCR availability. A separate no-Tesseract syntax check failed. These failures are outside the green CTest assertions.
+- No sanitizer run, alternate complete dependency build matrix, external Office application round-trip, or live UI acceptance is claimed.
+
+The [evidence archive](C:/Users/User/Documents/Codex/2026-09-05/read-c-users-user-projects-pdf/outputs/remote-parity-review-evidence-2026-09-06.zip) contains the pinned ledger/diff, manifest, build and both full-test logs, detailed Qt results, independent probe sources and outputs, and disposable PDF/CSV/XLSX fixtures. It excludes vendor binaries and private documents.
+
+## Independent row-by-row decisions
+
+**Verified** below means independent source/caller and acceptance-evidence review supports the stated row contract in the tested configuration. It does not mean complete feature parity or unrestricted release certification. **Partial** means implemented behavior has a known failing contract or an explicit acceptance gap. **Implemented-awaiting-review** means the code and automated checks are present but required acceptance, particularly live UI checks, remains deferred. These are recommended ledger dispositions; the repository ledger was not edited automatically.
+
+### September repair packages
+
+| Row | Independent disposition | Evidence and remaining acceptance |
+|---|---|---|
+| F01/R01 — safe form writes | **Partial** | `FormManager`/`SafeSave` and `TestFormSafety` support same-file add, reopen, injected write failures and mutator preservation. The controller import path still reloads the temporary filename before deleting/self-renaming it: V01. Keep the initial unexplained suite failure in Q02. |
+| F09/R02 — form undo | **Partial** | `readFieldSnapshot`/`applyFieldSnapshot` restore empty and nonempty field states; `TestFormUndo` passes. Independent commit-failure probe moves undo index 1→0 while the edited value remains and `canUndo=false`: V02. Auto-detect also bypasses the stack: V06. |
+| F02/R03 — AI lifetime | **Verified** | `OllamaProvider::chat` captures value-owned request data; network manager, timers, reply and event loop are worker-owned. Teardown disconnects before owned state dies. The local-server tests cover timeout, abort, malformed/empty responses, refusal, cancellation and provider destruction with queued-event draining. Cancellation completes a canceled future with no result, as its test explicitly requires. No sanitizer claim. |
+| F03/R04 — endpoint policy | **Verified** | Parsed `QUrl`/`QHostAddress` policy rejects prefix-spoof hosts and preserves explicit HTTPS policy. The 57-entry `TestOllamaProvider` totals cover R03 and R04, including the endpoint matrices, supplied/stored endpoints and redirects. Automatic redirects are disabled. |
+| F05/R05 — binarization polarity | **Partial** | Tesseract-enabled `TestOcrPreprocessor` passes white/black/grayscale/color/polarity fixtures. The repaired file fails to compile in the Qt-only configuration because `carryResolution` is conditionally defined: D03. Preserve the working polarity repair. |
+| F10/R06 — deskew/coordinates | **Partial** | Binary skew estimation and composed inverse mapping pass the enabled suite, including skew/orientation combinations. The plan explicitly requires intentional no-Tesseract behavior; D03 prevents that configuration from compiling. |
+| F11/R07 — OCR lifecycle | **Partial** | Explicit states, generation guards and recoverable save paths are present; `TestOcrReviewLifecycle` passes. Same-path/same-page-count document mutations are not a revision identity: V05. Required real model and installed-panel retry/switch acceptance remains pending. |
+| F04/R08 — reviewed OCR output | **Partial** | Reviewed word structures reach saved-PDF Unicode extraction and page-specific acceptance tests. V05 can still authorize stale reviewed content after a same-count edit/reorder/redaction. Whole-document review and per-word undo remain explicitly outside the implemented one-page flow. |
+| F07/R09 — conversion extraction | **Partial** | `TestConversionExtraction` confirms decoded subset-font, WinAnsi, multiline and image-only behavior. The ledger incorrectly attributes those fixtures to `TestExportPathBadge`. Independent two-column export still joins both columns into A1/A2: V03. The plan's RTL/mixed-direction, ligature and rotated/cropped acceptance corpus is not established by the current fixtures. |
+| F08/R10 — format honesty | **Partial** | Real in-house DOCX/XLSX packages replace mislabeled HTML/CSV; package parts and rejection-before-write tests pass in `TestExportPathBadge`. That is material progress. Full dependency/configuration, suffix-mismatch and GUI/batch acceptance from the plan remains incomplete; U08 introduces a separate registry that still needs consistent runtime integration. Do not disable the valid in-house writers merely because optional libraries are absent. |
+| F06/R11 — structural comparison | **Partial** | Added/removed pages, filters, navigation and reports are implemented; `TestDiffEngine` and `TestCompareEntry` pass their fixtures. A one-page Apple→Orange text edit still emits both page removal and addition: V04. Middle insertion and ambiguous/repeated-page alignment remain limited. |
+| F12/R12 — compression honesty | **Implemented-awaiting-review** | `TestCompressDialogHonesty` pins disabled/unchecked unsupported passes and explanations. Source review supports the completion wording. The plan also requires theme/dialog and predicted-versus-measured result inspection; those live checks remain deferred. |
+
+### Selected July parity rows
+
+| Ledger row | Independent disposition | Evidence and boundary |
+|---|---|---|
+| §9.13 JPEG re-encode | **Verified** | `TestCompressJpegReencode` inspects DCTDecode output, decoded dimensions, quality-dependent sizes, per-image handling, masks, malformed/filter-chain inputs and degenerate DPI. The reviewed encoder path performs the requested re-encoding. This does not certify arbitrary PDF image/color-space fidelity. |
+| §9.13 signed-document optimize guard | **Verified** | Actual test-P12 signing, `hasPdfSignatures`, refusal without an output, and unsigned control are exercised by `TestOptimizeSignedGuard`; no fixture skip occurred. |
+| §9.4 orientation | **Partial** | Enabled Roman-text quadrant-orientation fixtures pass. The algorithm explicitly relies on Roman ascender/descender statistics and uses a no-op for inconclusive input; do not advertise universal script/orientation accuracy. The optional configuration also has D03. |
+| §9.4 preprocessing preferences | **Verified** | `TestOcrPreprocessPrefs` checks defaults, persistence and restoration. Source traces confirm all three flags are read into both interactive and batch processing at dispatch. This accepts preference propagation, not model recognition quality. |
+| §9.8 page-list redaction | **Verified for page selection** | Explicit/invalid page-list tests in `TestRedactMarkAll` pass and the selection path honors that list. This narrow row is not approval of the redaction backend's complete preservation behavior; E-1 stays separate. |
+| §9.8 sanitize bundle | **Partial** | The bundle and shared operation exist; `TestRedactSanitizeBundle` passes its limited helper coverage. Retry fails (D01), safe replacement is incomplete (D05), and the Security entry defaults sanitization off despite this row's default-ON contract (D07). |
+| §9.7 signature picker | **Verified for graphic persistence** | `TestSignaturePicker` saves/reopens typed/uploaded images and freehand annotations, checks alpha/ink, sidecar ordinals, empty/cancel gating and size caps. U08 correctly labels these as visible graphics distinct from certificate-backed signing. Live placement ergonomics remain in UI acceptance. |
+| §9.7 validity badges | **Partial** | The new `signatureFieldAnchors` production path resolves actual field names/page indices/rectangles; panel matching and offscreen badge tests pass. Single-page placement and two-page painting have tests. The source itself acknowledges approximate multipage-flow mapping; crop-origin/rotation and installed-app tooltip positioning remain unaccepted. |
+| §9.7 signature appearance | **Partial** | All 13 Qt entries passed without skipping. Tests inspect real `/AP /N` form streams, layout plans, embedded images and retained signature integrity. This removes the prior disk-blocked build evidence gap. Actual rendered fit, long/non-Latin certificate names and broader field geometry still need acceptance; generated appearance text is not a conformance certification. |
+| §9.1 two-page overlays | **Verified for tested overlay behavior** | `TestTwoPageOverlay` checks actual pixels for annotations/search highlights on both pages, mode toggling, the unpaired last page and empty states. Full DPI/theme/zoom interaction remains part of the later UI review. |
+| §9.10 change filter | **Verified for filtering** | `TestCompareEntry` covers projection into visible changes, filter-aware navigation/counts and reports. V04 concerns classification of the underlying changes and does not erase the filter implementation. |
+| §9.16 local-processing badge | **Implemented-awaiting-review** | Notice/helper tests and conversion/import source wiring exist. Live placement/readability is deferred. Limit the claim to the disclosed local operation; do not generalize it to model downloads or configured remote AI providers. |
+| §9.5 in-house OOXML | **Verified for real package output** | `TestExportPathBadge` checks required package/relationship/document or workbook structures and contents; the independent XLSX fixture is a real workbook. Its cell geometry is wrong (V03), so this accepts format identity, not spreadsheet reconstruction fidelity. |
+| §9.14 asynchronous reading order | **Verified** | Rechecked worker dispatch and `TestReadingOrderAsync` nonblocking/delivery/no-document behavior. This preserves the ledger's earlier scoped acceptance. |
+| §9.12 batch-test determinism | **Partial** | The individual run and diagnostic full rerun pass all eight Qt entries. The first full run still failed this suite. Without a diagnostic failure or established cause, this review cannot certify the “deterministic” claim. |
+| Enum-bound serialization | **Verified** | `TestAnnotationDjot` loops across persisted `ToolMode` ordinals and checks round-trips; reviewed bounds use the shared last-persisted value. Related annotation round-trip tests pass. |
+
+### UI packages and investigation/infrastructure rows
+
+| Row | Independent disposition | Evidence and remaining acceptance |
+|---|---|---|
+| U01 Welcome | **Implemented-awaiting-review** | Responsive overflow/reflow assertions pass. Live supported sizes, DPI scaling, theme changes and visual clipping still need the newest installed build. |
+| U02 Navigation | **Implemented-awaiting-review** | `TaskNav`, `TaskStateSync`, ribbon and status-bar suites pass. Central task identity is a useful reduction in duplicated state. Live navigation, theme treatment and remaining mode-specific pills are pending. |
+| U03 OCR verify | **Partial** | Source-image canvas, magnifier, selection and confidence tests pass; the independent paint probe reveals D04. V05 and absent real-model acceptance also remain. |
+| U04 Compare | **Partial** | Filter-aware anchors, swap, reports, linked scroll and missing-side placeholders are implemented. V04 affects the results presented; two-page scroll linking and live geometry remain deferred. |
+| U05 Redaction | **Partial** | Transaction stages, source-preserving candidate saves and explicit partial outcomes are meaningful improvements. D01/D02/D05/D07 prevent acceptance of recovery, lifetime, second-output safety and consistent defaults. |
+| U06 Pages | **Implemented-awaiting-review** | `TestPagesMode` supports the repaired pre-insertion drag snapshot/permutation behavior and keyboard/history cases. Live drag indicators, selections and keyboard focus remain pending. |
+| U07 Comments — both ledger entries | **Implemented-awaiting-review** | `TestCommentsReview` covers summary/count/clear, CSV escaping, numeric sorting and reply nesting. Geometry focus is still page-level; live focus/selection/table behavior remains pending. Merge the two duplicate rows. |
+| U08 Capabilities | **Partial** | Registry, explanations and conversion/batch/compression/signature consumers are committed; `TestCapabilityRegistry` passes. D06 independently disproves the RapidOCR availability result. Runtime refresh is not wired into production, and interactive OCR still repeats separate probes. Complete failure/recovery disclosure before live acceptance. |
+| E-1 same-stream redaction corruption | **Open — not independently reproduced** | On this commit both independent two-line fixtures retained `PUBLIC_KEEP_TEXT`; one was handwritten, the other PoDoFo-generated. The ledger's second-page preservation assertion does not reproduce its claimed same-stream corruption. Obtain the exact failing PDF, mark rectangle, decoded stream and command; neither declare this disproved nor publish a guessed backend fix. |
+| Q02 reproducible builds/tests | **Partial** | Isolated full build succeeds with declared vendor trees. A bootstrap script and explicit Djot fixture paths remain work. Preserve the initial test failures, improve Qt diagnostic capture and identify any shared state or timing dependence. The old 85-test figure and disk-blocked full-suite statement are stale for this reviewed build. |
+
+## Actionable findings retained on the fetched commit
+
+The eleven source files associated with V01–V06 and D01–D05 are byte-identical to the preceding `cf5ddc7` review snapshot. Their line references therefore still apply. The key runtime probes were rebuilt and rerun against `4761443`; this is not an inference from branch names alone.
+
+| ID / priority | Concrete remaining failure | Location at reviewed commit | Evidence |
+|---|---|---|---|
+| V01 / P1 | Import reloads the temp path, removes the viewer's now-current path and attempts a self-rename, then reports success. | `src/shell/controllers/FormsController.cpp:160–167` | Caller trace; engine-to-temp success independently tested. |
+| V02 / P1 | A failed form undo advances history while retaining the edited value. | `src/commands/EditFormFieldCommand.h:104–112` | Runtime commit-failure injection. |
+| V03 / P1 | Same-line table columns are collapsed into one extraction run/cell. | `src/engines/pdfium/PdfiumBackend.cpp:338–366`; `src/engines/ConversionManager.cpp:744–759` | CSV joins `Name Amount`/`Alice 125`; XLSX has A1/A2 only. |
+| V04 / P2 | A changed page is also classified as a removed and added page. | `src/engines/DiffEngine.cpp:232–245` | One-page Apple→Orange probe emits two structural changes. |
+| V05 / P1 | OCR review survives document mutations that keep path and page count. | `src/shell/controllers/EditController.cpp:456–515` | Generation/path/count caller trace; a real document revision is absent. |
+| V06 / P2 | Auto-detect creates stack-local commands, bypasses undo history and misstates partial failure. | `src/shell/controllers/FormsController.cpp:129–141` | Direct `redo()` and discarded command ownership. |
+| D01 / P1 | Partial sanitize result loses the intended path, so Retry Sanitize fails. | `src/engines/RedactOperation.cpp:339–348`; `src/modes/RedactApplyDialog.cpp:301–307` | Retry with presenter arguments fails; original requested path succeeds. |
+| D02 / P1 | Redaction worker reads members of a UI-owned operation without retaining its lifetime. | `src/engines/RedactOperation.cpp:89,140–147` | Worker/caller ownership trace; no deliberate crash or sanitizer run. |
+| D03 / P1 | Qt-only preprocessing fails to compile because `carryResolution` is hidden by `HAS_TESSERACT`. | `src/engines/ocr/OcrPreprocessor.cpp:38,356,375` | Compiler errors at both call sites. |
+| D04 / P2 | OCR overlays subtract the letterbox origin instead of adding it after scaling. | `src/ui/OcrScanCanvas.cpp:130–133` | Synthetic offscreen paint probe misses the expected visible word box. |
+| D05 / P1 | Sanitization writes the final output directly or deletes it before rename. | `src/engines/RedactOperation.cpp:123`; `src/engines/podofo/PoDoFoBackend.cpp:2241–2272` | Save-path trace; existing sanitized output is not protected by the same commit boundary. |
+
+The [earlier branch review](C:/Users/User/Documents/Codex/2026-09-05/read-c-users-user-projects-pdf/outputs/PARITY-BRANCH-REVIEW-2026-09-05.md) gives V01–V06 implementation instructions. The [preceding code review](C:/Users/User/Documents/Codex/2026-09-05/read-c-users-user-projects-pdf/outputs/CODE-REVIEW-2026-09-06.md) gives D01–D05 fixes and acceptance tests. Preserve their historical snapshot labels; this report supplies the current status.
+
+### D06 — P2: capability availability overstates RapidOCR readiness
+
+**Runtime confirmed:** `src/core/Capability.cpp:337–345` returns Available when only the detector filename exists. A zero-byte detector fixture beside the isolated executable, with no recognizer/dictionary, yields Available for both RapidOCR and ensemble. The real engine at `src/engines/ocr/RapidOcrEngine.cpp:68–110` needs detector and recognizer sessions and a recognition vocabulary. A filename is insufficient evidence of a usable engine. The model-dependent recognition tests skipped and cannot validate this availability promise.
+
+The registry also remains incomplete as a shared runtime boundary: `EditController.cpp:595` and `PreferencesDialog.cpp:223` still repeat detector-path checks, and there are no production calls to the registry's invalidation methods. `applyToWidget` explicitly makes Available a no-op; a synthetic unavailable→invalidate→available transition leaves its widget disabled with the obsolete tooltip. Its current production use is the MRC control, so this last probe establishes a recovery limitation in the helper, not an observed installed-app lockout.
+
+**Implement a bounded repair:** centralize the required model-set resolution in the existing OCR engine boundary; check mandatory readable/nonempty detector, recognizer and vocabulary files, treat the classifier as optional, and surface load failures accurately. Keep expensive model loading off the GUI thread. Either distinguish “assets present” from ready-to-run status or promote readiness after successful initialization. Ensemble status must account for both constituent engines. Reuse this result in interactive preferences/controller and batch disclosure. Wire preference/model-install completion to invalidate the affected entries, or re-probe at the small number of operation boundaries. If the widget helper participates in refresh, make it reversibly update only the capability-owned enablement/reason while respecting other reasons a control may be disabled.
+
+**Acceptance:** no files; detector only; empty/corrupt file; missing recognizer; missing/empty vocabulary; complete usable model set; optional classifier absent; Tesseract absent/present; and models installed/removed during one session. Test actual caller refresh and final state, not just registry cache mechanics. Record model-required skips honestly. Do not add another parallel registry or a generic dependency framework.
+
+### D07 — P2: Security redaction defaults sanitization off
+
+**Source confirmed:** `src/shell/controllers/SecurityController.cpp:519` sets `plan.sanitize = false`. `RedactApplyDialog.cpp:133` copies that value directly into the checkbox. The dedicated Redact mode instead copies its existing default-ON sanitize selection (`RedactMode.cpp:448`). This contradicts the ledger's default-ON sanitize-bundle acceptance and makes the outcome depend on the entry point.
+
+**Implement:** supply one shared initial sanitization policy to both entry paths, preserving an explicit user choice where one exists. The initial choice should satisfy the existing default-ON contract. Keep the separate output destinations and accurate partial-failure wording.
+
+**Acceptance:** create the same unmodified redaction plan through both production entry paths and assert the initial sanitize checkbox is checked. An explicit opt-out must remain off and produce only the intended redacted copy. Opt-in must produce the sanitized copy through the repaired D01/D05 recovery and replacement boundaries. Test the caller-supplied plan; another test of a manually constructed dialog alone would miss this regression.
+
+## Implementation handoff and ledger maintenance
+
+1. Prioritize D02 and persistence/history failures V01/V02/D01/D05. Add deterministic owner-destruction, commit-failure and retry tests at the real caller boundaries.
+2. Repair D03 with the small conditional-compilation change, then V03/V05, V04/D04 and V06. Address D06/D07 in bounded follow-up patches; preserve the useful U08 disclosures and anchored signature work.
+3. Reconcile ledger wording: remove duplicate U07; replace the “all open” heading; correct R09's test citation; remove stale 85-test and disk-blocked statements or date them explicitly. The introductory blanket phrase about “verified commits” should instead name independently accepted rows and their evidence.
+4. Give Q02 a reproducible vendor bootstrap/fixture recipe and Qt file logs on failure. Retain both full-suite outcomes; the passing rerun does not explain the first failure.
+5. Implementers record **implemented-awaiting-review**, exact commit, executed tests and residuals. Only an independent reviewer promotes a package after its acceptance checks. Do not reimplement already accepted narrow work just to change its status.
+6. After the code failures and required checks are resolved, reinstall the resulting exact commit and perform the guide's UI scenarios. Record installed build identity first. Current offscreen widget tests are useful code evidence but do not replace that walkthrough.
+
+[GLM Flash implementation and industry-informed UI guide](C:/Users/User/Documents/Codex/2026-09-05/read-c-users-user-projects-pdf/outputs/GLM-FLASH-IMPLEMENTATION-AND-UI-PLAN-2026-09-05.md)

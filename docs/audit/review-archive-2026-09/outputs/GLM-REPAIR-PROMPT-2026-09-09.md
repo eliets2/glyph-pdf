@@ -1,0 +1,20 @@
+Continue GlyphPDF repairs using the new independent quality gate. Implement fixes; do not stop at planning.
+
+Read these files in order from `C:\Users\User\Documents\Codex\2026-09-05\read-c-users-user-projects-pdf\outputs\`:
+
+1. `QUALITY-GATE-2026-09-09.md` — current independent findings G01–G23, scoped ledger dispositions, build/test failures and repair order.
+2. `QUALITY-GATE-VERIFICATION-2026-09-09.json` and `quality-gate-evidence-2026-09-09.zip` — exact identities, fresh evidence and reproducible probes.
+3. `GLM-FLASH-REPAIR-PROMPT-2026-09-08.md` and its linked team reports — original contracts and still-open boundaries, especially N06 and the full optional Tesseract build.
+4. The current repository `docs/audit/CURRENT-EVIDENCE-LEDGER-2026-09-05.md`, reconciling each relevant row against the independent dispositions.
+
+Work in `C:\Users\User\Projects\pdf-parity` on `feat/parity-glm`, preserving other sessions' changes. Start with status, worktree list, fetch, and commit comparison. The reviewed published commit is `e99c73365e14189fc6343da5836d84df24183152`; the independently built local Release commit is `a5840dcfc6b2716e5b11e626a46ae3ec0ba0eaeb`. The subsequent `f443f59` changes only a research document. Later/dirty changes require their own comparison. Leave `C:\Users\User\Projects\pdf` and the installed application alone. No reset/clean, automatic merge or deployment.
+
+Saved independent probes and immutable source snapshots are under the sibling `work\gate-2026-09-09\`. Copy probes into your own scratch area; do not overwrite preserved evidence. The reviewer built the published Debug revision completely and the local Release revision with all required features and LTO. The Release suite was 116/118, not green: batch result accounting and a theme test source-path assumption failed. Those two failures are distinct from the data-loss probes that the suite currently misses.
+
+Prioritize G01–G06 before further feature work. Use unique owned temporary files and one checked save/mutation boundary, preserving both disk and resident state on failure. Bind asynchronous work to engine/session identity and revision before writing. Keep recovery input and intended save destination explicit. Preflight all batch inputs/outputs together. Then fix truthful undo traversal, offset/inherited crop geometry, OCR reopen identity, capability ownership/readiness, batch summaries, Page Labels, and measurement contracts. Finish packaging, bootstrap and fail-loud evidence gates. Follow the report's repair sequence and acceptance instructions.
+
+Reproduce each failure first, make a small production fix at the common caller boundary, then run the same failure/control on the fix. Add meaningful regression cases that check real saved artifacts, state/history and visible completion outcomes. A helper test, passing suite, warning signal or documented exception cannot substitute for the specified contract. In particular, encrypted same-path Save must not truncate; failed commands must not persist later; failed Undo must not move history; stale A→B→A work must not write; and existing outputs/other inputs must survive failed batch work.
+
+Maintain a checklist mapping every G finding and legacy ID to fix commit, reproduction, validation and residual. Mark implementation rows `implemented-awaiting-review`; reserve `verified` for the independent reviewer. Preserve scoped acceptances. Do not claim full PDF/A conformance without the validator or full optional-dependency support from isolated TU compilation. Complete the open real signing-retry/replacement contract. Do not silently weaken tests, skip the failing fixtures, or stage resources around an unfixed source-root assumption and call the build portable.
+
+Commit only your coherent changes. Run targeted tests plus a full suite at the final commit, record skips and setup, and provide exact evidence paths. End with branch/commit, finding-by-finding disposition, remaining blockers and commands/results. Installation and live UI review remain a later phase after the gate passes.

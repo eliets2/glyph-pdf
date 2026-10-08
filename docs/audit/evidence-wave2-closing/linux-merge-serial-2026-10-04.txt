@@ -1,0 +1,667 @@
+Test project D:/pdf/pdf/build-rel
+        Start   1: UnitTests
+  1/204 Test   #1: UnitTests ...........................   Passed    0.33 sec
+        Start   2: TestInterfaces
+  2/204 Test   #2: TestInterfaces ......................   Passed    0.05 sec
+        Start   3: TestExpiryInterface
+  3/204 Test   #3: TestExpiryInterface .................   Passed    0.29 sec
+        Start   4: SmokeTest
+  4/204 Test   #4: SmokeTest ...........................   Passed    0.37 sec
+        Start   5: TestSanitization
+  5/204 Test   #5: TestSanitization ....................   Passed    0.43 sec
+        Start   6: TestSanitizeSelective
+  6/204 Test   #6: TestSanitizeSelective ...............   Passed    0.37 sec
+        Start   7: TestSanitizeTrailerUaf
+  7/204 Test   #7: TestSanitizeTrailerUaf ..............   Passed    0.16 sec
+        Start   8: TestAutosave
+  8/204 Test   #8: TestAutosave ........................   Passed    0.74 sec
+        Start   9: TestDocumentIdentity
+  9/204 Test   #9: TestDocumentIdentity ................   Passed    1.57 sec
+        Start  10: TestBatesBatchSafety
+ 10/204 Test  #10: TestBatesBatchSafety ................   Passed    1.91 sec
+        Start  11: TestRecoverySave
+ 11/204 Test  #11: TestRecoverySave ....................   Passed    0.97 sec
+        Start  12: TestReadOnlyGate
+ 12/204 Test  #12: TestReadOnlyGate ....................   Passed    1.40 sec
+        Start  13: TestSidecarReopenState
+ 13/204 Test  #13: TestSidecarReopenState ..............   Passed    1.08 sec
+        Start  14: TestSignatureValidationMock
+ 14/204 Test  #14: TestSignatureValidationMock .........   Passed    0.07 sec
+        Start  15: TestRobustness
+ 15/204 Test  #15: TestRobustness ......................   Passed    0.21 sec
+        Start  16: TestSecretStore
+ 16/204 Test  #16: TestSecretStore .....................   Passed    6.55 sec
+        Start  17: TestSignatureValidation
+ 17/204 Test  #17: TestSignatureValidation .............   Passed    0.24 sec
+        Start  18: TestSignatureRealCrypto
+ 18/204 Test  #18: TestSignatureRealCrypto .............   Passed    3.26 sec
+        Start  19: TestSendForSigning
+ 19/204 Test  #19: TestSendForSigning ..................   Passed    1.00 sec
+        Start  20: TestEraseSignedGuard
+ 20/204 Test  #20: TestEraseSignedGuard ................   Passed    0.18 sec
+        Start  21: TestSignatureAppearance
+ 21/204 Test  #21: TestSignatureAppearance .............   Passed    0.37 sec
+        Start  22: TestOptimizeSignedGuard
+ 22/204 Test  #22: TestOptimizeSignedGuard .............   Passed    0.21 sec
+        Start  23: TestImageDedup
+ 23/204 Test  #23: TestImageDedup ......................   Passed    0.12 sec
+        Start  24: TestChain1
+ 24/204 Test  #24: TestChain1 ..........................   Passed    0.05 sec
+        Start  25: TestRedaction
+ 25/204 Test  #25: TestRedaction .......................   Passed    0.60 sec
+        Start  26: TestDedupSMask
+ 26/204 Test  #26: TestDedupSMask ......................   Passed    0.17 sec
+        Start  27: TestCompressJpegReencode
+ 27/204 Test  #27: TestCompressJpegReencode ............   Passed    1.31 sec
+        Start  28: TestOptimizeEstimate
+ 28/204 Test  #28: TestOptimizeEstimate ................   Passed    0.16 sec
+        Start  29: TestRapidOcr
+ 29/204 Test  #29: TestRapidOcr ........................   Passed    1.43 sec
+        Start  30: TestLayoutEnsemble
+ 30/204 Test  #30: TestLayoutEnsemble ..................   Passed    0.06 sec
+        Start  31: TestOcrPipeline
+ 31/204 Test  #31: TestOcrPipeline .....................   Passed    0.24 sec
+        Start  32: TestOcrReviewLifecycle
+ 32/204 Test  #32: TestOcrReviewLifecycle ..............   Passed    0.59 sec
+        Start  33: TestOcrRegionReocr
+ 33/204 Test  #33: TestOcrRegionReocr ..................   Passed    1.97 sec
+        Start  34: TestOcrOutputMode
+ 34/204 Test  #34: TestOcrOutputMode ...................   Passed    0.56 sec
+        Start  35: TestOcrVerifyNavigation
+ 35/204 Test  #35: TestOcrVerifyNavigation .............   Passed    0.33 sec
+        Start  36: TestOcrVerifyPort
+ 36/204 Test  #36: TestOcrVerifyPort ...................   Passed    0.28 sec
+        Start  37: TestOcrPreprocessor
+ 37/204 Test  #37: TestOcrPreprocessor .................   Passed    0.93 sec
+        Start  38: TestOcrDjotMapper
+ 38/204 Test  #38: TestOcrDjotMapper ...................   Passed    0.08 sec
+        Start  39: TestThreadSafety
+ 39/204 Test  #39: TestThreadSafety ....................   Passed    2.47 sec
+        Start  40: TestEncryption
+ 40/204 Test  #40: TestEncryption ......................   Passed    0.25 sec
+        Start  41: TestResourceLimits
+ 41/204 Test  #41: TestResourceLimits ..................   Passed    0.18 sec
+        Start  42: TestControllers
+ 42/204 Test  #42: TestControllers .....................   Passed   16.07 sec
+        Start  43: TestSevenZipBundle
+ 43/204 Test  #43: TestSevenZipBundle ..................   Passed    0.66 sec
+        Start  44: TestRibbonIntegrity
+ 44/204 Test  #44: TestRibbonIntegrity .................   Passed    0.36 sec
+        Start  45: TestMenuBarIntegrity
+ 45/204 Test  #45: TestMenuBarIntegrity ................   Passed    0.36 sec
+        Start  46: TestCommandBinding
+ 46/204 Test  #46: TestCommandBinding ..................   Passed    1.71 sec
+        Start  47: TestWelcomeRoutes
+ 47/204 Test  #47: TestWelcomeRoutes ...................   Passed    5.40 sec
+        Start  48: TestSweepW3UxFlows
+ 48/204 Test  #48: TestSweepW3UxFlows ..................   Passed   52.66 sec
+        Start  49: TestUiAccessibility
+ 49/204 Test  #49: TestUiAccessibility .................   Passed    1.97 sec
+        Start  50: TestUiAccessibility200
+ 50/204 Test  #50: TestUiAccessibility200 ..............   Passed    1.69 sec
+        Start  51: TestIntegration
+ 51/204 Test  #51: TestIntegration .....................   Passed    0.19 sec
+        Start  52: TestPerformance
+ 52/204 Test  #52: TestPerformance .....................   Passed    0.21 sec
+        Start  53: TestVeraPdf
+ 53/204 Test  #53: TestVeraPdf .........................   Passed    0.10 sec
+        Start  54: TestReadingOrderAsync
+ 54/204 Test  #54: TestReadingOrderAsync ...............   Passed    0.41 sec
+        Start  55: TestAccessibilityChecker
+ 55/204 Test  #55: TestAccessibilityChecker ............   Passed    0.14 sec
+        Start  56: TestAccessibilityPanel
+ 56/204 Test  #56: TestAccessibilityPanel ..............   Passed    2.36 sec
+        Start  57: TestA11yReportWriter
+ 57/204 Test  #57: TestA11yReportWriter ................   Passed    0.30 sec
+        Start  58: TestAccessibilityFixes
+ 58/204 Test  #58: TestAccessibilityFixes ..............   Passed    0.28 sec
+        Start  59: TestAccessibilityTagger
+ 59/204 Test  #59: TestAccessibilityTagger .............   Passed    0.51 sec
+        Start  60: TestLaneScheduler
+ 60/204 Test  #60: TestLaneScheduler ...................   Passed    2.39 sec
+        Start  61: TestFormBuilder
+ 61/204 Test  #61: TestFormBuilder .....................   Passed    0.67 sec
+        Start  62: TestFormPersistence
+ 62/204 Test  #62: TestFormPersistence .................   Passed    0.29 sec
+        Start  63: TestCompareEntry
+ 63/204 Test  #63: TestCompareEntry ....................   Passed    1.00 sec
+        Start  64: TestCompareIntegration
+ 64/204 Test  #64: TestCompareIntegration ..............   Passed    1.29 sec
+        Start  65: TestPagesMode
+ 65/204 Test  #65: TestPagesMode .......................   Passed    2.12 sec
+        Start  66: TestPageLabels
+ 66/204 Test  #66: TestPageLabels ......................   Passed    0.32 sec
+        Start  67: TestBatchMode
+ 67/204 Test  #67: TestBatchMode .......................   Passed    1.43 sec
+        Start  68: TestBatchPresets
+ 68/204 Test  #68: TestBatchPresets ....................   Passed    0.72 sec
+        Start  69: TestBatchPresetsP2
+ 69/204 Test  #69: TestBatchPresetsP2 ..................   Passed    2.64 sec
+        Start  70: TestHotFolder
+ 70/204 Test  #70: TestHotFolder .......................   Passed   15.75 sec
+        Start  71: TestBatchOcrLanguage
+ 71/204 Test  #71: TestBatchOcrLanguage ................   Passed    0.26 sec
+        Start  72: TestBatchOcrSkipText
+ 72/204 Test  #72: TestBatchOcrSkipText ................   Passed    1.91 sec
+        Start  73: TestOcrPreprocessPrefs
+ 73/204 Test  #73: TestOcrPreprocessPrefs ..............   Passed    0.25 sec
+        Start  74: TestBatesCrossDoc
+ 74/204 Test  #74: TestBatesCrossDoc ...................   Passed    0.31 sec
+        Start  75: TestOpenRouting
+ 75/204 Test  #75: TestOpenRouting .....................   Passed    0.16 sec
+        Start  76: TestExcisionCorruption
+ 76/204 Test  #76: TestExcisionCorruption ..............   Passed    0.27 sec
+        Start  77: TestBatchOpsCoverage
+ 77/204 Test  #77: TestBatchOpsCoverage ................   Passed    1.24 sec
+        Start  78: TestPdfACidSetSafety
+ 78/204 Test  #78: TestPdfACidSetSafety ................   Passed    0.26 sec
+        Start  79: TestReadingOrderThreshold
+ 79/204 Test  #79: TestReadingOrderThreshold ...........   Passed    0.19 sec
+        Start  80: TestReadingOrderMcid
+ 80/204 Test  #80: TestReadingOrderMcid ................   Passed    0.20 sec
+        Start  81: TestReadingOrderDepthCap
+ 81/204 Test  #81: TestReadingOrderDepthCap ............   Passed    0.52 sec
+        Start  82: TestLinkBookmarkRoundTrip
+ 82/204 Test  #82: TestLinkBookmarkRoundTrip ...........   Passed    0.17 sec
+        Start  83: TestSignatureSessionCache
+ 83/204 Test  #83: TestSignatureSessionCache ...........   Passed    0.20 sec
+        Start  84: TestCapabilityRegistry
+ 84/204 Test  #84: TestCapabilityRegistry ..............   Passed    0.85 sec
+        Start  85: TestXfaHonestyBanner
+ 85/204 Test  #85: TestXfaHonestyBanner ................   Passed    0.15 sec
+        Start  86: TestTaskNavRegistry
+ 86/204 Test  #86: TestTaskNavRegistry .................   Passed    0.07 sec
+        Start  87: TestScreenStateSync
+ 87/204 Test  #87: TestScreenStateSync .................   Passed    0.21 sec
+        Start  88: TestRibbonCollapse
+ 88/204 Test  #88: TestRibbonCollapse ..................   Passed    0.23 sec
+        Start  89: TestModeStripPins
+ 89/204 Test  #89: TestModeStripPins ...................   Passed    0.16 sec
+        Start  90: TestStatusBarSlim
+ 90/204 Test  #90: TestStatusBarSlim ...................   Passed    0.41 sec
+        Start  91: TestCommentsReview
+ 91/204 Test  #91: TestCommentsReview ..................   Passed    0.26 sec
+        Start  92: TestWelcomeLayout
+ 92/204 Test  #92: TestWelcomeLayout ...................   Passed    0.27 sec
+        Start  93: TestSignatureBadges
+ 93/204 Test  #93: TestSignatureBadges .................   Passed    0.50 sec
+        Start  94: TestBatchOcrConfidence
+ 94/204 Test  #94: TestBatchOcrConfidence ..............   Passed    0.22 sec
+        Start  95: TestInspector
+ 95/204 Test  #95: TestInspector .......................   Passed    0.66 sec
+        Start  96: TestPatternRedact
+ 96/204 Test  #96: TestPatternRedact ...................   Passed    0.49 sec
+        Start  97: TestFindReplace
+ 97/204 Test  #97: TestFindReplace .....................   Passed    0.84 sec
+        Start  98: TestReviewSummary
+ 98/204 Test  #98: TestReviewSummary ...................   Passed    0.37 sec
+        Start  99: TestPrintableSummary
+ 99/204 Test  #99: TestPrintableSummary ................   Passed    0.52 sec
+        Start 100: TestDynamicStamps
+100/204 Test #100: TestDynamicStamps ...................   Passed    0.35 sec
+        Start 101: TestStampImageImport
+101/204 Test #101: TestStampImageImport ................   Passed    0.30 sec
+        Start 102: TestAutoBookmarks
+102/204 Test #102: TestAutoBookmarks ...................   Passed    0.89 sec
+        Start 103: TestDjotRoundtrip
+103/204 Test #103: TestDjotRoundtrip ...................   Passed    0.18 sec
+        Start 104: TestDjotFuzz
+104/204 Test #104: TestDjotFuzz ........................   Passed    0.23 sec
+        Start 105: TestUpdateChecker
+105/204 Test #105: TestUpdateChecker ...................   Passed    0.07 sec
+        Start 106: TestWatermarkFont
+106/204 Test #106: TestWatermarkFont ...................   Passed    0.27 sec
+        Start 107: TestOcrLanguage
+107/204 Test #107: TestOcrLanguage .....................   Passed    0.06 sec
+        Start 108: TestRedactClearMarks
+108/204 Test #108: TestRedactClearMarks ................   Passed    0.29 sec
+        Start 109: TestLinkSchemeSafety
+109/204 Test #109: TestLinkSchemeSafety ................   Passed    0.17 sec
+        Start 110: TestThumbnailZoom
+110/204 Test #110: TestThumbnailZoom ...................   Passed    0.16 sec
+        Start 111: TestThumbnailOffGui
+111/204 Test #111: TestThumbnailOffGui .................   Passed    1.49 sec
+        Start 112: TestMergeSuccess
+112/204 Test #112: TestMergeSuccess ....................   Passed    0.17 sec
+        Start 113: TestFillFormLock
+113/204 Test #113: TestFillFormLock ....................   Passed    0.23 sec
+        Start 114: TestFillFormNoOp
+114/204 Test #114: TestFillFormNoOp ....................   Passed    0.57 sec
+        Start 115: TestReadingOrderInheritance
+115/204 Test #115: TestReadingOrderInheritance .........   Passed    0.21 sec
+        Start 116: TestShapeInkPersistence
+116/204 Test #116: TestShapeInkPersistence .............   Passed    0.12 sec
+        Start 117: TestQuadPointsMarkup
+117/204 Test #117: TestQuadPointsMarkup ................   Passed    0.24 sec
+        Start 118: TestMeasurePanelHonesty
+118/204 Test #118: TestMeasurePanelHonesty .............   Passed    0.19 sec
+        Start 119: TestMeasureCore
+119/204 Test #119: TestMeasureCore .....................   Passed    0.06 sec
+        Start 120: TestMeasureRoundTrip
+120/204 Test #120: TestMeasureRoundTrip ................   Passed    0.15 sec
+        Start 121: TestLegacyOriginSpace
+121/204 Test #121: TestLegacyOriginSpace ...............   Passed    0.41 sec
+        Start 122: TestMeasureCsvExport
+122/204 Test #122: TestMeasureCsvExport ................   Passed    0.22 sec
+        Start 123: TestCompressStripSanitize
+123/204 Test #123: TestCompressStripSanitize ...........   Passed    0.14 sec
+        Start 124: TestCompressDialogHonesty
+124/204 Test #124: TestCompressDialogHonesty ...........   Passed    0.21 sec
+        Start 125: TestFieldMetadata
+125/204 Test #125: TestFieldMetadata ...................   Passed    0.19 sec
+        Start 126: TestFormSafety
+126/204 Test #126: TestFormSafety ......................   Passed    1.44 sec
+        Start 127: TestFormJsCalc
+127/204 Test #127: TestFormJsCalc ......................   Passed    5.48 sec
+        Start 128: TestFormJsAdversarial
+128/204 Test #128: TestFormJsAdversarial ...............   Passed    1.57 sec
+        Start 129: TestFormStaleDisclosure
+129/204 Test #129: TestFormStaleDisclosure .............   Passed    0.94 sec
+        Start 130: TestFormKeystroke
+130/204 Test #130: TestFormKeystroke ...................   Passed    0.77 sec
+        Start 131: TestEngineSave
+131/204 Test #131: TestEngineSave ......................   Passed    1.78 sec
+        Start 132: TestEncryptedPackageSafeWrite
+132/204 Test #132: TestEncryptedPackageSafeWrite .......   Passed    2.49 sec
+        Start 133: TestPrintJob
+133/204 Test #133: TestPrintJob ........................   Passed    1.67 sec
+        Start 134: TestTempOwnership
+134/204 Test #134: TestTempOwnership ...................   Passed    0.11 sec
+        Start 135: TestCleanupCli
+135/204 Test #135: TestCleanupCli ......................   Passed    8.51 sec
+        Start 136: TestFormUndo
+136/204 Test #136: TestFormUndo ........................   Passed    0.60 sec
+        Start 137: TestValidateAllSignatures
+137/204 Test #137: TestValidateAllSignatures ...........   Passed    0.17 sec
+        Start 138: TestExportPathBadge
+138/204 Test #138: TestExportPathBadge .................   Passed    0.41 sec
+        Start 139: TestImageEditWiring
+139/204 Test #139: TestImageEditWiring .................   Passed    0.10 sec
+        Start 140: TestRedactSanitizeBundle
+140/204 Test #140: TestRedactSanitizeBundle ............   Passed    0.16 sec
+        Start 141: TestRedactTransaction
+141/204 Test #141: TestRedactTransaction ...............   Passed    1.63 sec
+        Start 142: TestRedactionProof
+142/204 Test #142: TestRedactionProof ..................   Passed    1.48 sec
+        Start 143: TestPptxOverlayAlpha
+143/204 Test #143: TestPptxOverlayAlpha ................   Passed    0.26 sec
+        Start 144: TestAutoDetectHeuristic
+144/204 Test #144: TestAutoDetectHeuristic .............   Passed    0.15 sec
+        Start 145: TestConversionExtraction
+145/204 Test #145: TestConversionExtraction ............   Passed    0.60 sec
+        Start 146: TestTextExtractionCoords
+146/204 Test #146: TestTextExtractionCoords ............   Passed    0.15 sec
+        Start 147: TestEraseWiring
+147/204 Test #147: TestEraseWiring .....................   Passed    0.18 sec
+        Start 148: TestRibbonMarkupTools
+148/204 Test #148: TestRibbonMarkupTools ...............   Passed    0.08 sec
+        Start 149: TestViewerRotation
+149/204 Test #149: TestViewerRotation ..................   Passed    0.28 sec
+        Start 150: TestRotateView
+150/204 Test #150: TestRotateView ......................   Passed    0.31 sec
+        Start 151: TestTwoPageOverlay
+151/204 Test #151: TestTwoPageOverlay ..................   Passed    0.36 sec
+        Start 152: TestViewingModes
+152/204 Test #152: TestViewingModes ....................   Passed    0.59 sec
+        Start 153: TestViewParity
+153/204 Test #153: TestViewParity ......................   Passed    7.75 sec
+        Start 154: TestSignaturePicker
+154/204 Test #154: TestSignaturePicker .................   Passed    0.32 sec
+        Start 155: TestCertEncryptPicker
+155/204 Test #155: TestCertEncryptPicker ...............   Passed    0.33 sec
+        Start 156: TestCertifySelector
+156/204 Test #156: TestCertifySelector .................   Passed    0.87 sec
+        Start 157: TestPolicyController
+157/204 Test #157: TestPolicyController ................   Passed    0.41 sec
+        Start 158: TestPolicyWiring
+158/204 Test #158: TestPolicyWiring ....................   Passed    0.27 sec
+        Start 159: TestOcspConsent
+159/204 Test #159: TestOcspConsent .....................   Passed    0.40 sec
+        Start 160: TestSupportBundle
+160/204 Test #160: TestSupportBundle ...................   Passed    0.80 sec
+        Start 161: TestNetworkDisclosure
+161/204 Test #161: TestNetworkDisclosure ...............   Passed    0.38 sec
+        Start 162: TestOcrAcceptSeam
+162/204 Test #162: TestOcrAcceptSeam ...................   Passed    0.18 sec
+        Start 163: TestSearchFlags
+163/204 Test #163: TestSearchFlags .....................   Passed    0.17 sec
+        Start 164: TestExportPresets
+164/204 Test #164: TestExportPresets ...................   Passed    0.16 sec
+        Start 165: TestOcrAcceptScope
+165/204 Test #165: TestOcrAcceptScope ..................   Passed    0.19 sec
+        Start 166: TestViewerLinkSeam
+166/204 Test #166: TestViewerLinkSeam ..................   Passed    0.31 sec
+        Start 167: TestHyperlinkNavigation
+167/204 Test #167: TestHyperlinkNavigation .............   Passed    0.11 sec
+        Start 168: TestRedactMarkAll
+168/204 Test #168: TestRedactMarkAll ...................   Passed    0.99 sec
+        Start 169: TestRedactApplyMarks
+169/204 Test #169: TestRedactApplyMarks ................   Passed    0.19 sec
+        Start 170: TestAnnotationDjot
+170/204 Test #170: TestAnnotationDjot ..................   Passed    0.26 sec
+        Start 171: TestAiProvider
+171/204 Test #171: TestAiProvider ......................   Passed    0.13 sec
+        Start 172: TestOllamaProvider
+172/204 Test #172: TestOllamaProvider ..................   Passed   33.75 sec
+        Start 173: TestDiffEngine
+173/204 Test #173: TestDiffEngine ......................   Passed    0.86 sec
+        Start 174: TestOfficeImport
+174/204 Test #174: TestOfficeImport ....................   Passed    0.60 sec
+        Start 175: TestMrcPipeline
+175/204 Test #175: TestMrcPipeline .....................   Passed    0.45 sec
+        Start 176: TestCheckedMutationCoverage
+176/204 Test #176: TestCheckedMutationCoverage .........   Passed    0.53 sec
+        Start 177: TestHistoryIntegrity
+177/204 Test #177: TestHistoryIntegrity ................   Passed    0.80 sec
+        Start 178: TestImageAppearance
+178/204 Test #178: TestImageAppearance .................   Passed    0.97 sec
+        Start 179: TestOfficeExport
+179/204 Test #179: TestOfficeExport ....................   Passed    0.22 sec
+        Start 180: TestTextEditStyle
+180/204 Test #180: TestTextEditStyle ...................   Passed    0.31 sec
+        Start 181: TestEraserEngine
+181/204 Test #181: TestEraserEngine ....................   Passed    0.23 sec
+        Start 182: TestPersistenceOutcomes
+182/204 Test #182: TestPersistenceOutcomes .............   Passed    1.74 sec
+        Start 183: TestRenderGuards
+183/204 Test #183: TestRenderGuards ....................   Passed    3.21 sec
+        Start 184: TestSep13LeadCapability
+184/204 Test #184: TestSep13LeadCapability .............   Passed    0.11 sec
+        Start 185: TestSep13LeadBatchMerge
+185/204 Test #185: TestSep13LeadBatchMerge .............   Passed    1.10 sec
+        Start 186: TestSep13LeadOcrGuards
+186/204 Test #186: TestSep13LeadOcrGuards ..............   Passed    0.22 sec
+        Start 187: TestSep13LeadConversionExport
+187/204 Test #187: TestSep13LeadConversionExport .......   Passed    0.18 sec
+        Start 188: TestSep13LeadRedactionProof
+188/204 Test #188: TestSep13LeadRedactionProof .........   Passed    0.45 sec
+        Start 189: R14ProbeRedactSpace
+189/204 Test #189: R14ProbeRedactSpace .................***Not Run (Disabled)   0.00 sec
+        Start 190: R14ProbeSep13Fixes
+190/204 Test #190: R14ProbeSep13Fixes ..................   Passed   20.44 sec
+        Start 191: TestSep13LeadBtDowngrade
+191/204 Test #191: TestSep13LeadBtDowngrade ............   Passed   20.14 sec
+        Start 192: TestSep13LeadComparePerf
+192/204 Test #192: TestSep13LeadComparePerf ............   Passed    5.42 sec
+        Start 193: TestSweepW1PresetAdversary
+193/204 Test #193: TestSweepW1PresetAdversary ..........   Passed    0.13 sec
+        Start 194: TestSweepW1SigningAdversary
+194/204 Test #194: TestSweepW1SigningAdversary .........   Passed    0.34 sec
+        Start 195: TestSweepW1SummaryPolicyAdversary
+195/204 Test #195: TestSweepW1SummaryPolicyAdversary ...   Passed    0.95 sec
+        Start 196: TestSweepW1SecProbe
+196/204 Test #196: TestSweepW1SecProbe .................   Passed    0.22 sec
+        Start 197: TestRotate270PageSpace
+197/204 Test #197: TestRotate270PageSpace ..............   Passed    0.43 sec
+        Start 198: R14ProbeBatchSkip
+198/204 Test #198: R14ProbeBatchSkip ...................***Not Run (Disabled)   0.00 sec
+        Start 199: TestGsdW2Probe
+199/204 Test #199: TestGsdW2Probe ......................   Passed    0.77 sec
+        Start 200: TestPgr37PageSpaceLaw
+200/204 Test #200: TestPgr37PageSpaceLaw ...............   Passed    0.42 sec
+        Start 201: TestPgr35BatchCollision
+201/204 Test #201: TestPgr35BatchCollision .............   Passed    0.30 sec
+        Start 202: TestPgr36StaleSigningPanel
+202/204 Test #202: TestPgr36StaleSigningPanel ..........   Passed    0.40 sec
+        Start 203: TestFileHandleCoordination
+203/204 Test #203: TestFileHandleCoordination ..........   Passed   17.82 sec
+        Start 204: TestCommandRegistry
+204/204 Test #204: TestCommandRegistry .................   Passed    0.07 sec
+
+100% tests passed, 0 tests failed out of 202
+
+Label Time Summary:
+R14-probe             =   0.00 sec*proc (2 tests)
+a11y-checker          =   0.14 sec*proc (1 test)
+a11y-fixes            =   0.28 sec*proc (1 test)
+a11y-panel            =   2.36 sec*proc (1 test)
+a11y-report-writer    =   0.30 sec*proc (1 test)
+a11y-tagger           =   0.51 sec*proc (1 test)
+accept                =   0.37 sec*proc (2 tests)
+accessibility         =   8.79 sec*proc (12 tests)
+adversarial           =   1.57 sec*proc (1 test)
+adversary             =   1.42 sec*proc (3 tests)
+ai                    =  33.87 sec*proc (2 tests)
+annot                 =   0.26 sec*proc (1 test)
+annotations           =   2.51 sec*proc (7 tests)
+appearance            =   0.37 sec*proc (1 test)
+async                 =   0.41 sec*proc (1 test)
+auto-bookmarks        =   0.89 sec*proc (1 test)
+autodetect            =   0.15 sec*proc (1 test)
+autosave              =   0.74 sec*proc (1 test)
+badge                 =   0.50 sec*proc (1 test)
+batch                 =  26.01 sec*proc (12 tests)
+bates                 =   2.21 sec*proc (2 tests)
+benchmark             =   0.21 sec*proc (1 test)
+binding               =   1.71 sec*proc (1 test)
+builder               =   0.67 sec*proc (1 test)
+cache                 =   0.20 sec*proc (1 test)
+capability            =   1.10 sec*proc (3 tests)
+certify               =   0.87 sec*proc (1 test)
+chain1                =   0.05 sec*proc (1 test)
+cleanup-cli           =   8.51 sec*proc (1 test)
+codec                 =   0.41 sec*proc (2 tests)
+collapse              =   0.23 sec*proc (1 test)
+commands              =   1.88 sec*proc (4 tests)
+comments              =   1.80 sec*proc (5 tests)
+compare               =   7.70 sec*proc (3 tests)
+compression           =   2.77 sec*proc (8 tests)
+concurrency           =   2.39 sec*proc (1 test)
+confidence            =   0.22 sec*proc (1 test)
+controllers           =  16.72 sec*proc (2 tests)
+conversion            =   1.77 sec*proc (6 tests)
+convert               =   0.82 sec*proc (2 tests)
+coordinator           =  17.82 sec*proc (1 test)
+core                  =  21.32 sec*proc (4 tests)
+corruption            =   0.27 sec*proc (1 test)
+cross-page            =   0.24 sec*proc (1 test)
+crypto                =   3.26 sec*proc (1 test)
+csv                   =   0.22 sec*proc (1 test)
+dedup                 =   0.17 sec*proc (1 test)
+diff                  =   0.86 sec*proc (1 test)
+djot                  =   0.75 sec*proc (4 tests)
+dpi                   =   1.69 sec*proc (1 test)
+e2e                   =   0.19 sec*proc (1 test)
+edit                  =   1.73 sec*proc (2 tests)
+editing               =   1.80 sec*proc (5 tests)
+encryption            =   0.58 sec*proc (2 tests)
+endpoint              =  33.75 sec*proc (1 test)
+engine                =   1.78 sec*proc (1 test)
+engines               =  21.09 sec*proc (2 tests)
+ensemble              =   0.06 sec*proc (1 test)
+erase                 =   0.36 sec*proc (2 tests)
+eraser                =   0.23 sec*proc (1 test)
+estimate              =   0.16 sec*proc (1 test)
+excision              =   0.27 sec*proc (1 test)
+expiry                =   0.29 sec*proc (1 test)
+export                =   3.84 sec*proc (5 tests)
+extraction            =   0.60 sec*proc (1 test)
+eyecare               =   0.59 sec*proc (1 test)
+find-replace          =   0.84 sec*proc (1 test)
+flags                 =   0.17 sec*proc (1 test)
+font                  =   0.27 sec*proc (1 test)
+form-fields           =   4.00 sec*proc (7 tests)
+form-js               =   8.75 sec*proc (4 tests)
+forms                 =  13.90 sec*proc (15 tests)
+fuzz                  =   0.23 sec*proc (1 test)
+gsd                   =   0.77 sec*proc (1 test)
+guards                =   3.21 sec*proc (1 test)
+headless              = 324.44 sec*proc (200 tests)
+history               =   1.33 sec*proc (2 tests)
+honesty               =   0.55 sec*proc (3 tests)
+hotfolder             =  15.75 sec*proc (1 test)
+identity              =   3.31 sec*proc (2 tests)
+image                 =   0.97 sec*proc (1 test)
+images                =   0.70 sec*proc (2 tests)
+import                =   0.76 sec*proc (2 tests)
+infrastructure        =   8.62 sec*proc (2 tests)
+inspector             =   0.66 sec*proc (1 test)
+integration           =  16.54 sec*proc (19 tests)
+integrity             =   0.72 sec*proc (2 tests)
+interface             =   0.07 sec*proc (1 test)
+interfaces            =   0.34 sec*proc (2 tests)
+iou                   =   0.06 sec*proc (1 test)
+javascript            =   7.05 sec*proc (2 tests)
+jpeg                  =   1.31 sec*proc (1 test)
+k5                    =  17.82 sec*proc (1 test)
+keyboard              =   1.97 sec*proc (1 test)
+lane-scheduler        =   2.39 sec*proc (1 test)
+language              =   0.32 sec*proc (2 tests)
+layout                =   0.33 sec*proc (2 tests)
+lcs                   =   0.86 sec*proc (1 test)
+lifecycle             =   0.59 sec*proc (1 test)
+lifetime              =  33.75 sec*proc (1 test)
+links                 =   0.59 sec*proc (3 tests)
+mapper                =   0.08 sec*proc (1 test)
+matrix-pins           =   0.16 sec*proc (1 test)
+measure               =   0.62 sec*proc (4 tests)
+menubar               =   2.06 sec*proc (2 tests)
+merge                 =   1.42 sec*proc (2 tests)
+ml                    =   1.43 sec*proc (1 test)
+mock                  =   0.20 sec*proc (2 tests)
+mode-strip            =   0.16 sec*proc (1 test)
+modes                 =  31.68 sec*proc (10 tests)
+mrc                   =   0.45 sec*proc (1 test)
+myers                 =   0.86 sec*proc (1 test)
+n17                   =   0.33 sec*proc (1 test)
+n18                   =   0.87 sec*proc (1 test)
+navigation            =   0.95 sec*proc (5 tests)
+network               =   0.40 sec*proc (1 test)
+network-disclosure    =   0.38 sec*proc (1 test)
+nightmode             =   0.59 sec*proc (1 test)
+ocr                   =   9.77 sec*proc (18 tests)
+office                =   0.82 sec*proc (2 tests)
+ollama                =  33.75 sec*proc (1 test)
+ooxml                 =   0.22 sec*proc (1 test)
+opacity               =   1.27 sec*proc (2 tests)
+open                  =   0.16 sec*proc (1 test)
+optimize              =   0.12 sec*proc (1 test)
+orientation           =   0.93 sec*proc (1 test)
+outputmode            =   0.56 sec*proc (1 test)
+pagelabels            =   0.32 sec*proc (1 test)
+pages                 =   4.83 sec*proc (5 tests)
+pagespace             =   0.42 sec*proc (1 test)
+parity                =   7.75 sec*proc (1 test)
+patterns              =   0.49 sec*proc (1 test)
+pdfa                  =   3.38 sec*proc (8 tests)
+perf                  =   5.42 sec*proc (1 test)
+perf04                =   3.21 sec*proc (1 test)
+performance           =   0.21 sec*proc (1 test)
+persistence           =  16.40 sec*proc (19 tests)
+pgr35                 =   0.30 sec*proc (1 test)
+pgr36                 =   0.40 sec*proc (1 test)
+pgr37                 =   0.42 sec*proc (1 test)
+picker                =   0.32 sec*proc (1 test)
+pipeline              =   0.24 sec*proc (1 test)
+policy                =   2.03 sec*proc (4 tests)
+pptx                  =   0.41 sec*proc (2 tests)
+preprocess            =   1.18 sec*proc (2 tests)
+presets               =   3.65 sec*proc (4 tests)
+print                 =   1.67 sec*proc (1 test)
+printable-summary     =   0.52 sec*proc (1 test)
+privacy               =  11.14 sec*proc (7 tests)
+probe                 =   0.77 sec*proc (3 tests)
+proof                 =   1.48 sec*proc (1 test)
+properties            =   0.66 sec*proc (1 test)
+provenance            =   0.24 sec*proc (2 tests)
+provider              =  33.87 sec*proc (2 tests)
+qt                    = 313.90 sec*proc (195 tests)
+r14review             =  20.44 sec*proc (1 test)
+r15                   =   1.71 sec*proc (1 test)
+r16                   =   5.40 sec*proc (1 test)
+r17                   =   3.66 sec*proc (2 tests)
+r24                   =   2.26 sec*proc (5 tests)
+rapidocr              =   1.43 sec*proc (1 test)
+reading-order         =   1.33 sec*proc (4 tests)
+readonly              =   1.40 sec*proc (1 test)
+real-crypto           =   0.24 sec*proc (1 test)
+recipients            =   0.33 sec*proc (1 test)
+recovery              =   0.97 sec*proc (1 test)
+redact                =   1.24 sec*proc (1 test)
+redaction             =   6.75 sec*proc (12 tests)
+redactionproof        =   0.45 sec*proc (1 test)
+redesign              =   7.75 sec*proc (1 test)
+regression            =  12.75 sec*proc (9 tests)
+render                =   3.21 sec*proc (1 test)
+reocr-region          =   1.97 sec*proc (1 test)
+resources             =   0.18 sec*proc (1 test)
+review                =   3.43 sec*proc (5 tests)
+review-summary        =   0.37 sec*proc (1 test)
+ribbon                =   2.37 sec*proc (4 tests)
+richtext              =   0.26 sec*proc (1 test)
+robustness            =   0.21 sec*proc (1 test)
+rotation              =   0.58 sec*proc (2 tests)
+roundtrip             =   0.74 sec*proc (4 tests)
+routes                =   5.40 sec*proc (1 test)
+routing               =   0.16 sec*proc (1 test)
+rover                 =   0.24 sec*proc (1 test)
+rtl                   =   1.97 sec*proc (1 test)
+safesave              =  20.31 sec*proc (2 tests)
+sandwich              =   0.45 sec*proc (1 test)
+sanitization          =   1.26 sec*proc (5 tests)
+sanitize              =   0.17 sec*proc (1 test)
+save                  =   1.78 sec*proc (1 test)
+scheduling            =   2.39 sec*proc (1 test)
+seam                  =   0.31 sec*proc (1 test)
+search                =   0.33 sec*proc (2 tests)
+secrets               =   6.55 sec*proc (1 test)
+security              =  22.44 sec*proc (34 tests)
+security-sweep-w1     =   0.22 sec*proc (1 test)
+selective             =   0.37 sec*proc (1 test)
+sep13leads            =  27.62 sec*proc (7 tests)
+session               =   4.27 sec*proc (3 tests)
+shell                 =   6.05 sec*proc (8 tests)
+sidecar               =   1.08 sec*proc (1 test)
+signature             =  20.14 sec*proc (1 test)
+signatures            =   7.94 sec*proc (14 tests)
+signing               =   0.40 sec*proc (1 test)
+skip-text             =   1.91 sec*proc (1 test)
+smoke                 =   0.37 sec*proc (1 test)
+spacing               =   0.31 sec*proc (1 test)
+stamp-image-import    =   0.30 sec*proc (1 test)
+stamps                =   0.65 sec*proc (2 tests)
+statusbar             =   0.41 sec*proc (1 test)
+structural            =   0.08 sec*proc (1 test)
+subprocess            =   0.10 sec*proc (1 test)
+summary               =   0.95 sec*proc (1 test)
+support-bundle        =   0.80 sec*proc (1 test)
+sweep-w1              =   1.42 sec*proc (3 tests)
+sweep-w2              =   0.16 sec*proc (1 test)
+sweep-w3              =  52.66 sec*proc (1 test)
+sync                  =   0.21 sec*proc (1 test)
+t2-2                  =   0.84 sec*proc (1 test)
+t2-3                  =   0.37 sec*proc (1 test)
+t2-6                  =   0.35 sec*proc (1 test)
+t2-9                  =   0.89 sec*proc (1 test)
+tasknav               =   0.07 sec*proc (1 test)
+temp                  =   0.11 sec*proc (1 test)
+text                  =   0.31 sec*proc (1 test)
+threads               =   3.95 sec*proc (2 tests)
+thumbnails            =   1.49 sec*proc (1 test)
+timing                =   0.24 sec*proc (1 test)
+tools                 =   8.51 sec*proc (1 test)
+transaction           =   1.63 sec*proc (1 test)
+twopage               =   0.36 sec*proc (1 test)
+u02                   =   0.92 sec*proc (4 tests)
+u03                   =   0.33 sec*proc (1 test)
+u08                   =   0.85 sec*proc (1 test)
+ui                    = 115.91 sec*proc (21 tests)
+ui-redesign           =   0.07 sec*proc (1 test)
+undo                  =   2.36 sec*proc (3 tests)
+unit                  = 317.61 sec*proc (184 tests)
+update                =   0.07 sec*proc (1 test)
+ux-audit              =  52.66 sec*proc (1 test)
+verapdf               =   0.10 sec*proc (1 test)
+verify-port           =   0.28 sec*proc (1 test)
+viewing               =  11.19 sec*proc (8 tests)
+watermark             =   1.52 sec*proc (2 tests)
+welcome               =   5.67 sec*proc (2 tests)
+workflow              =   1.55 sec*proc (3 tests)
+xfa                   =   0.15 sec*proc (1 test)
+zorder                =   0.97 sec*proc (1 test)
+
+Total Test time (real) = 329.71 sec
+
+The following tests did not run:
+	189 - R14ProbeRedactSpace (Disabled)
+	198 - R14ProbeBatchSkip (Disabled)

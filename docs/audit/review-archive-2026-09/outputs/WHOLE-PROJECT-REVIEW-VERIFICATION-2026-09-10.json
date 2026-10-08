@@ -1,0 +1,37 @@
+{
+  "finalized": "2026-09-11",
+  "initialAndPublishedProbeSources": {
+    "src/engines/DiffEngine.cpp": {
+      "initial": "8af180b6b31602df6965111f886f67bfc0dc1ed615bb951e4bb2561c43a9a9a1",
+      "published": "8af180b6b31602df6965111f886f67bfc0dc1ed615bb951e4bb2561c43a9a9a1",
+      "identical": true
+    },
+    "src/engines/MyersDiff.cpp": {
+      "initial": "73c1a70df136cdc13159b7380eb752a4a4c127dcf6c33751b367b182db08a12f",
+      "published": "73c1a70df136cdc13159b7380eb752a4a4c127dcf6c33751b367b182db08a12f",
+      "identical": true
+    },
+    "src/engines/pdfium/PdfiumBackend.cpp": {
+      "initial": "1d585ba4633abdbc1dcf4ead6e16b4df765dde0a25596832234872cb391eeb87",
+      "published": "1d585ba4633abdbc1dcf4ead6e16b4df765dde0a25596832234872cb391eeb87",
+      "identical": true
+    },
+    "src/engines/pdfium/PdfiumEnvironment.cpp": {
+      "initial": "6f7f88380bf57aaab0b216b217ebf183f8cfafc01aae35d63e3f8d26e7f683d9",
+      "published": "6f7f88380bf57aaab0b216b217ebf183f8cfafc01aae35d63e3f8d26e7f683d9",
+      "identical": true
+    }
+  },
+  "myersCountChecks": 18,
+  "compareProbe": "false content changes and retained empty overlays reproduced",
+  "localFormJsProbe": "two deadline bypasses reproduced; two controls completed",
+  "backlogRows": 27,
+  "localLinksChecked": 101,
+  "brokenLinks": [],
+  "validationLimits": [
+    "No fresh full application Release suite at 9ba3cea or b38a4fd",
+    "No native Linux build or desktop QA",
+    "No current installed UI or physical-printer test",
+    "No new 48-hour soak"
+  ]
+}

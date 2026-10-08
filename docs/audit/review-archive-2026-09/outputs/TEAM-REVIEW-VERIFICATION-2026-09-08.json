@@ -1,0 +1,49 @@
+{
+  "review": {
+    "baseline": "0caa45e7d0751caaa36a54a085c41211a422f019",
+    "new_revision": "b58b91054ca7a573a09c56d950588ac4f966df42",
+    "new_source_archive_sha256": "b2c38c978265eb7f0f4b04793aa9b6f21de933fbe7a660a3bbad220a94aae573",
+    "baseline_source_archive_sha256": "f9d9e90c3c59f53f6b330b7ff3f06fb93822de1b983c14ced298181b2d13ee1c",
+    "baseline_tracked_src_files": 295,
+    "coverage_has_no_gaps_or_overlap": true,
+    "coverage_hashes_match_source": true,
+    "current_extracted_source_matches_archive": true,
+    "ctest_config_restored": true,
+    "delta_files": 34,
+    "engine_review_depth": {
+      "R": 41,
+      "T": 16,
+      "S": 95
+    },
+    "architecture_review_depth": {
+      "inventory-only non-C++ asset": 2,
+      "focused lifecycle/caller deep review": 21,
+      "automated structural scan only": 109,
+      "targeted source review": 11
+    },
+    "test_detail_suites": 26,
+    "test_result": "106/108 initial full run; after source-root fixture staging, 2/2 targeted retry. Not one clean108/108 run.",
+    "research_curated_inputs": 18,
+    "research_files_inventoried": 194
+  },
+  "archives": [
+    {
+      "file": "team-engine-review-evidence-2026-09-07.zip",
+      "bytes": 86299,
+      "sha256": "505fda5f4a0a9e4f13b90dee053354654826ced2ebdd33afc2eeb4c9f5cbce4b",
+      "entries": 24
+    },
+    {
+      "file": "TEAM-NEW-COMMITS-EVIDENCE-2026-09-07.zip",
+      "bytes": 162068,
+      "sha256": "94b06819861f233004f27958c9986c2830db8bfee02d78d58c78881972462fcd",
+      "entries": 63
+    },
+    {
+      "file": "team-quality-evidence-2026-09-08.zip",
+      "bytes": 362035,
+      "sha256": "5a06f59c6fa9f606a51260352d120c21b6518036c4f7491764eebbaca4109eed",
+      "entries": 115
+    }
+  ]
+}

@@ -1,0 +1,349 @@
+[0/1] Re-running CMake...
+-- AR-11 D4: LTO enabled (GLYPHPDF_ENABLE_LTO=ON)
+-- AR-11 D4: strip found at C:/msys64/ucrt64/bin/strip.exe — Release EXE will be stripped
+-- Qt6 plugins dir: C:/msys64/ucrt64/share/qt6/plugins
+-- Using vendored podofo 1.1.0 from D:/pdf/pdf-f-tests/third_party/podofo/install
+-- Found Brotli (via pkg-config): C:/msys64/ucrt64/include (found version "1.2.0")
+-- Found Libidn2 (via pkg-config): C:/msys64/ucrt64/include (found version "2.3.8")
+-- Found Libpsl (via pkg-config): C:/msys64/ucrt64/include (found version "0.21.5")
+-- Found Libssh2 (via pkg-config): C:/msys64/ucrt64/include (found version "1.11.1")
+-- Found NGHTTP2 (via pkg-config): C:/msys64/ucrt64/include (found version "1.69.0")
+-- Found NGHTTP3 (via pkg-config): C:/msys64/ucrt64/include (found version "1.15.0")
+-- Found NGTCP2 (via pkg-config): C:/msys64/ucrt64/include (found version "")
+-- Found Zstd (via pkg-config): C:/msys64/ucrt64/include (found version "1.5.7")
+-- libsecret not found/disabled — Secret Service storage off (labelled encrypted-file fallback remains)
+-- Found leptonica version: 1.87.0 in ``, ``
+-- jbig2enc: ENABLED (Apache-2.0) — JBIG2 lossless foreground encoding active
+-- OpenJPEG2 found (CMake config ) — MRC JPEG2000 encoding enabled
+-- onnxruntime not found — RapidOCR PP-OCRv5 disabled
+-- Staging OCR tessdata for tests from C:/msys64/ucrt64/share/tessdata
+-- quickjs-ng version pin satisfied: 0.15.1 (enforced, R18c)
+-- quickjs-ng found — form-JS Calculate/Format execution enabled (D:/pdf/msys64/ucrt64/bin/libqjs-0.dll)
+-- 
+-- ===== GlyphPDF 1.5.0 — Feature Summary (AR-11 D5) =====
+--   HAS_PDFIUM    : TRUE   (rendering engine — PDF.js-speed rendering)
+--   HAS_TESSERACT : TRUE  (primary OCR engine — Tesseract 5)
+--   HAS_RAPIDOCR  : FALSE  (secondary OCR — PP-OCRv5 ROVER ensemble)
+--   HAS_QPDF      : TRUE   (PDF linearisation)
+--   HAS_QUICKJS   : TRUE  (form-JS Calculate/Format execution)
+--   LTO           : ON
+--   Release build : OFF
+-- ===================================================================
+-- 
+-- Vendored 7-Zip pin satisfied: 26.02 (enforced, SHA-256)
+-- DjVu importer: DISABLED (HAS_DJVU=OFF, default)
+-- Qt LinguistTools found — translation targets enabled (translations/glyphpdf_ar.ts;translations/glyphpdf_fr.ts;translations/glyphpdf_de.ts)
+-- Configuring done (5.5s)
+-- Generating done (2.2s)
+-- Build files have been written to: D:/pdf/pdf-f-tests/build-rel
+[1/650] Automatic MOC and UIC for target pdfws_commands
+[2/648] Automatic MOC and UIC for target pdfws_engines
+[3/646] Automatic MOC and UIC for target TestInterfaces
+[4/644] Automatic MOC and UIC for target UnitTests
+[5/642] Automatic MOC and UIC for target TestExpiryInterface
+[6/640] Automatic MOC and UIC for target pdfws_ui
+[7/638] Automatic MOC and UIC for target SmokeTest
+[8/636] Automatic MOC and UIC for target PdfWorkstation
+[9/634] Automatic MOC and UIC for target TestViewParity
+[10/632] Automatic MOC and UIC for target TestSanitization
+[11/630] Automatic MOC and UIC for target TestSanitizeSelective
+[12/628] Automatic MOC and UIC for target TestSanitizeTrailerUaf
+[13/626] Automatic MOC and UIC for target TestAutosave
+[14/624] Automatic MOC and UIC for target TestDocumentIdentity
+[15/622] Automatic MOC and UIC for target TestBatesBatchSafety
+[16/620] Automatic MOC and UIC for target TestRecoverySave
+[17/618] Automatic MOC and UIC for target TestReadOnlyGate
+[18/616] Automatic MOC and UIC for target TestSidecarReopenState
+[19/614] Automatic MOC and UIC for target TestSignatureValidationMock
+[20/612] Automatic MOC and UIC for target TestRobustness
+[21/610] Automatic MOC and UIC for target TestSecretStore
+[22/608] Automatic MOC and UIC for target TestSignatureValidation
+[23/606] Automatic MOC and UIC for target TestSignatureRealCrypto
+[24/604] Automatic MOC and UIC for target TestSendForSigning
+[25/602] Automatic MOC and UIC for target TestEraseSignedGuard
+[26/600] Automatic MOC and UIC for target TestSignatureAppearance
+[27/598] Automatic MOC and UIC for target TestOptimizeSignedGuard
+[28/596] Automatic MOC and UIC for target TestImageDedup
+[29/594] Automatic MOC and UIC for target TestChain1
+[30/592] Automatic MOC and UIC for target TestRedaction
+[31/590] Automatic MOC and UIC for target TestDedupSMask
+[32/588] Automatic MOC and UIC for target TestCompressJpegReencode
+[33/586] Automatic MOC and UIC for target TestOptimizeEstimate
+[34/584] Automatic MOC and UIC for target TestLayoutEnsemble
+[35/582] Automatic MOC and UIC for target TestOcrPipeline
+[36/580] Automatic MOC and UIC for target TestOcrReviewLifecycle
+[37/578] Automatic MOC and UIC for target TestOcrOutputMode
+[38/576] Automatic MOC and UIC for target TestOcrVerifyNavigation
+[39/574] Automatic MOC and UIC for target TestOcrVerifyPort
+[40/572] Automatic MOC and UIC for target TestOcrPreprocessor
+[41/570] Automatic MOC and UIC for target TestOcrDjotMapper
+[42/568] Automatic MOC and UIC for target TestThreadSafety
+[43/566] Automatic MOC and UIC for target TestEncryption
+[44/564] Automatic MOC and UIC for target TestResourceLimits
+[45/562] Automatic MOC and UIC for target TestOcrRegionReocr
+[46/562] Automatic MOC and UIC for target TestControllers
+[47/560] Automatic MOC and UIC for target TestSevenZipBundle
+[48/558] Automatic MOC and UIC for target TestRibbonIntegrity
+[49/556] Automatic MOC and UIC for target TestMenuBarIntegrity
+[50/554] Automatic MOC and UIC for target TestCommandBinding
+[51/552] Automatic MOC and UIC for target TestWelcomeRoutes
+[52/550] Automatic MOC and UIC for target TestSweepW3UxFlows
+[53/548] Automatic MOC and UIC for target TestUiAccessibility
+[54/546] Automatic MOC and UIC for target TestIntegration
+[55/544] Automatic MOC and UIC for target TestPerformance
+[56/542] Automatic MOC and UIC for target TestVeraPdf
+[57/540] Automatic MOC and UIC for target TestReadingOrderAsync
+[58/538] Automatic MOC and UIC for target TestAccessibilityChecker
+[59/536] Automatic MOC and UIC for target TestAccessibilityPanel
+[60/534] Automatic MOC and UIC for target TestA11yReportWriter
+[61/532] Automatic MOC and UIC for target TestAccessibilityFixes
+[62/530] Automatic MOC and UIC for target TestAccessibilityTagger
+[63/528] Automatic MOC and UIC for target TestLaneScheduler
+[64/526] Automatic MOC and UIC for target TestFormBuilder
+[65/524] Automatic MOC and UIC for target TestFormPersistence
+[66/522] Automatic MOC and UIC for target TestCompareEntry
+[67/520] Automatic MOC and UIC for target TestCompareIntegration
+[68/518] Automatic MOC and UIC for target TestPagesMode
+[69/516] Automatic MOC and UIC for target TestPageLabels
+[70/514] Automatic MOC and UIC for target TestBatchMode
+[71/512] Automatic MOC and UIC for target TestBatchPresets
+[72/510] Automatic MOC and UIC for target TestBatchPresetsP2
+[73/508] Automatic MOC and UIC for target TestHotFolder
+[74/506] Automatic MOC and UIC for target TestBatchOcrLanguage
+[75/504] Automatic MOC and UIC for target TestBatchOcrSkipText
+[76/502] Automatic MOC and UIC for target TestBatesCrossDoc
+[77/500] Automatic MOC and UIC for target TestOpenRouting
+[78/498] Automatic MOC and UIC for target TestExcisionCorruption
+[79/496] Automatic MOC and UIC for target TestBatchOpsCoverage
+[80/494] Automatic MOC and UIC for target TestPdfACidSetSafety
+[81/492] Automatic MOC and UIC for target TestReadingOrderThreshold
+[82/490] Automatic MOC and UIC for target TestOcrPreprocessPrefs
+[83/489] Automatic MOC and UIC for target TestReadingOrderMcid
+[84/487] Automatic MOC and UIC for target TestReadingOrderDepthCap
+[85/485] Automatic MOC and UIC for target TestLinkBookmarkRoundTrip
+[86/483] Automatic MOC and UIC for target TestSignatureSessionCache
+[87/481] Automatic MOC and UIC for target TestCapabilityRegistry
+[88/479] Automatic MOC and UIC for target TestXfaHonestyBanner
+[89/477] Automatic MOC and UIC for target TestTaskNavRegistry
+[90/475] Automatic MOC and UIC for target TestScreenStateSync
+[91/473] Automatic MOC and UIC for target TestRibbonCollapse
+[92/471] Automatic MOC and UIC for target TestModeStripPins
+[93/469] Automatic MOC and UIC for target TestStatusBarSlim
+[94/467] Automatic MOC and UIC for target TestCommentsReview
+[95/465] Automatic MOC and UIC for target TestWelcomeLayout
+[96/463] Automatic MOC and UIC for target TestSignatureBadges
+[97/461] Automatic MOC and UIC for target TestBatchOcrConfidence
+[98/459] Automatic MOC and UIC for target TestInspector
+[99/457] Automatic MOC and UIC for target TestPatternRedact
+[100/455] Automatic MOC and UIC for target TestFindReplace
+[101/453] Automatic MOC and UIC for target TestReviewSummary
+[102/451] Automatic MOC and UIC for target TestPrintableSummary
+[103/449] Automatic MOC and UIC for target TestDynamicStamps
+[104/447] Automatic MOC and UIC for target TestStampImageImport
+[105/445] Automatic MOC and UIC for target TestAutoBookmarks
+[106/443] Automatic MOC and UIC for target TestDjotRoundtrip
+[107/441] Automatic MOC and UIC for target TestDjotFuzz
+[108/439] Automatic MOC and UIC for target TestUpdateChecker
+[109/437] Automatic MOC and UIC for target TestWatermarkFont
+[110/435] Automatic MOC and UIC for target TestOcrLanguage
+[111/433] Automatic MOC and UIC for target TestRedactClearMarks
+[112/431] Automatic MOC and UIC for target TestLinkSchemeSafety
+[113/429] Automatic MOC and UIC for target TestThumbnailZoom
+[114/427] Automatic MOC and UIC for target TestThumbnailOffGui
+[115/425] Automatic MOC and UIC for target TestMergeSuccess
+[116/423] Automatic MOC and UIC for target TestFillFormLock
+[117/421] Automatic MOC and UIC for target TestFillFormNoOp
+[118/419] Automatic MOC and UIC for target TestReadingOrderInheritance
+[119/417] Automatic MOC and UIC for target TestShapeInkPersistence
+[120/415] Automatic MOC and UIC for target TestQuadPointsMarkup
+[121/413] Automatic MOC and UIC for target TestMeasurePanelHonesty
+[122/411] Automatic MOC and UIC for target TestMeasureCore
+[123/409] Automatic MOC and UIC for target TestMeasureRoundTrip
+[124/407] Automatic MOC and UIC for target TestLegacyOriginSpace
+[125/405] Automatic MOC and UIC for target TestMeasureCsvExport
+[126/403] Automatic MOC and UIC for target TestCompressStripSanitize
+[127/401] Automatic MOC and UIC for target TestCompressDialogHonesty
+[128/399] Automatic MOC and UIC for target TestFieldMetadata
+[129/397] Automatic MOC and UIC for target TestFormSafety
+[130/395] Automatic MOC and UIC for target TestFormJsCalc
+[131/393] Automatic MOC and UIC for target TestFormJsAdversarial
+[132/391] Automatic MOC and UIC for target TestFormStaleDisclosure
+[133/389] Automatic MOC and UIC for target TestFormKeystroke
+[134/387] Automatic MOC and UIC for target TestEngineSave
+[135/385] Automatic MOC and UIC for target TestEncryptedPackageSafeWrite
+[136/383] Automatic MOC and UIC for target TestPrintJob
+[137/381] Automatic MOC and UIC for target TestTempOwnership
+[138/379] Automatic MOC and UIC for target TestCleanupCli
+[139/377] Automatic MOC and UIC for target TestFormUndo
+[140/375] Automatic MOC and UIC for target TestValidateAllSignatures
+[141/373] Automatic MOC and UIC for target TestExportPathBadge
+[142/371] Automatic MOC and UIC for target TestImageEditWiring
+[143/369] Automatic MOC and UIC for target TestRedactSanitizeBundle
+[144/367] Automatic MOC and UIC for target TestRedactTransaction
+[145/365] Automatic MOC and UIC for target TestRedactionProof
+[146/363] Automatic MOC and UIC for target TestPptxOverlayAlpha
+[147/361] Automatic MOC and UIC for target TestAutoDetectHeuristic
+[148/359] Automatic MOC and UIC for target TestConversionExtraction
+[149/357] Automatic MOC and UIC for target fake_soffice
+[150/355] Automatic MOC and UIC for target TestTextExtractionCoords
+[151/353] Automatic MOC and UIC for target TestEraseWiring
+[152/351] Automatic MOC and UIC for target TestRibbonMarkupTools
+[153/349] Automatic MOC and UIC for target TestViewerRotation
+[154/347] Automatic MOC and UIC for target TestRotateView
+[155/345] Automatic MOC and UIC for target TestTwoPageOverlay
+[156/343] Automatic MOC and UIC for target TestViewingModes
+[157/341] Automatic MOC and UIC for target TestSignaturePicker
+[158/339] Automatic MOC and UIC for target TestCertEncryptPicker
+[159/337] Automatic MOC and UIC for target TestCertifySelector
+[160/335] Automatic MOC and UIC for target TestPolicyController
+[161/333] Automatic MOC and UIC for target TestPolicyWiring
+[162/331] Automatic MOC and UIC for target TestOcspConsent
+[163/329] Automatic MOC and UIC for target TestSupportBundle
+[164/327] Automatic MOC and UIC for target TestNetworkDisclosure
+[165/325] Automatic MOC and UIC for target TestOcrAcceptSeam
+[166/323] Automatic MOC and UIC for target TestSearchFlags
+[167/321] Automatic MOC and UIC for target TestExportPresets
+[168/319] Automatic MOC and UIC for target TestOcrAcceptScope
+[169/317] Automatic MOC and UIC for target TestViewerLinkSeam
+[170/315] Automatic MOC and UIC for target TestHyperlinkNavigation
+[171/313] Automatic MOC and UIC for target TestRedactMarkAll
+[172/311] Automatic MOC and UIC for target TestRedactApplyMarks
+[173/309] Automatic MOC and UIC for target TestAnnotationDjot
+[174/307] Automatic MOC and UIC for target TestAiProvider
+[175/305] Automatic MOC and UIC for target TestOllamaProvider
+[176/303] Automatic MOC and UIC for target TestDiffEngine
+[177/301] Automatic MOC and UIC for target TestOfficeImport
+[178/299] Automatic MOC and UIC for target TestMrcPipeline
+[179/297] Automatic MOC and UIC for target TestCheckedMutationCoverage
+[180/295] Automatic MOC and UIC for target TestHistoryIntegrity
+[181/293] Automatic MOC and UIC for target TestImageAppearance
+[182/291] Automatic MOC and UIC for target TestOfficeExport
+[183/289] Automatic MOC and UIC for target TestTextEditStyle
+[184/287] Automatic MOC and UIC for target TestEraserEngine
+[185/285] Automatic MOC and UIC for target TestPersistenceOutcomes
+[186/283] Automatic MOC and UIC for target render_path_profile
+[187/281] Automatic MOC and UIC for target TestRenderGuards
+[188/279] Automatic MOC and UIC for target TestSep13LeadCapability
+[189/277] Automatic MOC and UIC for target TestSep13LeadBatchMerge
+[190/275] Automatic MOC and UIC for target TestSep13LeadOcrGuards
+[191/273] Automatic MOC and UIC for target TestSep13LeadConversionExport
+[192/271] Automatic MOC and UIC for target TestSep13LeadRedactionProof
+[193/269] Automatic MOC and UIC for target R14ProbeRedactSpace
+[194/267] Automatic MOC and UIC for target R14ProbeSep13Fixes
+[195/265] Automatic MOC and UIC for target TestSep13LeadBtDowngrade
+[196/263] Automatic MOC and UIC for target TestSep13LeadComparePerf
+[197/261] Automatic MOC and UIC for target TestSweepW1PresetAdversary
+[198/259] Automatic MOC and UIC for target TestSweepW1SigningAdversary
+[199/257] Automatic MOC and UIC for target TestSweepW1SummaryPolicyAdversary
+[200/255] Automatic MOC and UIC for target TestSweepW1SecProbe
+[201/253] Automatic MOC and UIC for target W2BProbeNaming
+[202/251] Automatic MOC and UIC for target W2BProbeSigning
+[203/250] Automatic MOC and UIC for target W2BProbeSummaryPolicy
+[204/249] Automatic MOC and UIC for target W2BProbeA11y
+[205/248] Automatic MOC and UIC for target W2BProbeLegacySpace
+[206/247] Automatic MOC and UIC for target W2BProbeOfficeSave
+[207/246] Automatic MOC and UIC for target TestRotate270PageSpace
+[208/245] Automatic MOC and UIC for target R14ProbeBatchSkip
+[209/244] Automatic MOC and UIC for target TestGsdW2Probe
+[210/243] Automatic MOC and UIC for target W2CProbeRotate270
+[211/242] Automatic MOC and UIC for target TestPgr37PageSpaceLaw
+[212/241] Automatic MOC and UIC for target TestPgr35BatchCollision
+[213/240] Automatic MOC and UIC for target TestPgr36StaleSigningPanel
+[214/239] Automatic MOC and UIC for target TestFileHandleCoordination
+[215/238] Building CXX object CMakeFiles/TestOcrRegionReocr.dir/TestOcrRegionReocr_autogen/mocs_compilation.cpp.obj
+[216/238] Automatic MOC and UIC for target TestCommandRegistry
+[217/237] Building CXX object CMakeFiles/TestOcrRegionReocr.dir/src/app/Bootstrapper.cpp.obj
+[218/237] Building CXX object CMakeFiles/TestOcrRegionReocr.dir/tests/TestOcrRegionReocr.cpp.obj
+D:/pdf/pdf-f-tests/tests/TestOcrRegionReocr.cpp: In function 'void {anonymous}::dragWidget(QWidget*, const QPointF&, const QPointF&)':
+D:/pdf/pdf-f-tests/tests/TestOcrRegionReocr.cpp:121:69: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+  121 |                       Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+      |                                                                     ^
+In file included from C:/msys64/ucrt64/include/qt6/QtGui/qtestsupport_gui.h:8,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qtestsystem.h:11,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/qtest.h:270,
+                 from C:/msys64/ucrt64/include/qt6/QtTest/QtTest:11,
+                 from D:/pdf/pdf-f-tests/tests/TestOcrRegionReocr.cpp:31:
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+D:/pdf/pdf-f-tests/tests/TestOcrRegionReocr.cpp:124:68: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+  124 |                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+      |                                                                    ^
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+D:/pdf/pdf-f-tests/tests/TestOcrRegionReocr.cpp:127:69: warning: 'QMouseEvent::QMouseEvent(QEvent::Type, const QPointF&, Qt::MouseButton, Qt::MouseButtons, Qt::KeyboardModifiers, const QPointingDevice*)' is deprecated: Use another constructor [-Wdeprecated-declarations]
+  127 |                         Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+      |                                                                     ^
+C:/msys64/ucrt64/include/qt6/QtGui/qevent.h:202:5: note: declared here
+  202 |     QMouseEvent(Type type, const QPointF &localPos, Qt::MouseButton button,
+      |     ^~~~~~~~~~~
+[219/237] Building CXX object CMakeFiles/TestOcrPreprocessPrefs.dir/tests/TestOcrPreprocessPrefs.cpp.obj
+[220/237] Linking CXX executable TestOcrPreprocessPrefs.exe; Deploying qoffscreen platform plugin for TestOcrPreprocessPrefs
+lto-wrapper.exe: warning: using serial compilation of 3 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[221/237] Linking CXX executable W2BProbeSigning.exe; Deploying podofo 1.1.0 DLL for W2BProbeSigning; Deploying qoffscreen platform plugin for W2BProbeSigning
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[222/237] Linking CXX executable W2BProbeSummaryPolicy.exe; Deploying podofo 1.1.0 DLL for W2BProbeSummaryPolicy; Deploying qoffscreen platform plugin for W2BProbeSummaryPolicy
+lto-wrapper.exe: warning: using serial compilation of 4 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[223/237] Linking CXX executable W2BProbeA11y.exe; Deploying podofo 1.1.0 DLL for W2BProbeA11y; Deploying qoffscreen platform plugin for W2BProbeA11y
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[224/237] Linking CXX executable W2BProbeLegacySpace.exe; Deploying podofo 1.1.0 DLL for W2BProbeLegacySpace; Deploying qoffscreen platform plugin for W2BProbeLegacySpace
+lto-wrapper.exe: warning: using serial compilation of 9 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[225/237] Linking CXX executable W2BProbeOfficeSave.exe; Deploying podofo 1.1.0 DLL for W2BProbeOfficeSave; Deploying qoffscreen platform plugin for W2BProbeOfficeSave
+lto-wrapper.exe: warning: using serial compilation of 5 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[226/237] Linking CXX executable TestRotate270PageSpace.exe; Deploying podofo 1.1.0 DLL for TestRotate270PageSpace
+lto-wrapper.exe: warning: using serial compilation of 11 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[227/237] Linking CXX executable R14ProbeBatchSkip.exe; Deploying podofo 1.1.0 DLL for R14ProbeBatchSkip
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[228/237] Linking CXX executable TestOcrRegionReocr.exe; Deploying qoffscreen platform plugin for TestOcrRegionReocr
+lto-wrapper.exe: warning: using serial compilation of 115 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+[229/237] Linking CXX executable TestGsdW2Probe.exe; Deploying podofo 1.1.0 DLL for TestGsdW2Probe
+lto-wrapper.exe: warning: using serial compilation of 41 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[230/237] Linking CXX executable TestPgr37PageSpaceLaw.exe; Deploying qoffscreen platform plugin for TestPgr37PageSpaceLaw
+lto-wrapper.exe: warning: using serial compilation of 19 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[231/237] Linking CXX executable W2CProbeRotate270.exe; Deploying podofo 1.1.0 DLL for W2CProbeRotate270; Deploying qoffscreen platform plugin for W2CProbeRotate270
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[232/237] Linking CXX executable TestPgr35BatchCollision.exe
+lto-wrapper.exe: warning: using serial compilation of 30 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[233/237] Linking CXX executable TestPgr36StaleSigningPanel.exe
+lto-wrapper.exe: warning: using serial compilation of 74 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[234/237] Linking CXX executable TestCommandRegistry.exe
+lto-wrapper.exe: warning: using serial compilation of 2 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+[235/237] Staging runtime DLLs into build dir
+[236/237] Linking CXX executable TestFileHandleCoordination.exe
+lto-wrapper.exe: warning: using serial compilation of 116 LTRANS jobs
+lto-wrapper.exe: note: see the '-flto' option documentation for more information
+In function 'memcpy',
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lauxlib.c:586:5,
+    inlined from 'luaL_addlstring' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lauxlib.c:583:17,
+    inlined from 'add_s' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lstrlib.c:883:9,
+    inlined from 'add_value' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lstrlib.c:923:7,
+    inlined from 'str_gsub' at D:/pdf/pdf-f-tests/third_party/lua-5.4/src/lstrlib.c:967:17:
+D:/pdf/msys64/ucrt64/include/string.h:217:10: warning: '__builtin_memcpy' specified bound 18446744073709551614 exceeds maximum object size 9223372036854775807 [-Wstringop-overflow=]
+  217 |   return __builtin___memcpy_chk(__dst, __src, __n, __mingw_bos(__dst, 0));
+      |          ^
+BUILD_RC=0
